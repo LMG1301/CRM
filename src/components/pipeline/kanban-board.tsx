@@ -46,7 +46,7 @@ function formatDaysSince(days: number | null): string {
 }
 
 function getDaysColor(days: number | null): string {
-  if (days === null) return 'text-slate-500'
+  if (days === null) return 'text-white/30'
   if (days <= 3) return 'text-emerald-400'
   if (days <= 7) return 'text-amber-400'
   if (days <= 14) return 'text-orange-400'
@@ -76,10 +76,10 @@ function ProspectCardContent({
   return (
     <div
       className={cn(
-        'group relative rounded-lg border border-white/[0.08] bg-[#1a2236] p-3 transition-all',
+        'group relative rounded-lg border border-white/[0.08] bg-[#152c28] p-3 transition-all',
         isDragging && 'opacity-40',
         isOverlay && 'rotate-2 shadow-2xl shadow-black/50 ring-2 ring-white/20',
-        !isDragging && !isOverlay && 'hover:border-white/20 hover:bg-[#1e2a42]'
+        !isDragging && !isOverlay && 'hover:border-white/20 hover:bg-[#1a332f]'
       )}
     >
       {/* Left color accent bar */}
@@ -103,13 +103,13 @@ function ProspectCardContent({
             <p className="truncate text-sm font-medium text-white">
               {prospect.prenom} {prospect.nom}
             </p>
-            <GripVertical className="h-3.5 w-3.5 shrink-0 text-slate-600 opacity-0 transition-opacity group-hover:opacity-100" />
+            <GripVertical className="h-3.5 w-3.5 shrink-0 text-white/25 opacity-0 transition-opacity group-hover:opacity-100" />
           </div>
 
           {prospect.entreprise && (
             <div className="mt-1 flex items-center gap-1.5">
-              <Building2 className="h-3 w-3 text-slate-500" />
-              <p className="truncate text-xs text-slate-400">
+              <Building2 className="h-3 w-3 text-white/30" />
+              <p className="truncate text-xs text-white/40">
                 {prospect.entreprise}
               </p>
             </div>
@@ -192,8 +192,8 @@ function StageColumn({ stage, prospects, isOver }: StageColumnProps) {
   return (
     <div
       className={cn(
-        'flex h-full w-[300px] shrink-0 flex-col rounded-xl border border-white/[0.06] bg-[#111827] transition-colors',
-        isOver && 'border-white/20 bg-[#151d30]'
+        'flex h-full w-[300px] shrink-0 flex-col rounded-xl border border-white/[0.06] bg-[#112220] transition-colors',
+        isOver && 'border-white/20 bg-[#142a27]'
       )}
     >
       {/* Column header */}
@@ -223,7 +223,7 @@ function StageColumn({ stage, prospects, isOver }: StageColumnProps) {
       >
         {prospects.length === 0 ? (
           <div className="flex flex-1 items-center justify-center py-8">
-            <p className="text-xs text-slate-600">Aucun prospect</p>
+            <p className="text-xs text-white/25">Aucun prospect</p>
           </div>
         ) : (
           prospects.map((prospect) => (
@@ -238,7 +238,7 @@ function StageColumn({ stage, prospects, isOver }: StageColumnProps) {
 
       {/* Column footer */}
       <div className="border-t border-white/[0.06] px-4 py-2">
-        <p className="text-[10px] text-slate-600">
+        <p className="text-[10px] text-white/25">
           {prospects.length} prospect{prospects.length !== 1 ? 's' : ''}
         </p>
       </div>
@@ -270,8 +270,8 @@ function MobileStageSection({ stage, prospects, isOver }: MobileStageSectionProp
   return (
     <div
       className={cn(
-        'rounded-xl border border-white/[0.06] bg-[#111827] transition-colors',
-        isOver && 'border-white/20 bg-[#151d30]'
+        'rounded-xl border border-white/[0.06] bg-[#112220] transition-colors',
+        isOver && 'border-white/20 bg-[#142a27]'
       )}
     >
       {/* Header - tap to expand/collapse */}
@@ -295,7 +295,7 @@ function MobileStageSection({ stage, prospects, isOver }: MobileStageSectionProp
           </Badge>
           <svg
             className={cn(
-              'h-4 w-4 text-slate-500 transition-transform',
+              'h-4 w-4 text-white/30 transition-transform',
               isExpanded && 'rotate-180'
             )}
             fill="none"
@@ -320,7 +320,7 @@ function MobileStageSection({ stage, prospects, isOver }: MobileStageSectionProp
         >
           {prospects.length === 0 ? (
             <div className="py-4 text-center">
-              <p className="text-xs text-slate-600">Aucun prospect</p>
+              <p className="text-xs text-white/25">Aucun prospect</p>
             </div>
           ) : (
             prospects.map((prospect) => (

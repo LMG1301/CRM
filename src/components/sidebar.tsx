@@ -33,7 +33,7 @@ const navItems = [
 function Logo() {
   return (
     <div className="flex items-center gap-2.5 px-3 py-1">
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-accent">
         <Zap className="h-4.5 w-4.5 text-white" />
       </div>
       <span className="text-lg font-bold tracking-tight text-white">
@@ -62,7 +62,7 @@ function NavLink({
         "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
         isActive
           ? "bg-white/10 text-white"
-          : "text-slate-400 hover:bg-white/5 hover:text-white"
+          : "text-white/50 hover:bg-white/5 hover:text-white"
       )}
     >
       <Icon className="h-5 w-5 shrink-0" />
@@ -80,7 +80,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="hidden h-screen w-64 shrink-0 flex-col border-r border-white/10 bg-[#0f172a] md:flex">
+    <aside className="hidden h-screen w-64 shrink-0 flex-col border-r border-white/10 bg-brand md:flex">
       <div className="flex h-16 items-center border-b border-white/10 px-4">
         <Logo />
       </div>
@@ -96,7 +96,7 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-white/10 p-4">
-        <p className="text-xs text-slate-500">v1.0.0</p>
+        <p className="text-xs text-white/30">v1.0.0</p>
       </div>
     </aside>
   );
@@ -112,7 +112,7 @@ export function MobileNav() {
   };
 
   return (
-    <div className="flex h-14 items-center border-b border-white/10 bg-[#0f172a] px-4 md:hidden">
+    <div className="flex h-14 items-center border-b border-white/10 bg-brand px-4 md:hidden">
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
           <Button
@@ -127,7 +127,7 @@ export function MobileNav() {
         <SheetContent
           side="left"
           showCloseButton={false}
-          className="w-64 border-r border-white/10 bg-[#0f172a] p-0"
+          className="w-64 border-r border-white/10 bg-brand p-0"
         >
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <div className="flex h-14 items-center justify-between border-b border-white/10 px-4">

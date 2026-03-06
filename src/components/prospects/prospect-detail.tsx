@@ -89,7 +89,7 @@ function ContactRow({
               href={href}
               target={external ? '_blank' : undefined}
               rel={external ? 'noopener noreferrer' : undefined}
-              className="text-sm font-medium text-blue-600 hover:underline truncate block"
+              className="text-sm font-medium text-brand-accent hover:underline truncate block"
             >
               {value}
             </a>
@@ -167,7 +167,7 @@ export function ProspectDetail({
   const fullName = [prospect.prenom, prospect.nom].filter(Boolean).join(' ')
 
   return (
-    <div className="min-h-screen bg-zinc-50">
+    <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-6">
@@ -180,20 +180,20 @@ export function ProspectDetail({
 
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                 {fullName || 'Sans nom'}
               </h1>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground">
                 {prospect.entreprise && (
-                  <span className="text-sm font-medium text-zinc-600">
+                  <span className="text-sm font-medium text-muted-foreground">
                     {prospect.entreprise}
                   </span>
                 )}
                 {prospect.entreprise && prospect.fonction && (
-                  <span className="text-zinc-300">&middot;</span>
+                  <span className="text-white/20">&middot;</span>
                 )}
                 {prospect.fonction && (
-                  <span className="text-sm text-zinc-500">
+                  <span className="text-sm text-muted-foreground">
                     {prospect.fonction}
                   </span>
                 )}

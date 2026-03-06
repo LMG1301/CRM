@@ -423,7 +423,7 @@ export default function ImportPage() {
                 onClick={() => fileInputRef.current?.click()}
                 className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 transition-colors ${
                   isDragOver
-                    ? 'border-blue-500 bg-blue-500/10'
+                    ? 'border-brand-accent bg-brand-accent/10'
                     : 'border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/50'
                 }`}
               >
@@ -461,7 +461,7 @@ export default function ImportPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <FileText className="h-5 w-5 text-blue-400" />
+                    <FileText className="h-5 w-5 text-brand-accent" />
                     <div>
                       <p className="text-sm font-medium">{fileName}</p>
                       <p className="text-xs text-muted-foreground">
@@ -667,7 +667,7 @@ export default function ImportPage() {
                             importResult &&
                             importResult.errors.length > 0
                           ? 'bg-amber-500'
-                          : 'bg-blue-500'
+                          : 'bg-brand-accent'
                     }`}
                     style={{ width: `${Math.min(importProgress, 100)}%` }}
                   />
@@ -676,7 +676,7 @@ export default function ImportPage() {
 
               {step === 'importing' && (
                 <div className="flex items-center justify-center gap-3 py-4">
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
+                  <Loader2 className="h-5 w-5 animate-spin text-brand-accent" />
                   <p className="text-sm text-muted-foreground">
                     Veuillez patienter...
                   </p>
@@ -777,7 +777,7 @@ function StepBadge({
           completed
             ? 'bg-emerald-500 text-white'
             : active
-              ? 'bg-blue-500 text-white'
+              ? 'bg-brand-accent text-white'
               : 'bg-muted text-muted-foreground'
         }`}
       >

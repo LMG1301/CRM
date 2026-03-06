@@ -17,9 +17,9 @@ const STAGE_LABELS: Record<string, string> = {
 }
 
 const STAGE_COLORS: Record<string, string> = {
-  repondu: 'bg-blue-50 text-blue-700 border-blue-200',
-  call_decouverte: 'bg-amber-50 text-amber-700 border-amber-200',
-  devis: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  repondu: 'bg-brand-accent/10 text-brand-accent border-brand-accent/20',
+  call_decouverte: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  devis: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
 }
 
 export function HotProspects({ prospects }: HotProspectsProps) {
@@ -64,7 +64,7 @@ export function HotProspects({ prospects }: HotProspectsProps) {
               href={`/prospects/${prospect.id}`}
               className="group flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-50 text-sm font-semibold text-orange-700">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-accent/10 text-sm font-semibold text-brand-accent">
                 {(prospect.prenom?.[0] || '').toUpperCase()}
                 {(prospect.nom?.[0] || '').toUpperCase()}
               </div>

@@ -60,17 +60,17 @@ function ActivityEntry({ activity }: { activity: Activity }) {
   return (
     <div className="relative flex gap-4 pb-6 last:pb-0">
       {/* Timeline line */}
-      <div className="absolute left-[18px] top-10 bottom-0 w-px bg-zinc-200 last:hidden" />
+      <div className="absolute left-[18px] top-10 bottom-0 w-px bg-white/10 last:hidden" />
 
       {/* Icon */}
-      <div className="relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-lg">
+      <div className="relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg">
         {icon}
       </div>
 
       {/* Content */}
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-zinc-900">{label}</span>
+          <span className="text-sm font-semibold text-foreground">{label}</span>
           <span className="text-xs text-muted-foreground">
             {formatRelativeDate(activity.created_at)}
           </span>
@@ -78,14 +78,14 @@ function ActivityEntry({ activity }: { activity: Activity }) {
 
         {activity.content && (
           <div className="mt-1">
-            <p className="text-sm text-zinc-600 whitespace-pre-wrap">
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
               {displayContent}
             </p>
             {isLong && (
               <Button
                 variant="ghost"
                 size="xs"
-                className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                className="mt-1 text-xs text-brand-accent hover:text-brand-accent/80"
                 onClick={() => setExpanded(!expanded)}
               >
                 {expanded ? (
@@ -125,10 +125,10 @@ function TranscriptionBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50">
+    <div className="mt-2 rounded-md border border-white/10 bg-white/5">
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-zinc-700 hover:bg-zinc-100 transition-colors"
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-foreground/80 hover:bg-white/10 transition-colors"
       >
         <span>Transcription</span>
         {open ? (
@@ -138,8 +138,8 @@ function TranscriptionBlock({ text }: { text: string }) {
         )}
       </button>
       {open && (
-        <div className="border-t border-zinc-200 px-3 py-2">
-          <p className="text-xs text-zinc-600 whitespace-pre-wrap leading-relaxed">
+        <div className="border-t border-white/10 px-3 py-2">
+          <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
             {text}
           </p>
         </div>

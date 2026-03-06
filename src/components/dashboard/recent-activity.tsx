@@ -28,12 +28,12 @@ const ACTIVITY_ICON_MAP: Record<ActivityType, typeof FileText> = {
 }
 
 const ACTIVITY_COLOR_MAP: Record<ActivityType, string> = {
-  note: 'text-slate-600 bg-slate-50',
-  call: 'text-green-600 bg-green-50',
-  email_sent: 'text-blue-600 bg-blue-50',
-  email_received: 'text-indigo-600 bg-indigo-50',
-  status_change: 'text-amber-600 bg-amber-50',
-  transcription: 'text-purple-600 bg-purple-50',
+  note: 'text-white/60 bg-white/10',
+  call: 'text-emerald-400 bg-emerald-500/10',
+  email_sent: 'text-brand-accent bg-brand-accent/10',
+  email_received: 'text-indigo-400 bg-indigo-500/10',
+  status_change: 'text-amber-400 bg-amber-500/10',
+  transcription: 'text-purple-400 bg-purple-500/10',
 }
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
@@ -93,7 +93,7 @@ export function RecentActivity({ activities }: RecentActivityProps) {
         <div className="space-y-1">
           {activities.map((activity) => {
             const Icon = ACTIVITY_ICON_MAP[activity.type] || FileText
-            const colorClasses = ACTIVITY_COLOR_MAP[activity.type] || 'text-slate-600 bg-slate-50'
+            const colorClasses = ACTIVITY_COLOR_MAP[activity.type] || 'text-white/60 bg-white/10'
             const label = ACTIVITY_LABELS[activity.type] || activity.type
             const prospectName = activity.prospect
               ? `${activity.prospect.prenom} ${activity.prospect.nom}`.trim()

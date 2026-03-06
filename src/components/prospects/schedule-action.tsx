@@ -90,7 +90,7 @@ export function ScheduleAction({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         {/* Date picker */}
         <div className="flex-1">
-          <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+          <label className="mb-1.5 block text-sm font-medium text-foreground">
             Date
           </label>
           <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
@@ -128,7 +128,7 @@ export function ScheduleAction({
 
         {/* Type selector */}
         <div className="flex-1">
-          <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+          <label className="mb-1.5 block text-sm font-medium text-foreground">
             Type
           </label>
           <Select value={actionType} onValueChange={setActionType}>

@@ -111,7 +111,7 @@ export function AddActivityDialog({
           {type === 'call' && (
             <>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
                   Resume de l&apos;appel
                 </label>
                 <Textarea
@@ -123,7 +123,7 @@ export function AddActivityDialog({
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
                   Transcription (optionnel)
                 </label>
                 <Textarea
@@ -140,7 +140,7 @@ export function AddActivityDialog({
           {(type === 'email_sent' || type === 'email_received') && (
             <>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
                   Objet
                 </label>
                 <Input
@@ -151,7 +151,7 @@ export function AddActivityDialog({
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
                   Contenu
                 </label>
                 <Textarea
@@ -167,7 +167,7 @@ export function AddActivityDialog({
           {/* Transcription: large textarea */}
           {type === 'transcription' && (
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-zinc-700">
+              <label className="mb-1.5 block text-sm font-medium text-foreground">
                 Transcription
               </label>
               <Textarea

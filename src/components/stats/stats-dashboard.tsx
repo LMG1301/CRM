@@ -39,18 +39,18 @@ interface StatsDashboardProps {
 // ─── Palette professionnelle pour les camemberts ───
 
 const PIE_COLORS = [
-  '#3b82f6', // blue-500
-  '#8b5cf6', // violet-500
-  '#06b6d4', // cyan-500
-  '#f59e0b', // amber-500
-  '#10b981', // emerald-500
-  '#ef4444', // red-500
-  '#ec4899', // pink-500
-  '#f97316', // orange-500
-  '#14b8a6', // teal-500
-  '#6366f1', // indigo-500
-  '#84cc16', // lime-500
-  '#a855f7', // purple-500
+  '#1863DC', // brand accent blue
+  '#22c55e', // emerald
+  '#f59e0b', // amber
+  '#8b5cf6', // violet
+  '#06b6d4', // cyan
+  '#ef4444', // red
+  '#ec4899', // pink
+  '#f97316', // orange
+  '#14b8a6', // teal
+  '#6366f1', // indigo
+  '#84cc16', // lime
+  '#a855f7', // purple
 ]
 
 // ─── Tooltip personnalise (dark) ───
@@ -67,9 +67,9 @@ function DarkTooltip({
   if (!active || !payload?.length) return null
 
   return (
-    <div className="rounded-lg border border-white/10 bg-[#0f172a] px-4 py-3 shadow-xl">
+    <div className="rounded-lg border border-white/10 bg-brand px-4 py-3 shadow-xl">
       {label && (
-        <p className="mb-1 text-sm font-medium text-slate-300">{label}</p>
+        <p className="mb-1 text-sm font-medium text-white/70">{label}</p>
       )}
       {payload.map((entry, i) => (
         <p key={i} className="text-sm text-white">
@@ -96,10 +96,10 @@ function PieTooltip({
     : ''
 
   return (
-    <div className="rounded-lg border border-white/10 bg-[#0f172a] px-4 py-3 shadow-xl">
-      <p className="text-sm text-slate-300">{entry.name}</p>
+    <div className="rounded-lg border border-white/10 bg-brand px-4 py-3 shadow-xl">
+      <p className="text-sm text-white/70">{entry.name}</p>
       <p className="text-sm font-semibold text-white">
-        {entry.value} {percent && <span className="text-slate-400">({percent})</span>}
+        {entry.value} {percent && <span className="text-white/50">({percent})</span>}
       </p>
     </div>
   )
@@ -122,7 +122,7 @@ function DarkLegend({
             className="h-2.5 w-2.5 rounded-full"
             style={{ backgroundColor: entry.color }}
           />
-          <span className="text-xs text-slate-400">{entry.value}</span>
+          <span className="text-xs text-white/50">{entry.value}</span>
         </div>
       ))}
     </div>
@@ -163,8 +163,8 @@ export function StatsDashboard({ stats, stages }: StatsDashboardProps) {
       label: 'Total prospects',
       value: stats.total,
       icon: Users,
-      color: 'text-blue-500',
-      bgColor: 'bg-blue-500/10',
+      color: 'text-brand-accent',
+      bgColor: 'bg-brand-accent/10',
       display: String(stats.total),
     },
     {
@@ -237,22 +237,22 @@ export function StatsDashboard({ stats, stages }: StatsDashboardProps) {
                 >
                   <CartesianGrid
                     strokeDasharray="3 3"
-                    stroke="#1e293b"
+                    stroke="#1a332f"
                     vertical={false}
                   />
                   <XAxis
                     dataKey="name"
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
+                    tick={{ fill: '#8fa8a2', fontSize: 12 }}
                     tickLine={false}
-                    axisLine={{ stroke: '#1e293b' }}
+                    axisLine={{ stroke: '#1a332f' }}
                     angle={-35}
                     textAnchor="end"
                     height={60}
                   />
                   <YAxis
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
+                    tick={{ fill: '#8fa8a2', fontSize: 12 }}
                     tickLine={false}
-                    axisLine={{ stroke: '#1e293b' }}
+                    axisLine={{ stroke: '#1a332f' }}
                     allowDecimals={false}
                   />
                   <Tooltip
