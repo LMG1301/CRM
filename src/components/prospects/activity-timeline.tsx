@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { useState, useTransition } from 'react'
+import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { Activity } from '@/lib/types'
 import { ACTIVITY_LABELS, ACTIVITY_ICONS } from '@/lib/types'
+import { deleteActivity } from '@/lib/actions'
+import { useRouter } from 'next/navigation'
 
 interface ActivityTimelineProps {
   activities: Activity[]
@@ -39,14 +41,15 @@ function formatRelativeDate(dateString: string): string {
   })
 }
 
-const CONTENT_PREVIEW_LENGTH = 200
+const CONTENT_PREVIEW_LENGTH = 150
+const COLLAPSE_THRESHOLD = 200  // Collapse notes longer than this
 
-function ActivityEntry({ activity }: { activity: Activity }) {
-  const [expanded, setExpanded] = useState(false)
+function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (id: string) => void }) {
+  const isLong = activity.content.length > COLLAPSE_THRESHOLD
+  const [expanded, setExpanded] = useState(!isLong)  // Collapsed by default if long
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const icon = ACTIVITY_ICONS[activity.type] || '📌'
   const label = ACTIVITY_LABELS[activity.type] || activity.type
-  const isLong = activity.content.length > CONTENT_PREVIEW_LENGTH
-  const isTranscription = activity.type === 'transcription'
   const hasTranscriptionMeta =
     activity.type === 'call' &&
     activity.metadata?.transcription &&
@@ -57,8 +60,11 @@ function ActivityEntry({ activity }: { activity: Activity }) {
       ? activity.content.slice(0, CONTENT_PREVIEW_LENGTH) + '...'
       : activity.content
 
+  // Show match reason badge for Genspark notes
+  const matchReason = activity.metadata?.match_reason as string | undefined
+
   return (
-    <div className="relative flex gap-4 pb-6 last:pb-0">
+    <div className="group relative flex gap-4 pb-6 last:pb-0">
       {/* Timeline line */}
       <div className="absolute left-[18px] top-10 bottom-0 w-px bg-white/10 last:hidden" />
 
@@ -74,31 +80,70 @@ function ActivityEntry({ activity }: { activity: Activity }) {
           <span className="text-xs text-muted-foreground">
             {formatRelativeDate(activity.created_at)}
           </span>
+
+          {/* Expand/collapse toggle for long content */}
+          {isLong && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
+              title={expanded ? 'Reduire' : 'Developper'}
+            >
+              {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            </button>
+          )}
+
+          {/* Delete button */}
+          {!confirmDelete ? (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-400 p-1 rounded"
+              title="Supprimer"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          ) : (
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="xs"
+                className="text-xs text-red-400 hover:text-red-300 hover:bg-red-400/10"
+                onClick={() => onDelete(activity.id)}
+              >
+                Supprimer
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="text-xs"
+                onClick={() => setConfirmDelete(false)}
+              >
+                Annuler
+              </Button>
+            </div>
+          )}
         </div>
+
+        {/* Match reason badge */}
+        {matchReason && (
+          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-brand-accent/10 px-2 py-0.5 text-[10px] text-brand-accent">
+            🔗 Matche : {matchReason}
+          </div>
+        )}
 
         {activity.content && (
           <div className="mt-1">
             <p className="text-sm text-muted-foreground whitespace-pre-wrap">
               {displayContent}
             </p>
-            {isLong && (
+            {isLong && !expanded && (
               <Button
                 variant="ghost"
                 size="xs"
                 className="mt-1 text-xs text-brand-accent hover:text-brand-accent/80"
-                onClick={() => setExpanded(!expanded)}
+                onClick={() => setExpanded(true)}
               >
-                {expanded ? (
-                  <>
-                    <ChevronUp className="size-3" />
-                    Voir moins
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="size-3" />
-                    Voir plus
-                  </>
-                )}
+                <ChevronDown className="size-3" />
+                Voir plus
               </Button>
             )}
           </div>
@@ -121,7 +166,7 @@ function ActivityEntry({ activity }: { activity: Activity }) {
           <MeetingNoteBlock metadata={activity.metadata} />
         ) : null}
 
-        {activity.type === 'meeting' && activity.metadata?.action_items &&
+        {expanded && activity.type === 'meeting' && activity.metadata?.action_items &&
           Array.isArray(activity.metadata.action_items) &&
           (activity.metadata.action_items as Array<{text: string; assignee: string | null}>).length > 0 ? (
             <div className="mt-2 rounded-md border border-brand-accent/20 bg-brand-accent/5 px-3 py-2">
@@ -139,44 +184,31 @@ function ActivityEntry({ activity }: { activity: Activity }) {
 }
 
 function MeetingNoteBlock({ metadata }: { metadata: Record<string, unknown> }) {
-  const [open, setOpen] = useState(false)
   const companies = metadata.companies as string[] | undefined
   const participants = metadata.participants as string[] | undefined
 
   return (
-    <div className="mt-2 rounded-md border border-white/10 bg-white/5">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-foreground/80 hover:bg-white/10 transition-colors"
-      >
-        <span className="flex items-center gap-2">
-          <span className="text-brand-accent">Genspark</span>
+    <div className="mt-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 space-y-1.5">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="rounded bg-brand-accent/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand-accent">Genspark</span>
+        <span className="font-medium text-foreground/80">
           {metadata.meeting_title ? String(metadata.meeting_title) : 'Notes de reunion'}
         </span>
-        {open ? (
-          <ChevronUp className="size-3.5" />
-        ) : (
-          <ChevronDown className="size-3.5" />
-        )}
-      </button>
-      {open && (
-        <div className="border-t border-white/10 px-3 py-2 space-y-2">
-          {companies && companies.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              <span className="font-medium">Entreprises:</span> {companies.join(', ')}
-            </p>
-          )}
-          {participants && participants.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              <span className="font-medium">Participants:</span> {participants.join(', ')}
-            </p>
-          )}
-          {typeof metadata.meeting_date === 'string' && (
-            <p className="text-xs text-muted-foreground">
-              <span className="font-medium">Date:</span> {new Date(metadata.meeting_date).toLocaleDateString('fr-FR')}
-            </p>
-          )}
-        </div>
+      </div>
+      {typeof metadata.meeting_date === 'string' && (
+        <p className="text-[11px] text-muted-foreground">
+          📅 {new Date(metadata.meeting_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        </p>
+      )}
+      {companies && companies.length > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          🏢 {companies.join(', ')}
+        </p>
+      )}
+      {participants && participants.length > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          👥 {participants.join(', ')}
+        </p>
       )}
     </div>
   )
@@ -210,6 +242,20 @@ function TranscriptionBlock({ text }: { text: string }) {
 }
 
 export function ActivityTimeline({ activities }: ActivityTimelineProps) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteActivity(id)
+      startTransition(() => {
+        router.refresh()
+      })
+    } catch {
+      // silently fail
+    }
+  }
+
   if (activities.length === 0) {
     return (
       <div className="py-8 text-center">
@@ -221,9 +267,9 @@ export function ActivityTimeline({ activities }: ActivityTimelineProps) {
   }
 
   return (
-    <div className="space-y-0">
+    <div className={`space-y-0 ${isPending ? 'opacity-50' : ''}`}>
       {activities.map((activity) => (
-        <ActivityEntry key={activity.id} activity={activity} />
+        <ActivityEntry key={activity.id} activity={activity} onDelete={handleDelete} />
       ))}
     </div>
   )
