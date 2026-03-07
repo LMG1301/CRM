@@ -31,47 +31,51 @@ function EmailRow({ email }: { email: Email }) {
 
   return (
     <div
-      className="group rounded-lg border border-white/5 p-3 transition-colors hover:bg-white/5 cursor-pointer"
+      className={`group rounded-lg border p-3 transition-colors hover:bg-white/5 cursor-pointer ${
+        isSent
+          ? 'border-brand-accent/20 bg-brand-accent/5 ml-6'
+          : 'border-indigo-400/20 bg-indigo-500/5 mr-6'
+      }`}
       onClick={() => setExpanded(!expanded)}
     >
       <div className="flex items-start gap-3">
-        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-          isSent ? 'bg-brand-accent/10 text-brand-accent' : 'bg-indigo-500/10 text-indigo-400'
+        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+          isSent ? 'bg-brand-accent/20 text-brand-accent' : 'bg-indigo-500/20 text-indigo-400'
         }`}>
-          {isSent ? <Send className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
+          {isSent ? <Send className="h-3 w-3" /> : <MailOpen className="h-3 w-3" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+            <span className={`text-[10px] font-semibold uppercase tracking-wide ${
+              isSent ? 'text-brand-accent' : 'text-indigo-400'
+            }`}>
               {isSent ? 'Envoye' : 'Recu'}
-            </Badge>
-            <span className="text-xs text-muted-foreground truncate">
-              {isSent ? email.to_email : email.from_email}
             </span>
-            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            <span className="text-[10px] text-muted-foreground truncate">
+              {isSent ? `→ ${email.to_email}` : `← ${email.from_email}`}
+            </span>
+            <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
               {formatEmailDate(email.gmail_date)}
             </span>
+            {expanded ? (
+              <ChevronUp className="h-3 w-3 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+            )}
           </div>
-          <p className="mt-1 text-sm font-medium text-foreground truncate">
+          <p className="mt-0.5 text-sm font-medium text-foreground truncate">
             {email.subject || '(Sans objet)'}
           </p>
           {!expanded && email.body_preview && (
-            <p className="mt-0.5 text-xs text-muted-foreground truncate">
+            <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
               {email.body_preview}
             </p>
-          )}
-        </div>
-        <div className="shrink-0 pt-1">
-          {expanded ? (
-            <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           )}
         </div>
       </div>
 
       {expanded && (
-        <div className="mt-3 ml-11 rounded-md border border-white/10 bg-white/5 p-3">
+        <div className="mt-3 rounded-md border border-white/10 bg-white/5 p-3">
           {email.body_html ? (
             <div
               className="text-sm text-muted-foreground leading-relaxed prose prose-invert prose-sm max-w-none [&_a]:text-brand-accent [&_img]:max-w-full [&_img]:h-auto"

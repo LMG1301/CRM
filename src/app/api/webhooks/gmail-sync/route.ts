@@ -12,7 +12,16 @@ import { supabase } from '@/lib/supabase'
  * Auth: Simple secret token in headers
  */
 
-const MY_EMAIL = 'louis.matar@boostinc.com'
+// All emails belonging to the user (business + personal + aliases)
+const MY_EMAILS = [
+  'louis.matar@boostinc.com',
+  'louis.matar.gueye@gmail.com',
+]
+
+function isMyEmail(email: string): boolean {
+  const lower = email.toLowerCase().trim()
+  return MY_EMAILS.some(me => lower === me.toLowerCase())
+}
 
 interface IncomingEmail {
   gmail_message_id: string
@@ -53,9 +62,8 @@ export async function POST(request: NextRequest) {
 
     for (const email of emails) {
       try {
-        // Determine direction
-        const fromLower = email.from_email.toLowerCase()
-        const direction = fromLower === MY_EMAIL.toLowerCase() ? 'sent' : 'received'
+        // Determine direction — check all user emails
+        const direction = isMyEmail(email.from_email) ? 'sent' : 'received'
         const contactEmail = direction === 'sent' ? email.to_email : email.from_email
         const contactName = direction === 'received' ? email.from_name : undefined
 
@@ -128,9 +136,15 @@ export async function POST(request: NextRequest) {
             .update({ prospect_id: prospectId })
             .eq('gmail_message_id', email.gmail_message_id)
 
-          // 4. Create activity
+          // 4. Create activity with richer content
           const activityType = direction === 'sent' ? 'email_sent' : 'email_received'
-          const content = email.subject || `Email ${direction === 'sent' ? 'envoye' : 'recu'}`
+          const subject = email.subject || '(Sans objet)'
+          const preview = email.body_preview
+            ? email.body_preview.substring(0, 300).replace(/\s+/g, ' ').trim()
+            : ''
+          const content = preview
+            ? `Objet : ${subject}\n\n${preview}`
+            : `Objet : ${subject}`
 
           const { error: activityError } = await supabase
             .from('activities')
@@ -140,6 +154,7 @@ export async function POST(request: NextRequest) {
               content,
               metadata: {
                 gmail_message_id: email.gmail_message_id,
+                subject: email.subject,
                 from: email.from_email,
                 to: email.to_email,
                 source: 'gmail_sync',

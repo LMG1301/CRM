@@ -63,20 +63,32 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
   // Show match reason badge for Genspark notes
   const matchReason = activity.metadata?.match_reason as string | undefined
 
+  const isEmail = activity.type === 'email_sent' || activity.type === 'email_received'
+  const isSent = activity.type === 'email_sent'
+  const emailFrom = activity.metadata?.from as string | undefined
+  const emailTo = activity.metadata?.to as string | undefined
+
   return (
-    <div className="group relative flex gap-4 pb-6 last:pb-0">
+    <div className={`group relative flex gap-4 pb-6 last:pb-0 ${isEmail ? `rounded-lg border-l-2 pl-2 ${isSent ? 'border-l-brand-accent/60' : 'border-l-indigo-400/60'}` : ''}`}>
       {/* Timeline line */}
       <div className="absolute left-[18px] top-10 bottom-0 w-px bg-white/10 last:hidden" />
 
-      {/* Icon */}
-      <div className="relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg">
+      {/* Icon — colored for emails */}
+      <div className={`relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full text-lg ${
+        isSent ? 'bg-brand-accent/15' : activity.type === 'email_received' ? 'bg-indigo-500/15' : 'bg-white/10'
+      }`}>
         {icon}
       </div>
 
       {/* Content */}
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">{label}</span>
+          <span className={`text-sm font-semibold ${isSent ? 'text-brand-accent' : activity.type === 'email_received' ? 'text-indigo-400' : 'text-foreground'}`}>{label}</span>
+          {isEmail && (
+            <span className="text-[10px] text-muted-foreground">
+              {isSent ? `→ ${emailTo || ''}` : `← ${emailFrom || ''}`}
+            </span>
+          )}
           <span className="text-xs text-muted-foreground">
             {formatRelativeDate(activity.created_at)}
           </span>
@@ -155,12 +167,12 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
           />
         ) : null}
 
-        {(activity.type === 'email_sent' || activity.type === 'email_received') &&
-          activity.metadata?.subject ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Objet : {String(activity.metadata.subject)}
-            </p>
-          ) : null}
+        {/* Subject shown as badge for emails without body in content */}
+        {isEmail && activity.metadata?.subject && !activity.content.startsWith('Objet') ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Objet : {String(activity.metadata.subject)}
+          </p>
+        ) : null}
 
         {activity.type === 'meeting' && activity.metadata?.source === 'genspark' ? (
           <MeetingNoteBlock metadata={activity.metadata} />
