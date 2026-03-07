@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
@@ -272,7 +273,14 @@ export function ProspectDetail({
             </Badge>
           )}
           {prospect.categorie && (
-            <Badge variant="secondary" className="text-sm px-3 py-1">
+            <Badge
+              variant="secondary"
+              className={cn(
+                'text-sm px-3 py-1 border-0',
+                prospect.categorie === 'Partenaire' && 'bg-violet-500/20 text-violet-400',
+                prospect.categorie === 'Prescripteur / Reseau' && 'bg-amber-500/20 text-amber-400',
+              )}
+            >
               {prospect.categorie}
             </Badge>
           )}

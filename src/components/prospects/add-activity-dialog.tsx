@@ -34,6 +34,7 @@ export function AddActivityDialog({
   const [content, setContent] = useState('')
   const [subject, setSubject] = useState('')
   const [transcription, setTranscription] = useState('')
+  const [activityDate, setActivityDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [summarizing, setSummarizing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,6 +65,10 @@ export function AddActivityDialog({
         subject.trim()
       ) {
         metadata.subject = subject.trim()
+      }
+
+      if ((type === 'call' || type === 'transcription') && activityDate) {
+        metadata.activity_date = activityDate
       }
 
       if (type === 'call' && transcription.trim()) {
@@ -130,6 +135,7 @@ export function AddActivityDialog({
       setContent('')
       setSubject('')
       setTranscription('')
+      setActivityDate('')
       onSave()
     } catch (err) {
       console.error('Erreur creation activite:', err)
@@ -163,9 +169,19 @@ export function AddActivityDialog({
             </div>
           )}
 
-          {/* Call: summary + optional transcription */}
+          {/* Call: date + summary + optional transcription */}
           {type === 'call' && (
             <>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
+                  Date de l&apos;appel
+                </label>
+                <Input
+                  type="date"
+                  value={activityDate}
+                  onChange={(e) => setActivityDate(e.target.value)}
+                />
+              </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-foreground">
                   Resume de l&apos;appel
@@ -248,19 +264,31 @@ export function AddActivityDialog({
             </>
           )}
 
-          {/* Transcription: large textarea */}
+          {/* Transcription: date + large textarea */}
           {type === 'transcription' && (
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
-                Transcription
-              </label>
-              <Textarea
-                placeholder="Collez la transcription Genspark ici..."
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                className="min-h-[200px] max-h-[50vh] text-xs font-mono"
-                autoFocus
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
+                  Date de l&apos;echange
+                </label>
+                <Input
+                  type="date"
+                  value={activityDate}
+                  onChange={(e) => setActivityDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
+                  Transcription
+                </label>
+                <Textarea
+                  placeholder="Collez la transcription Genspark ici..."
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  className="min-h-[200px] max-h-[50vh] text-xs font-mono"
+                  autoFocus
+                />
+              </div>
             </div>
           )}
         </div>

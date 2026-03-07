@@ -44,6 +44,56 @@ function formatRelativeDate(dateString: string): string {
 const CONTENT_PREVIEW_LENGTH = 150
 const COLLAPSE_THRESHOLD = 200  // Collapse notes longer than this
 
+/**
+ * Simple markdown renderer — converts **bold**, - bullets, and line breaks to JSX
+ */
+function renderMarkdown(text: string) {
+  const lines = text.split('\n')
+  const elements: React.ReactNode[] = []
+  let listItems: React.ReactNode[] = []
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      elements.push(<ul key={`ul-${elements.length}`} className="list-disc list-inside space-y-0.5 my-1">{listItems}</ul>)
+      listItems = []
+    }
+  }
+
+  const formatInline = (line: string, key: string): React.ReactNode => {
+    // Split on **bold** markers
+    const parts = line.split(/(\*\*[^*]+\*\*)/)
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={`${key}-${i}`} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>
+      }
+      return part
+    })
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const trimmed = line.trim()
+
+    // Bullet point: - or *
+    if (/^[-*]\s+/.test(trimmed)) {
+      const content = trimmed.replace(/^[-*]\s+/, '')
+      listItems.push(<li key={`li-${i}`}>{formatInline(content, `li-${i}`)}</li>)
+      continue
+    }
+
+    flushList()
+
+    if (trimmed === '') {
+      elements.push(<br key={`br-${i}`} />)
+    } else {
+      elements.push(<span key={`p-${i}`}>{formatInline(trimmed, `p-${i}`)}{i < lines.length - 1 ? '\n' : ''}</span>)
+    }
+  }
+
+  flushList()
+  return elements
+}
+
 function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (id: string) => void }) {
   const isLong = activity.content.length > COLLAPSE_THRESHOLD
   const [expanded, setExpanded] = useState(!isLong)  // Collapsed by default if long
@@ -54,6 +104,14 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
     activity.type === 'call' &&
     activity.metadata?.transcription &&
     typeof activity.metadata.transcription === 'string'
+
+  // For transcription type: full transcript is in metadata, content is the summary
+  const hasFullTranscript =
+    activity.type === 'transcription' &&
+    activity.metadata?.full_transcript &&
+    typeof activity.metadata.full_transcript === 'string'
+
+  const activityDate = activity.metadata?.activity_date as string | undefined
 
   const displayContent =
     !expanded && isLong
@@ -87,6 +145,11 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
           {isEmail && (
             <span className="text-[10px] text-muted-foreground">
               {isSent ? `→ ${emailTo || ''}` : `← ${emailFrom || ''}`}
+            </span>
+          )}
+          {activityDate && (
+            <span className="text-xs text-muted-foreground">
+              {new Date(activityDate + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
             </span>
           )}
           <span className="text-xs text-muted-foreground">
@@ -144,9 +207,9 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
 
         {activity.content && (
           <div className="mt-1">
-            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-              {displayContent}
-            </p>
+            <div className="text-sm text-muted-foreground whitespace-pre-wrap">
+              {renderMarkdown(displayContent)}
+            </div>
             {isLong && !expanded && (
               <Button
                 variant="ghost"
@@ -160,6 +223,14 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
             )}
           </div>
         )}
+
+        {/* Expandable full transcript for transcription type */}
+        {hasFullTranscript ? (
+          <TranscriptionBlock
+            text={String(activity.metadata.full_transcript)}
+            label="Transcription complete"
+          />
+        ) : null}
 
         {hasTranscriptionMeta ? (
           <TranscriptionBlock
@@ -226,7 +297,7 @@ function MeetingNoteBlock({ metadata }: { metadata: Record<string, unknown> }) {
   )
 }
 
-function TranscriptionBlock({ text }: { text: string }) {
+function TranscriptionBlock({ text, label = 'Transcription' }: { text: string; label?: string }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -235,7 +306,7 @@ function TranscriptionBlock({ text }: { text: string }) {
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-foreground/80 hover:bg-white/10 transition-colors"
       >
-        <span>Transcription</span>
+        <span>{label}</span>
         {open ? (
           <ChevronUp className="size-3.5" />
         ) : (

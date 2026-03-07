@@ -61,7 +61,6 @@ const FIELD_GROUPS = [
     title: 'Commercial',
     fields: [
       { key: 'source', label: 'Source', placeholder: 'LinkedIn, Salon, Recommandation...' },
-      { key: 'categorie', label: 'Categorie', placeholder: 'Prospect, Client...' },
       { key: 'statut_commercial', label: 'Statut commercial', placeholder: 'Actif, En pause...' },
     ],
   },
@@ -88,6 +87,8 @@ export function EditProspectDialog({
         initial[field.key] = val != null ? String(val) : ''
       }
     }
+    // Add categorie separately (rendered as Select, not Input)
+    initial.categorie = prospect.categorie || ''
     return initial
   })
   const [saving, setSaving] = useState(false)
@@ -251,6 +252,28 @@ export function EditProspectDialog({
                     />
                   </div>
                 ))}
+                {/* Categorie Select — only in Commercial group */}
+                {group.title === 'Commercial' && (
+                  <div>
+                    <Label htmlFor="categorie" className="mb-1.5 text-xs">
+                      Type de relation
+                    </Label>
+                    <Select
+                      value={form.categorie || '_none'}
+                      onValueChange={(v) => handleChange('categorie', v === '_none' ? '' : v)}
+                    >
+                      <SelectTrigger id="categorie">
+                        <SelectValue placeholder="Prospect" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">Prospect</SelectItem>
+                        <SelectItem value="Client">Client</SelectItem>
+                        <SelectItem value="Partenaire">Partenaire</SelectItem>
+                        <SelectItem value="Prescripteur / Reseau">Prescripteur / Reseau</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             </div>
           ))}

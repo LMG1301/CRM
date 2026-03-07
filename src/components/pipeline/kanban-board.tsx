@@ -181,14 +181,29 @@ function ProspectCardContent({
               <span>{daysText}</span>
             </div>
 
-            {prospect.source && (
-              <Badge
-                variant="secondary"
-                className="h-5 max-w-[80px] truncate px-1.5 text-[10px]"
-              >
-                {prospect.source}
-              </Badge>
-            )}
+            <div className="flex items-center gap-1">
+              {prospect.categorie && prospect.categorie !== 'Client' && (
+                <Badge
+                  variant="secondary"
+                  className={cn(
+                    'h-5 max-w-[90px] truncate px-1.5 text-[10px] border-0',
+                    prospect.categorie === 'Partenaire' && 'bg-violet-500/20 text-violet-300',
+                    prospect.categorie === 'Prescripteur / Reseau' && 'bg-amber-500/20 text-amber-300',
+                    !['Partenaire', 'Prescripteur / Reseau'].includes(prospect.categorie) && 'bg-cyan-500/20 text-cyan-300'
+                  )}
+                >
+                  {prospect.categorie}
+                </Badge>
+              )}
+              {prospect.source && (
+                <Badge
+                  variant="secondary"
+                  className="h-5 max-w-[80px] truncate px-1.5 text-[10px]"
+                >
+                  {prospect.source}
+                </Badge>
+              )}
+            </div>
           </div>
         </div>
       </div>
