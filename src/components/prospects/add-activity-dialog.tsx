@@ -141,7 +141,7 @@ export function AddActivityDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] flex flex-col sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{dialogTitles[type] || label}</DialogTitle>
           <DialogDescription>
@@ -149,7 +149,7 @@ export function AddActivityDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
           {/* Note: simple textarea */}
           {type === 'note' && (
             <div>
@@ -186,7 +186,7 @@ export function AddActivityDialog({
                   placeholder="Collez la transcription Genspark ici..."
                   value={transcription}
                   onChange={(e) => setTranscription(e.target.value)}
-                  className="min-h-[120px] text-xs font-mono"
+                  className="min-h-[120px] max-h-[40vh] text-xs font-mono"
                 />
               </div>
             </>
@@ -258,7 +258,7 @@ export function AddActivityDialog({
                 placeholder="Collez la transcription Genspark ici..."
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                className="min-h-[200px] text-xs font-mono"
+                className="min-h-[200px] max-h-[50vh] text-xs font-mono"
                 autoFocus
               />
             </div>
