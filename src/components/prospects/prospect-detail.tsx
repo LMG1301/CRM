@@ -40,6 +40,7 @@ import { ScheduleAction } from './schedule-action'
 import { AIProspectPanel } from '@/components/ai/ai-prospect-panel'
 import { EmailThread } from '@/components/emails/email-thread'
 import { EditProspectDialog } from './edit-prospect-dialog'
+import { CompanyContextPanel } from './company-context-panel'
 
 interface ProspectDetailProps {
   prospect: Prospect
@@ -456,6 +457,9 @@ export function ProspectDetail({
                 />
               </CardContent>
             </Card>
+
+            {/* Company context — other contacts from same company */}
+            <CompanyContextPanel prospect={prospect} />
 
             {/* Dates */}
             <Card>

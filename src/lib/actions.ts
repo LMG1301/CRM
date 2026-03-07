@@ -79,6 +79,23 @@ export async function deleteProspect(id: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+// ─── Company Colleagues ───
+
+export async function getCompanyColleagues(
+  entreprise: string,
+  excludeId: string
+): Promise<Prospect[]> {
+  if (!entreprise) return []
+  const { data, error } = await supabase
+    .from('prospects')
+    .select('*')
+    .ilike('entreprise', entreprise)
+    .neq('id', excludeId)
+    .order('date_dernier_contact', { ascending: false })
+  if (error) return []
+  return data || []
+}
+
 // ─── Activities ───
 
 export async function getActivities(prospectId: string): Promise<Activity[]> {

@@ -239,11 +239,16 @@ function buildProspectContext(
         : activity.type
       // Emails: keep full content so AI has complete context
       // Other activities: truncate at 500 chars
+      // Transcriptions: use full_transcript from metadata if available
       const isEmail = activity.type === 'email_sent' || activity.type === 'email_received'
-      const maxLen = isEmail ? 5000 : 500
-      const content = activity.content.length > maxLen
-        ? activity.content.substring(0, maxLen) + '...'
-        : activity.content
+      const fullTranscript = activity.type === 'transcription' && activity.metadata?.full_transcript
+        ? String(activity.metadata.full_transcript)
+        : null
+      const rawContent = fullTranscript || activity.content
+      const maxLen = isEmail || fullTranscript ? 5000 : 500
+      const content = rawContent.length > maxLen
+        ? rawContent.substring(0, maxLen) + '...'
+        : rawContent
       lines.push(`- **${date} — ${typeLabel}** : ${content}`)
     }
   }

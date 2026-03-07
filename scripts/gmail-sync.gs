@@ -198,6 +198,7 @@ function resetSync() {
  */
 function fullResync() {
   var START_DATE = '2025/08/01';
+  var startDate = new Date('2025-08-01T00:00:00Z');
   var query = 'after:' + START_DATE + ' -category:promotions -category:social -category:updates -from:noreply -from:no-reply -from:notifications -from:marketing';
 
   Logger.log('=== FULL RESYNC depuis ' + START_DATE + ' ===');
@@ -224,8 +225,8 @@ function fullResync() {
         var message = messages[m];
         var msgDate = message.getDate();
 
-        // Skip messages before lookback
-        if (msgDate < lookback) continue;
+        // Skip messages before start date
+        if (msgDate < startDate) continue;
 
         var email = {
           gmail_message_id: message.getId(),

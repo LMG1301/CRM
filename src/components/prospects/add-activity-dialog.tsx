@@ -35,6 +35,7 @@ export function AddActivityDialog({
   const [subject, setSubject] = useState('')
   const [transcription, setTranscription] = useState('')
   const [saving, setSaving] = useState(false)
+  const [summarizing, setSummarizing] = useState(false)
 
   const label = ACTIVITY_LABELS[type] || type
 
@@ -54,6 +55,7 @@ export function AddActivityDialog({
     setSaving(true)
     try {
       const metadata: Record<string, unknown> = {}
+      let finalContent = content.trim()
 
       if (
         (type === 'email_sent' || type === 'email_received') &&
@@ -71,10 +73,33 @@ export function AddActivityDialog({
         metadata.source = 'linkedin'
       }
 
+      // Auto-summarize long transcriptions
+      if (type === 'transcription' && finalContent.length > 1000) {
+        setSummarizing(true)
+        try {
+          const res = await fetch('/api/ai/summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript: finalContent }),
+          })
+          if (res.ok) {
+            const { summary } = await res.json()
+            if (summary) {
+              metadata.full_transcript = finalContent
+              finalContent = summary
+            }
+          }
+        } catch {
+          // If summarization fails, keep original content
+        } finally {
+          setSummarizing(false)
+        }
+      }
+
       await createActivity({
         prospect_id: prospectId,
         type,
-        content: content.trim(),
+        content: finalContent,
         metadata,
       })
 
@@ -223,8 +248,8 @@ export function AddActivityDialog({
           >
             Annuler
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? 'Sauvegarde...' : 'Enregistrer'}
+          <Button onClick={handleSave} disabled={saving || summarizing}>
+            {summarizing ? 'Resume en cours...' : saving ? 'Sauvegarde...' : 'Enregistrer'}
           </Button>
         </DialogFooter>
       </DialogContent>

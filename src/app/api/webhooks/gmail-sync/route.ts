@@ -250,6 +250,9 @@ export async function POST(request: NextRequest) {
               date_dernier_contact: new Date(email.gmail_date).toISOString().split('T')[0],
             })
             .eq('id', prospectId)
+
+          // 6. Auto-progress pipeline stage based on email signals
+          await autoProgressStage(prospectId, email, direction)
         }
 
         results.processed++
@@ -293,6 +296,118 @@ function parseEmailName(
     return { prenom: capitalize(parts[0]), nom: capitalize(parts[1]) }
   }
   return { prenom: local, nom: '' }
+}
+
+// Stage progression order (higher = further in pipeline)
+const STAGE_ORDER: Record<string, number> = {
+  ciblage: 1,
+  touch_1: 2,
+  touch_2: 3,
+  touch_3: 4,
+  nurturing: 5,
+  repondu: 6,
+  call_decouverte: 7,
+  devis: 8,
+  client: 9,
+  refuse: 10,
+  bounced: 11,
+}
+
+// Keywords that signal a devis/proposal was sent
+const DEVIS_KEYWORDS = ['devis', 'proposition', 'offre commerciale', 'proposal', 'quotation', 'prix', 'tarif']
+// Keywords that signal a deal is won
+const CLIENT_KEYWORDS = ['accord', 'signe', 'commande', 'valide', 'ok pour', 'go pour', 'on lance']
+
+async function autoProgressStage(
+  prospectId: string,
+  currentEmail: IncomingEmail,
+  direction: 'sent' | 'received'
+) {
+  try {
+    // Get current prospect stage
+    const { data: prospect } = await supabase
+      .from('prospects')
+      .select('pipeline_stage')
+      .eq('id', prospectId)
+      .single()
+
+    if (!prospect) return
+
+    const currentStage = prospect.pipeline_stage
+    const currentOrder = STAGE_ORDER[currentStage] || 0
+
+    // Terminal stages — never auto-progress
+    if (['client', 'refuse', 'bounced'].includes(currentStage)) return
+
+    let suggestedStage: string | null = null
+
+    // Check email content for keyword signals
+    const emailText = [currentEmail.subject, currentEmail.body_text, currentEmail.body_preview]
+      .filter(Boolean).join(' ').toLowerCase()
+
+    if (direction === 'received') {
+      // Prospect responded — at minimum move to "repondu"
+      if (currentOrder < STAGE_ORDER.repondu) {
+        suggestedStage = 'repondu'
+      }
+
+      // Check for deal-won signals in response
+      if (CLIENT_KEYWORDS.some(kw => emailText.includes(kw))) {
+        suggestedStage = 'client'
+      }
+    }
+
+    if (direction === 'sent') {
+      // Count sent emails to this prospect
+      const { count } = await supabase
+        .from('activities')
+        .select('id', { count: 'exact', head: true })
+        .eq('prospect_id', prospectId)
+        .eq('type', 'email_sent')
+
+      const sentCount = count || 0
+
+      // Progress based on sent count (only if currently behind)
+      if (sentCount === 1 && currentOrder < STAGE_ORDER.touch_1) {
+        suggestedStage = 'touch_1'
+      } else if (sentCount === 2 && currentOrder < STAGE_ORDER.touch_2) {
+        suggestedStage = 'touch_2'
+      } else if (sentCount >= 3 && currentOrder < STAGE_ORDER.touch_3) {
+        suggestedStage = 'touch_3'
+      }
+
+      // Check for devis signals in sent email
+      if (DEVIS_KEYWORDS.some(kw => emailText.includes(kw))) {
+        if (currentOrder < STAGE_ORDER.devis) {
+          suggestedStage = 'devis'
+        }
+      }
+    }
+
+    // Only advance, never go back
+    if (suggestedStage && (STAGE_ORDER[suggestedStage] || 0) > currentOrder) {
+      await supabase
+        .from('prospects')
+        .update({ pipeline_stage: suggestedStage })
+        .eq('id', prospectId)
+
+      // Log the automatic stage change
+      const stageNames: Record<string, string> = {
+        ciblage: 'Ciblage', touch_1: 'Touch 1', touch_2: 'Touch 2',
+        touch_3: 'Touch 3', nurturing: 'Nurturing', repondu: 'Repondu',
+        call_decouverte: 'Call Decouverte', devis: 'Devis',
+        client: 'Client', refuse: 'Refuse', bounced: 'Bounced',
+      }
+      await supabase.from('activities').insert({
+        prospect_id: prospectId,
+        type: 'status_change',
+        content: `Pipeline auto : ${stageNames[currentStage] || currentStage} → ${stageNames[suggestedStage] || suggestedStage}`,
+        metadata: { from: currentStage, to: suggestedStage, source: 'auto_progression' },
+      })
+    }
+  } catch (err) {
+    console.error('Auto-progress error:', (err as Error).message)
+  }
 }
 
 // Trigger AI analysis for prospects with recent emails

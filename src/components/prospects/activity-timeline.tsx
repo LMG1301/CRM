@@ -278,9 +278,14 @@ export function ActivityTimeline({ activities }: ActivityTimelineProps) {
     )
   }
 
+  // Filter out emails — they're already shown in the Email section above
+  const filteredActivities = activities.filter(
+    a => a.type !== 'email_sent' && a.type !== 'email_received'
+  )
+
   return (
     <div className={`space-y-0 ${isPending ? 'opacity-50' : ''}`}>
-      {activities.map((activity) => (
+      {filteredActivities.map((activity) => (
         <ActivityEntry key={activity.id} activity={activity} onDelete={handleDelete} />
       ))}
     </div>

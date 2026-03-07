@@ -21,6 +21,49 @@ import type { PipelineStage, Prospect } from '@/lib/types'
 import { updateProspect } from '@/lib/actions'
 import { Building2, Clock, GripVertical } from 'lucide-react'
 
+// ─── Business Type Filter ───
+
+type BusinessType = 'all' | 'da_france' | 'partenariats_food' | 'services' | 'international'
+
+const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
+  all: 'Tous',
+  da_france: 'DA France',
+  partenariats_food: 'Partenariats Food',
+  services: 'Services',
+  international: 'International',
+}
+
+// Food brand partners
+const FOOD_PARTNERS = [
+  'sodeb', 'bofrost', 'boosting', 'sodeboost', 'picard', 'fleury michon',
+  'daunat', 'bonduelle', 'herta', 'labeyrie', 'charal',
+]
+
+// International indicators
+const INTERNATIONAL_INDICATORS = [
+  'switzerland', 'suisse', 'schweiz', 'uk', 'united kingdom', 'germany',
+  'deutschland', 'spain', 'italia', 'belgium', 'belgique',
+]
+
+function getBusinessType(prospect: Prospect): BusinessType {
+  const company = (prospect.entreprise || '').toLowerCase()
+  const country = (prospect.pays || '').toLowerCase()
+  const location = (prospect.localisation || '').toLowerCase()
+
+  // Food partners
+  if (FOOD_PARTNERS.some(fp => company.includes(fp))) return 'partenariats_food'
+
+  // International
+  if (country && !['france', 'fr', ''].includes(country)) return 'international'
+  if (INTERNATIONAL_INDICATORS.some(ind => location.includes(ind) || company.includes(ind))) return 'international'
+
+  // Services (Boost inc Services related)
+  if (company.includes('boost') && company.includes('service')) return 'services'
+
+  // Default: DA France
+  return 'da_france'
+}
+
 // ─── Types ───
 
 interface KanbanBoardProps {
@@ -367,6 +410,7 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
   const [prospects, setProspects] = useState<Prospect[]>(initialProspects)
   const [activeProspect, setActiveProspect] = useState<Prospect | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
+  const [businessFilter, setBusinessFilter] = useState<BusinessType>('all')
 
   // Configure drag sensors with activation constraints to avoid accidental drags
   const pointerSensor = useSensor(PointerSensor, {
@@ -382,13 +426,19 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
   })
   const sensors = useSensors(pointerSensor, touchSensor)
 
+  // Filter prospects by business type then group by pipeline stage
+  const filteredProspects = useMemo(() => {
+    if (businessFilter === 'all') return prospects
+    return prospects.filter(p => getBusinessType(p) === businessFilter)
+  }, [prospects, businessFilter])
+
   // Group prospects by pipeline stage slug
   const prospectsByStage = useMemo(() => {
     const grouped: Record<string, Prospect[]> = {}
     for (const stage of stages) {
       grouped[stage.slug] = []
     }
-    for (const prospect of prospects) {
+    for (const prospect of filteredProspects) {
       const slug = prospect.pipeline_stage
       if (grouped[slug]) {
         grouped[slug].push(prospect)
@@ -401,7 +451,7 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
       }
     }
     return grouped
-  }, [prospects, stages])
+  }, [filteredProspects, stages])
 
   // Resolve a droppable/draggable id to a column slug
   const findColumnSlug = useCallback(
@@ -504,7 +554,7 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
     return stage?.color || '#6366f1'
   }, [activeProspect, stages])
 
-  const totalCount = prospects.length
+  const totalCount = filteredProspects.length
 
   return (
     <div className="flex h-full flex-col">
@@ -512,8 +562,26 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
       <div className="mb-4">
         <h1 className="text-2xl font-bold tracking-tight text-white">Pipeline</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {totalCount} prospect{totalCount !== 1 ? 's' : ''} au total &middot; {stages.length} etape{stages.length !== 1 ? 's' : ''}
+          {totalCount} prospect{totalCount !== 1 ? 's' : ''}{businessFilter !== 'all' ? ` (${BUSINESS_TYPE_LABELS[businessFilter]})` : ' au total'} &middot; {stages.length} etape{stages.length !== 1 ? 's' : ''}
         </p>
+      </div>
+
+      {/* Business type filter chips */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(Object.keys(BUSINESS_TYPE_LABELS) as BusinessType[]).map((type) => (
+          <button
+            key={type}
+            onClick={() => setBusinessFilter(type)}
+            className={cn(
+              'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+              businessFilter === type
+                ? 'bg-brand-accent text-white'
+                : 'bg-white/[0.06] text-white/60 hover:bg-white/[0.1] hover:text-white/80'
+            )}
+          >
+            {BUSINESS_TYPE_LABELS[type]}
+          </button>
+        ))}
       </div>
 
       {/* DnD context wrapping both desktop and mobile views */}
