@@ -237,8 +237,12 @@ function buildProspectContext(
         : activity.type === 'meeting' ? 'Reunion'
         : activity.type === 'presentation' ? 'Presentation'
         : activity.type
-      const content = activity.content.length > 200
-        ? activity.content.substring(0, 200) + '...'
+      // Emails: keep full content so AI has complete context
+      // Other activities: truncate at 500 chars
+      const isEmail = activity.type === 'email_sent' || activity.type === 'email_received'
+      const maxLen = isEmail ? 5000 : 500
+      const content = activity.content.length > maxLen
+        ? activity.content.substring(0, maxLen) + '...'
         : activity.content
       lines.push(`- **${date} — ${typeLabel}** : ${content}`)
     }

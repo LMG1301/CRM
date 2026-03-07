@@ -109,11 +109,9 @@ export async function POST(request: NextRequest) {
           if (!existingActivity || existingActivity.length === 0) {
             const actType = correctDirection === 'sent' ? 'email_sent' : 'email_received'
             const subject = email.subject || '(Sans objet)'
-            const preview = email.body_preview
-              ? email.body_preview.substring(0, 300).replace(/\s+/g, ' ').trim()
-              : ''
-            const content = preview
-              ? `Objet : ${subject}\n\n${preview}`
+            const body = email.body_text || email.body_preview || ''
+            const content = body
+              ? `Objet : ${subject}\n\n${body}`
               : `Objet : ${subject}`
 
             const { error: aErr } = await supabase

@@ -217,14 +217,13 @@ export async function POST(request: NextRequest) {
             .update({ prospect_id: prospectId })
             .eq('gmail_message_id', email.gmail_message_id)
 
-          // 4. Create activity with richer content
+          // 4. Create activity with FULL email content (for AI context)
           const activityType = direction === 'sent' ? 'email_sent' : 'email_received'
           const subject = email.subject || '(Sans objet)'
-          const preview = email.body_preview
-            ? email.body_preview.substring(0, 300).replace(/\s+/g, ' ').trim()
-            : ''
-          const content = preview
-            ? `Objet : ${subject}\n\n${preview}`
+          // Use full body_text for complete context, fallback to preview
+          const body = email.body_text || email.body_preview || ''
+          const content = body
+            ? `Objet : ${subject}\n\n${body}`
             : `Objet : ${subject}`
 
           const { error: activityError } = await supabase
