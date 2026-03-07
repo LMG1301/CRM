@@ -189,21 +189,18 @@ function resetSync() {
 }
 
 /**
- * RE-SYNC COMPLET — Synchronise les 90 derniers jours d'emails.
- * Utile pour rattraper les emails historiques et creer les prospects manquants.
+ * RE-SYNC COMPLET — Synchronise tous les emails depuis aout 2025.
+ * Filtre: pas de promos, social, updates, noreply, notifications.
  *
  * ATTENTION : Peut prendre du temps (limit Apps Script = 6 min).
  * Lance cette fonction manuellement depuis l'editeur Apps Script.
  * Tu peux la lancer plusieurs fois — les doublons seront ignores.
  */
 function fullResync() {
-  var DAYS_BACK = 90;
-  var lookback = new Date();
-  lookback.setDate(lookback.getDate() - DAYS_BACK);
-  var dateStr = Utilities.formatDate(lookback, 'GMT', 'yyyy/MM/dd');
-  var query = 'after:' + dateStr + ' -category:promotions -category:social -category:updates';
+  var START_DATE = '2025/08/01';
+  var query = 'after:' + START_DATE + ' -category:promotions -category:social -category:updates -from:noreply -from:no-reply -from:notifications -from:marketing';
 
-  Logger.log('=== FULL RESYNC - ' + DAYS_BACK + ' derniers jours ===');
+  Logger.log('=== FULL RESYNC depuis ' + START_DATE + ' ===');
   Logger.log('Recherche: ' + query);
 
   // Process in pages of 50 threads

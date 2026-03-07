@@ -113,6 +113,11 @@ export async function createActivity(
   return data
 }
 
+export async function deleteActivity(id: string): Promise<void> {
+  const { error } = await supabase.from('activities').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
 // ─── Emails (synced via n8n from Gmail) ───
 
 export async function getProspectEmails(prospectId: string): Promise<Email[]> {

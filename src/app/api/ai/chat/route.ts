@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
 import { buildSystemPrompt } from '@/lib/ai-prompts'
 import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments } from '@/lib/actions'
+import type { Prospect } from '@/lib/types'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -40,61 +41,152 @@ export async function POST(request: NextRequest) {
     }
 
     // Load business context + prospect context + knowledge docs in parallel
-    let prospect = null
+    let prospect: Prospect | null = null
     let activities: Awaited<ReturnType<typeof getActivities>> = []
-    let businessContext = null
+    let businessContext: Awaited<ReturnType<typeof getBusinessContext>> = null
     let knowledgeDocs: Awaited<ReturnType<typeof getKnowledgeDocuments>> = []
 
     try {
-      const contextPromise = getBusinessContext()
-      const knowledgePromise = getKnowledgeDocuments()
-      let prospectPromise: Promise<unknown> = Promise.resolve()
-      let activitiesPromise: Promise<unknown> = Promise.resolve()
+      const results = await Promise.all([
+        getBusinessContext(),
+        getKnowledgeDocuments(),
+        prospectId ? getProspect(prospectId) : Promise.resolve(null),
+        prospectId ? getActivities(prospectId) : Promise.resolve([]),
+      ])
 
-      if (prospectId) {
-        prospectPromise = getProspect(prospectId).then((p) => { prospect = p })
-        activitiesPromise = getActivities(prospectId).then((a) => { activities = a })
-      }
-
-      const [ctx, docs] = await Promise.all([contextPromise, knowledgePromise, prospectPromise, activitiesPromise])
-      businessContext = ctx
-      knowledgeDocs = docs
+      businessContext = results[0]
+      knowledgeDocs = results[1]
+      prospect = results[2]
+      activities = results[3]
     } catch {
       // Continue without context
     }
 
     const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs)
 
-    // Stream response from Claude
-    let stream
-    try {
-      stream = anthropic.messages.stream({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2048,
-        system: systemPrompt,
-        messages: messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-      })
-    } catch (error) {
-      return Response.json({ error: parseAnthropicError(error) }, { status: 400 })
+    // Determine if we should enable web search
+    // Enable when prospect has a company, to auto-research for personalization
+    const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''
+    const wantsWebSearch = lastMessage.includes('recherche') ||
+      lastMessage.includes('info') ||
+      lastMessage.includes('touch 1') ||
+      lastMessage.includes('premier message') ||
+      lastMessage.includes('personnalis') ||
+      lastMessage.includes('mail') ||
+      lastMessage.includes('email') ||
+      lastMessage.includes('entreprise') ||
+      lastMessage.includes('societe') ||
+      lastMessage.includes('société') ||
+      (prospect?.entreprise && (
+        lastMessage.includes('redige') ||
+        lastMessage.includes('ecris') ||
+        lastMessage.includes('rédige') ||
+        lastMessage.includes('écris') ||
+        lastMessage.includes('propose') ||
+        lastMessage.includes('relance')
+      ))
+
+    // Build tools array — include web search when relevant
+    const tools: Anthropic.Messages.Tool[] = []
+    if (wantsWebSearch) {
+      tools.push({
+        type: 'web_search_20250305',
+        name: 'web_search',
+        max_uses: 3,
+      } as unknown as Anthropic.Messages.Tool)
     }
 
-    // Convert to ReadableStream for the browser
+    // Enhanced system prompt with web search instructions
+    let enhancedSystem = systemPrompt
+    if (wantsWebSearch && prospect?.entreprise) {
+      enhancedSystem += `\n\n## Recherche web
+Tu as acces a la recherche web. Avant de rediger un email ou message pour ce prospect, recherche des informations recentes sur ${prospect.entreprise} pour personnaliser ton message :
+- Actualites recentes de l'entreprise
+- Projets, levees de fonds, nouveaux produits
+- Informations sur le secteur d'activite
+Utilise ces informations pour rendre le message plus pertinent et personnalise.`
+    }
+
+    // Use streaming with tool use support
     const encoder = new TextEncoder()
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          for await (const event of stream) {
-            if (
-              event.type === 'content_block_delta' &&
-              event.delta.type === 'text_delta'
-            ) {
-              const chunk = `data: ${JSON.stringify({ text: event.delta.text })}\n\n`
-              controller.enqueue(encoder.encode(chunk))
+          // First call — may trigger web search
+          let response = await anthropic.messages.create({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 4096,
+            system: enhancedSystem,
+            tools: tools.length > 0 ? tools : undefined,
+            messages: messages.map((m) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })),
+          })
+
+          // Handle tool use loop (web search may be called)
+          const allMessages = [...messages.map((m) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content as string | Anthropic.Messages.ContentBlock[],
+          }))]
+          let loopCount = 0
+          const maxLoops = 5
+
+          while (response.stop_reason === 'tool_use' && loopCount < maxLoops) {
+            loopCount++
+
+            // Send a searching indicator to the client
+            controller.enqueue(encoder.encode(
+              `data: ${JSON.stringify({ text: '\n\n*Recherche en cours...*\n\n' })}\n\n`
+            ))
+
+            // Collect tool results
+            const toolUseBlocks = response.content.filter(
+              (block): block is Anthropic.Messages.ToolUseBlock => block.type === 'tool_use'
+            )
+
+            // Build the assistant message with all content blocks
+            allMessages.push({
+              role: 'assistant',
+              content: response.content,
+            })
+
+            // Build tool results
+            const toolResults: Anthropic.Messages.ToolResultBlockParam[] = toolUseBlocks.map((toolUse) => ({
+              type: 'tool_result' as const,
+              tool_use_id: toolUse.id,
+              content: 'Search completed',
+            }))
+
+            allMessages.push({
+              role: 'user',
+              content: toolResults as unknown as string,
+            })
+
+            // Continue the conversation
+            response = await anthropic.messages.create({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 4096,
+              system: enhancedSystem,
+              tools: tools.length > 0 ? tools : undefined,
+              messages: allMessages as Anthropic.Messages.MessageParam[],
+            })
+          }
+
+          // Extract text from final response
+          for (const block of response.content) {
+            if (block.type === 'text') {
+              // Send in chunks to simulate streaming
+              const chunkSize = 20
+              for (let i = 0; i < block.text.length; i += chunkSize) {
+                const chunk = block.text.slice(i, i + chunkSize)
+                controller.enqueue(encoder.encode(
+                  `data: ${JSON.stringify({ text: chunk })}\n\n`
+                ))
+              }
             }
           }
+
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (error) {

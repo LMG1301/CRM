@@ -4,10 +4,11 @@ import { supabase } from '@/lib/supabase'
 /**
  * Re-process existing emails in the database:
  * 1. Fix direction (sent vs received) using multi-email detection
- * 2. Create missing prospects from unlinked emails
- * 3. Create missing activities
+ * 2. Link unlinked emails to existing prospects (NO auto-creation)
+ * 3. Create missing activities for linked emails
  *
- * Run once to fix historical data, then use normal sync going forward.
+ * This endpoint does NOT create new prospects.
+ * Prospects should be manually added or come from commercial exchanges only.
  */
 
 const MY_EMAILS = [
@@ -15,9 +16,16 @@ const MY_EMAILS = [
   'louis.matar.gueye@gmail.com',
 ]
 
+const COLLEAGUE_DOMAINS = ['boostinc.com']
+
 function isMyEmail(email: string): boolean {
   const lower = email.toLowerCase().trim()
   return MY_EMAILS.some(me => lower === me.toLowerCase())
+}
+
+function isColleague(email: string): boolean {
+  const domain = email.toLowerCase().split('@')[1] || ''
+  return COLLEAGUE_DOMAINS.some(d => domain === d)
 }
 
 export async function POST(request: NextRequest) {
@@ -30,13 +38,13 @@ export async function POST(request: NextRequest) {
     const results = {
       emails_checked: 0,
       direction_fixed: 0,
-      prospects_created: 0,
       prospects_linked: 0,
       activities_created: 0,
+      skipped: 0,
       errors: [] as string[],
     }
 
-    // 1. Get all emails
+    // Get all emails
     const { data: emails, error } = await supabase
       .from('emails')
       .select('*')
@@ -63,10 +71,13 @@ export async function POST(request: NextRequest) {
 
         const contactEmail = correctDirection === 'sent' ? email.to_email : email.from_email
 
-        // Skip if contact is also me (self-emails)
-        if (isMyEmail(contactEmail)) continue
+        // Skip self-emails and colleagues
+        if (isMyEmail(contactEmail) || isColleague(contactEmail)) {
+          results.skipped++
+          continue
+        }
 
-        // Find prospect by email
+        // Only link to EXISTING prospects — no auto-creation
         let prospectId = email.prospect_id
 
         if (!prospectId) {
@@ -78,39 +89,11 @@ export async function POST(request: NextRequest) {
 
           if (existing && existing.length > 0) {
             prospectId = existing[0].id
-
-            // Link email to prospect
             await supabase
               .from('emails')
               .update({ prospect_id: prospectId })
               .eq('id', email.id)
             results.prospects_linked++
-          } else {
-            // Create prospect from email
-            const nameParts = parseContactName(email.from_email, contactEmail)
-            const { data: newProspect, error: pErr } = await supabase
-              .from('prospects')
-              .insert({
-                prenom: nameParts.prenom,
-                nom: nameParts.nom,
-                email: contactEmail,
-                source: 'Email Gmail',
-                pipeline_stage: 'ciblage',
-                date_premier_contact: new Date(email.gmail_date).toISOString().split('T')[0],
-                date_dernier_contact: new Date(email.gmail_date).toISOString().split('T')[0],
-              })
-              .select('id')
-              .single()
-
-            if (!pErr && newProspect) {
-              prospectId = newProspect.id
-              results.prospects_created++
-
-              await supabase
-                .from('emails')
-                .update({ prospect_id: prospectId })
-                .eq('id', email.id)
-            }
           }
         }
 
@@ -151,7 +134,7 @@ export async function POST(request: NextRequest) {
             if (!aErr) results.activities_created++
           }
 
-          // Update date_dernier_contact
+          // Update date_dernier_contact (only if newer)
           await supabase
             .from('prospects')
             .update({
@@ -171,22 +154,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function parseContactName(fromHeader: string, email: string): { prenom: string; nom: string } {
-  // Try to extract from email local part
-  const local = email.split('@')[0]
-  const parts = local.split(/[._-]/)
-  if (parts.length >= 2) {
-    const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
-    return { prenom: capitalize(parts[0]), nom: capitalize(parts[1]) }
-  }
-  return { prenom: local, nom: '' }
-}
-
-// Health check
 export async function GET() {
   return Response.json({
     status: 'ok',
-    description: 'Re-process existing emails: fix direction, create missing prospects, link activities',
-    usage: 'POST with x-webhook-secret header',
+    description: 'Re-process existing emails: fix direction, link to existing prospects, create activities. Does NOT create new prospects.',
   })
 }

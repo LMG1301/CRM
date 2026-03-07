@@ -23,6 +23,79 @@ function isMyEmail(email: string): boolean {
   return MY_EMAILS.some(me => lower === me.toLowerCase())
 }
 
+// Colleagues — never create prospects for these
+const COLLEAGUE_DOMAINS = [
+  'boostinc.com',
+]
+
+// Automated/noreply/spam domains — skip entirely
+const BLACKLISTED_DOMAINS = [
+  'hubspot.com', 'notifications.hubspot.com', 'info.n8n.io', 'transactional.n8n.io',
+  'google.com', 'docs.google.com', 'revolut.com', 'paypal.com', 'communications.paypal.com',
+  'clay.com', 'fleet.co', 'mg.fleet.co', 'vendlive.com', 'mailmoo.io',
+  'mailinblack.com', 'invitations.mailinblack.com',
+]
+
+// Noreply-like prefixes — skip
+const NOREPLY_PREFIXES = [
+  'noreply', 'no-reply', 'no_reply', 'donotreply', 'do-not-reply',
+  'notifications', 'updates', 'marketing', 'hello', 'info', 'news',
+  'support', 'sales', 'onboarding', 'success', 'comments-noreply',
+  'gemini-notes', 'cloudplatform-noreply', 'weeklyupdates', 'ukimarketing',
+]
+
+/**
+ * Check if an email should be skipped (not a real commercial contact)
+ */
+function shouldSkipEmail(contactEmail: string): boolean {
+  const lower = contactEmail.toLowerCase().trim()
+  const [localPart, domain] = lower.split('@')
+
+  // Skip if contact is also me
+  if (isMyEmail(contactEmail)) return true
+
+  // Skip colleague emails
+  if (COLLEAGUE_DOMAINS.some(d => domain === d || domain.endsWith('.' + d))) return true
+
+  // Skip blacklisted domains
+  if (BLACKLISTED_DOMAINS.some(d => domain === d || domain.endsWith('.' + d))) return true
+
+  // Skip noreply prefixes
+  if (NOREPLY_PREFIXES.some(p => localPart === p || localPart.startsWith(p + '+'))) return true
+
+  // Skip BCC tracking emails (e.g. 8061577@bcc.hubspot.com)
+  if (domain.includes('bcc.') || /^\d+@/.test(lower)) return true
+
+  return false
+}
+
+/**
+ * Check if email looks like a real commercial exchange (not a newsletter/pub)
+ * Only auto-creates prospects if this returns true
+ */
+function isLikelyCommercialExchange(email: IncomingEmail): boolean {
+  const text = [email.subject, email.body_preview, email.from_name].filter(Boolean).join(' ').toLowerCase()
+
+  // Check for French content indicators
+  const frenchIndicators = [
+    'bonjour', 'bonsoir', 'cordialement', 'merci', 'salut', 'cher', 'chère',
+    'madame', 'monsieur', 'je vous', 'nous vous', 'veuillez', 'suite à',
+    'concernant', 'objet', 'rdv', 'rendez-vous', 'réunion', 'proposition',
+    'devis', 'commande', 'livraison', 'facture', 'contrat', 'offre',
+    'collaboration', 'partenariat', 'distribu', 'automatique', 'café',
+    'machine', 'frigo', 'distributeur', 're:', 'tr:', 'fwd:',
+  ]
+
+  const hasFrenchContent = frenchIndicators.some(ind => text.includes(ind))
+
+  // Check for French TLD
+  const contactDomain = email.from_email.split('@')[1]?.toLowerCase() || ''
+  const isFrenchDomain = contactDomain.endsWith('.fr') || contactDomain.endsWith('.lu') ||
+    contactDomain.endsWith('.be') || contactDomain.endsWith('.mc')
+
+  return hasFrenchContent || isFrenchDomain
+}
+
 interface IncomingEmail {
   gmail_message_id: string
   gmail_thread_id?: string
@@ -60,6 +133,8 @@ export async function POST(request: NextRequest) {
       errors: [] as string[],
     }
 
+    const skipped: string[] = []
+
     for (const email of emails) {
       try {
         // Determine direction — check all user emails
@@ -67,7 +142,13 @@ export async function POST(request: NextRequest) {
         const contactEmail = direction === 'sent' ? email.to_email : email.from_email
         const contactName = direction === 'received' ? email.from_name : undefined
 
-        // 1. Upsert email
+        // *** FILTER: Skip junk, colleagues, noreply, etc. ***
+        if (shouldSkipEmail(contactEmail)) {
+          skipped.push(contactEmail)
+          continue
+        }
+
+        // 1. Upsert email (always store, even if no prospect match)
         const { error: emailError } = await supabase
           .from('emails')
           .upsert(
@@ -106,8 +187,8 @@ export async function POST(request: NextRequest) {
 
         if (existingProspects && existingProspects.length > 0) {
           prospectId = existingProspects[0].id
-        } else if (direction === 'received') {
-          // Auto-create prospect from incoming email
+        } else if (direction === 'received' && isLikelyCommercialExchange(email)) {
+          // Only auto-create prospect if it looks like a real French commercial exchange
           const nameParts = parseEmailName(contactName, contactEmail)
           const { data: newProspect, error: prospectError } = await supabase
             .from('prospects')
@@ -184,7 +265,7 @@ export async function POST(request: NextRequest) {
       triggerPipelineAnalysis().catch(() => {})
     }
 
-    return Response.json(results)
+    return Response.json({ ...results, skipped: skipped.length })
   } catch (error) {
     return Response.json(
       { error: (error as Error).message },
