@@ -44,6 +44,7 @@ export function AddActivityDialog({
     email_sent: 'Logger un email envoye',
     email_received: 'Logger un email recu',
     transcription: 'Coller une transcription',
+    linkedin_interaction: 'Logger une interaction LinkedIn',
   }
 
   const handleSave = async () => {
@@ -63,6 +64,11 @@ export function AddActivityDialog({
 
       if (type === 'call' && transcription.trim()) {
         metadata.transcription = transcription.trim()
+      }
+
+      if (type === 'linkedin_interaction' && subject.trim()) {
+        metadata.interaction_type = subject.trim()
+        metadata.source = 'linkedin'
       }
 
       await createActivity({
@@ -159,6 +165,34 @@ export function AddActivityDialog({
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   className="min-h-[150px]"
+                />
+              </div>
+            </>
+          )}
+
+          {/* LinkedIn interaction */}
+          {type === 'linkedin_interaction' && (
+            <>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
+                  Type d&apos;interaction
+                </label>
+                <Input
+                  placeholder="Ex: Message envoye, Demande de connexion, InMail, Commentaire..."
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
+                  Contenu / Notes
+                </label>
+                <Textarea
+                  placeholder="Contenu du message ou notes sur l'interaction..."
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  className="min-h-[120px]"
                 />
               </div>
             </>

@@ -1,0 +1,93 @@
+{
+  "name": "Boost CRM - Auto Follow-up Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 1, "triggerAtHour": 8 }]
+        }
+      },
+      "id": "trigger",
+      "name": "Every morning at 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/prospects?date_prochaine_action=lte.{{ new Date().toISOString().split('T')[0] }}&pipeline_stage=not.in.(client,refuse,bounced)&select=*",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_ANON_KEY}}" }
+          ]
+        }
+      },
+      "id": "fetch-due",
+      "name": "Fetch Due Prospects",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "if-any",
+      "name": "Any Due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build summary of due prospects\nconst prospects = $input.first().json;\nconst lines = prospects.map(p => {\n  const name = `${p.prenom || ''} ${p.nom || ''}`.trim() || 'Sans nom';\n  const company = p.entreprise || '';\n  const action = p.type_prochaine_action || 'Action';\n  const date = p.date_prochaine_action || '';\n  return `- ${name} (${company}) : ${action} - prevu le ${date}`;\n});\n\nconst summary = `🔔 ${prospects.length} action(s) en attente aujourd'hui :\\n\\n${lines.join('\\n')}`;\n\nreturn [{ json: { summary, count: prospects.length, prospects } }];"
+      },
+      "id": "build-summary",
+      "name": "Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, -100]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$env.MY_EMAIL}}",
+        "subject": "=Boost CRM - {{ $json.count }} action(s) du jour",
+        "emailType": "text",
+        "message": "={{ $json.summary }}"
+      },
+      "id": "send-email",
+      "name": "Send Reminder Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [880, -100],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every morning at 8h": { "main": [[{ "node": "Fetch Due Prospects", "type": "main", "index": 0 }]] },
+    "Fetch Due Prospects": { "main": [[{ "node": "Any Due?", "type": "main", "index": 0 }]] },
+    "Any Due?": { "main": [[{ "node": "Build Summary", "type": "main", "index": 0 }], []] },
+    "Build Summary": { "main": [[{ "node": "Send Reminder Email", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "boost-crm" }]
+}

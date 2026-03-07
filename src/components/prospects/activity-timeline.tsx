@@ -116,7 +116,68 @@ function ActivityEntry({ activity }: { activity: Activity }) {
               Objet : {String(activity.metadata.subject)}
             </p>
           ) : null}
+
+        {activity.type === 'meeting' && activity.metadata?.source === 'genspark' ? (
+          <MeetingNoteBlock metadata={activity.metadata} />
+        ) : null}
+
+        {activity.type === 'meeting' && activity.metadata?.action_items &&
+          Array.isArray(activity.metadata.action_items) &&
+          (activity.metadata.action_items as Array<{text: string; assignee: string | null}>).length > 0 ? (
+            <div className="mt-2 rounded-md border border-brand-accent/20 bg-brand-accent/5 px-3 py-2">
+              <p className="text-xs font-medium text-brand-accent mb-1">Actions a suivre</p>
+              {(activity.metadata.action_items as Array<{text: string; assignee: string | null}>).map((item, i) => (
+                <p key={i} className="text-xs text-muted-foreground">
+                  {item.assignee ? `${item.assignee}: ` : '- '}{item.text}
+                </p>
+              ))}
+            </div>
+          ) : null}
       </div>
+    </div>
+  )
+}
+
+function MeetingNoteBlock({ metadata }: { metadata: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false)
+  const companies = metadata.companies as string[] | undefined
+  const participants = metadata.participants as string[] | undefined
+
+  return (
+    <div className="mt-2 rounded-md border border-white/10 bg-white/5">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-foreground/80 hover:bg-white/10 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <span className="text-brand-accent">Genspark</span>
+          {metadata.meeting_title ? String(metadata.meeting_title) : 'Notes de reunion'}
+        </span>
+        {open ? (
+          <ChevronUp className="size-3.5" />
+        ) : (
+          <ChevronDown className="size-3.5" />
+        )}
+      </button>
+      {open && (
+        <div className="border-t border-white/10 px-3 py-2 space-y-2">
+          {companies && companies.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium">Entreprises:</span> {companies.join(', ')}
+            </p>
+          )}
+          {participants && participants.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium">Participants:</span> {participants.join(', ')}
+            </p>
+          )}
+          {typeof metadata.meeting_date === 'string' && (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium">Date:</span> {new Date(metadata.meeting_date).toLocaleDateString('fr-FR')}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

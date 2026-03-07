@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { getProspect, getActivities, getStages } from '@/lib/actions'
+import { getProspect, getActivities, getStages, getProspectEmails } from '@/lib/actions'
 import { ProspectDetail } from '@/components/prospects/prospect-detail'
 
 interface ProspectPageProps {
@@ -9,10 +9,11 @@ interface ProspectPageProps {
 export default async function ProspectPage({ params }: ProspectPageProps) {
   const { id } = await params
 
-  const [prospect, activities, stages] = await Promise.all([
+  const [prospect, activities, stages, emails] = await Promise.all([
     getProspect(id),
     getActivities(id),
     getStages(),
+    getProspectEmails(id).catch(() => []),
   ])
 
   if (!prospect) {
@@ -24,6 +25,7 @@ export default async function ProspectPage({ params }: ProspectPageProps) {
       prospect={prospect}
       activities={activities}
       stages={stages}
+      emails={emails}
     />
   )
 }

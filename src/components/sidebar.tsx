@@ -12,6 +12,8 @@ import {
   Menu,
   X,
   Zap,
+  Bot,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,8 @@ const navItems = [
   { label: "Prospects", href: "/prospects", icon: Users },
   { label: "Stats", href: "/stats", icon: BarChart3 },
   { label: "Import", href: "/import", icon: Upload },
+  { label: "Assistant IA", href: "/assistant", icon: Bot },
+  { label: "Parametres", href: "/settings", icon: Settings },
 ];
 
 function Logo() {

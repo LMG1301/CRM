@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
-import Link from 'next/link'
+import { useState, useMemo, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   DndContext,
   DragOverlay,
@@ -145,6 +145,8 @@ function DraggableProspectCard({
   prospect: Prospect
   stageColor: string
 }) {
+  const router = useRouter()
+  const didDrag = useRef(false)
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: prospect.id,
     data: {
@@ -153,21 +155,43 @@ function DraggableProspectCard({
     },
   })
 
+  // Track if a drag actually happened
+  if (isDragging) {
+    didDrag.current = true
+  }
+
+  const handlePointerUp = useCallback(() => {
+    // Small delay to let drag end settle first
+    requestAnimationFrame(() => {
+      if (!didDrag.current) {
+        router.push(`/prospects/${prospect.id}`)
+      }
+      didDrag.current = false
+    })
+  }, [router, prospect.id])
+
+  const handlePointerDown = useCallback(() => {
+    didDrag.current = false
+  }, [])
+
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes}>
-      <Link
-        href={`/prospects/${prospect.id}`}
-        onClick={(e) => {
-          if (isDragging) e.preventDefault()
-        }}
-        draggable={false}
-      >
-        <ProspectCardContent
-          prospect={prospect}
-          stageColor={stageColor}
-          isDragging={isDragging}
-        />
-      </Link>
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      onPointerDown={(e) => {
+        handlePointerDown()
+        // Call dnd-kit's onPointerDown
+        listeners?.onPointerDown?.(e as never)
+      }}
+      onPointerUp={handlePointerUp}
+      style={{ cursor: isDragging ? 'grabbing' : 'pointer' }}
+    >
+      <ProspectCardContent
+        prospect={prospect}
+        stageColor={stageColor}
+        isDragging={isDragging}
+      />
     </div>
   )
 }

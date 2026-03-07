@@ -17,6 +17,8 @@ import {
   Send,
   ClipboardPaste,
   CalendarClock,
+  Pencil,
+  ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -30,16 +32,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { Prospect, Activity, PipelineStage } from '@/lib/types'
+import type { Prospect, Activity, PipelineStage, Email } from '@/lib/types'
 import { updateProspect, createActivity } from '@/lib/actions'
 import { ActivityTimeline } from './activity-timeline'
 import { AddActivityDialog } from './add-activity-dialog'
 import { ScheduleAction } from './schedule-action'
+import { AIProspectPanel } from '@/components/ai/ai-prospect-panel'
+import { EmailThread } from '@/components/emails/email-thread'
+import { EditProspectDialog } from './edit-prospect-dialog'
 
 interface ProspectDetailProps {
   prospect: Prospect
   activities: Activity[]
   stages: PipelineStage[]
+  emails?: Email[]
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -107,6 +113,7 @@ export function ProspectDetail({
   prospect: initialProspect,
   activities,
   stages,
+  emails = [],
 }: ProspectDetailProps) {
   const router = useRouter()
   const [prospect, setProspect] = useState(initialProspect)
@@ -114,8 +121,9 @@ export function ProspectDetail({
   const [savingNotes, setSavingNotes] = useState(false)
   const [changingStage, setChangingStage] = useState(false)
   const [dialogType, setDialogType] = useState<
-    'note' | 'call' | 'email_sent' | 'email_received' | 'transcription' | null
+    'note' | 'call' | 'email_sent' | 'email_received' | 'transcription' | 'linkedin_interaction' | null
   >(null)
+  const [editOpen, setEditOpen] = useState(false)
 
   const currentStage = stages.find((s) => s.slug === prospect.pipeline_stage)
 
@@ -201,6 +209,31 @@ export function ProspectDetail({
             </div>
 
             <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditOpen(true)}
+              >
+                <Pencil className="size-4" />
+                Modifier
+              </Button>
+              {prospect.linkedin_url && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                >
+                  <a
+                    href={prospect.linkedin_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Linkedin className="size-4" />
+                    Profil LinkedIn
+                    <ExternalLink className="size-3" />
+                  </a>
+                </Button>
+              )}
               <Select
                 value={prospect.pipeline_stage}
                 onValueChange={handleStageChange}
@@ -282,6 +315,14 @@ export function ProspectDetail({
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setDialogType('linkedin_interaction')}
+            >
+              <Linkedin className="size-4" />
+              Logger LinkedIn
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setDialogType('transcription')}
             >
               <ClipboardPaste className="size-4" />
@@ -335,6 +376,9 @@ export function ProspectDetail({
               </CardContent>
             </Card>
 
+            {/* Email thread (from Gmail sync) */}
+            <EmailThread emails={emails} />
+
             {/* Activity timeline */}
             <Card>
               <CardHeader>
@@ -346,6 +390,9 @@ export function ProspectDetail({
                 <ActivityTimeline activities={activities} />
               </CardContent>
             </Card>
+
+            {/* AI Assistant panel */}
+            <AIProspectPanel prospect={prospect} />
           </div>
 
           {/* Right column - Contact info */}
@@ -478,6 +525,18 @@ export function ProspectDetail({
           onSave={handleActivitySaved}
         />
       )}
+
+      {/* Edit prospect dialog */}
+      <EditProspectDialog
+        prospect={prospect}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        onSave={(updated) => {
+          setProspect(updated)
+          setNotes(updated.notes || '')
+          router.refresh()
+        }}
+      />
     </div>
   )
 }

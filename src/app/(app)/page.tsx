@@ -1,15 +1,19 @@
-import { getDashboardStats, getActionsDuJour, getRecentActivities, getProspects } from '@/lib/actions'
+import { getDashboardStats, getActionsDuJour, getRecentActivities, getProspects, getIntegrations, getEmailStats } from '@/lib/actions'
 import { KpiCards } from '@/components/dashboard/kpi-cards'
 import { ActionsToday } from '@/components/dashboard/actions-today'
 import { HotProspects } from '@/components/dashboard/hot-prospects'
 import { RecentActivity } from '@/components/dashboard/recent-activity'
+import { IntegrationStatus } from '@/components/dashboard/integration-status'
+import { EmailStats } from '@/components/dashboard/email-stats'
 
 export default async function DashboardPage() {
-  const [stats, actionsDuJour, recentActivities, allProspects] = await Promise.all([
+  const [stats, actionsDuJour, recentActivities, allProspects, integrations, emailStats] = await Promise.all([
     getDashboardStats(),
     getActionsDuJour(),
     getRecentActivities(10),
     getProspects(),
+    getIntegrations().catch(() => []),
+    getEmailStats().catch(() => ({ total: 0, sent: 0, received: 0, thisWeek: 0 })),
   ])
 
   // Hot prospects: those in active discussion stages, limited to 8
@@ -53,11 +57,28 @@ export default async function DashboardPage() {
             </section>
           </div>
 
-          {/* Right column - Recent activity */}
-          <div className="lg:col-span-2">
+          {/* Right column - Activity + Integrations */}
+          <div className="space-y-8 lg:col-span-2">
             <section>
               <RecentActivity activities={recentActivities} />
             </section>
+
+            {emailStats.total > 0 && (
+              <section>
+                <EmailStats
+                  total={emailStats.total}
+                  sent={emailStats.sent}
+                  received={emailStats.received}
+                  thisWeek={emailStats.thisWeek}
+                />
+              </section>
+            )}
+
+            {integrations.length > 0 && (
+              <section>
+                <IntegrationStatus integrations={integrations} />
+              </section>
+            )}
           </div>
         </div>
       </div>

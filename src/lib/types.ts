@@ -128,6 +128,22 @@ export const INTEGRATION_ICONS: Record<IntegrationService, string> = {
   transcription: '🎙️',
 }
 
+// ─── Business Context (for AI assistant) ───
+
+export interface BusinessContext {
+  id: string
+  company_name: string
+  company_description: string
+  products: string
+  sales_methodology: string
+  tone_and_style: string
+  email_templates: string
+  linkedin_templates: string
+  additional_context: string
+  created_at: string
+  updated_at: string
+}
+
 // ─── Source colors for activity feed ───
 
 export const SOURCE_COLORS: Record<string, string> = {

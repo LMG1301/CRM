@@ -8,6 +8,9 @@ import {
   MailOpen,
   ArrowRightLeft,
   Mic,
+  Linkedin,
+  Presentation,
+  Users,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { Activity, ActivityType, Prospect } from '@/lib/types'
@@ -25,6 +28,9 @@ const ACTIVITY_ICON_MAP: Record<ActivityType, typeof FileText> = {
   email_received: MailOpen,
   status_change: ArrowRightLeft,
   transcription: Mic,
+  linkedin_interaction: Linkedin,
+  presentation: Presentation,
+  meeting: Users,
 }
 
 const ACTIVITY_COLOR_MAP: Record<ActivityType, string> = {
@@ -34,6 +40,9 @@ const ACTIVITY_COLOR_MAP: Record<ActivityType, string> = {
   email_received: 'text-indigo-400 bg-indigo-500/10',
   status_change: 'text-amber-400 bg-amber-500/10',
   transcription: 'text-purple-400 bg-purple-500/10',
+  linkedin_interaction: 'text-[#0A66C2] bg-[#0A66C2]/10',
+  presentation: 'text-orange-400 bg-orange-500/10',
+  meeting: 'text-cyan-400 bg-cyan-500/10',
 }
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
@@ -43,6 +52,9 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
   email_received: 'Email recu',
   status_change: 'Changement de statut',
   transcription: 'Transcription',
+  linkedin_interaction: 'LinkedIn',
+  presentation: 'Presentation',
+  meeting: 'Reunion',
 }
 
 function timeAgo(dateStr: string): string {

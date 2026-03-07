@@ -12,6 +12,7 @@ import {
   ChevronRight,
   MoreHorizontal,
   CheckSquare,
+  Plus,
 } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
@@ -49,6 +50,7 @@ import {
 } from '@/components/ui/dialog'
 
 import { StageBadge } from '@/components/prospects/stage-badge'
+import { AddProspectDialog } from '@/components/prospects/add-prospect-dialog'
 import { updateProspect } from '@/lib/actions'
 import type { Prospect, PipelineStage } from '@/lib/types'
 
@@ -88,6 +90,7 @@ export function ProspectsTable({ prospects, stages }: ProspectsTableProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchStageDialogOpen, setBatchStageDialogOpen] = useState(false)
   const [batchTargetStage, setBatchTargetStage] = useState('')
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
   // --- Derived: unique filter values ---
@@ -327,6 +330,10 @@ export function ProspectsTable({ prospects, stages }: ProspectsTableProps) {
           <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="size-4" />
             Exporter CSV
+          </Button>
+          <Button size="sm" onClick={() => setAddDialogOpen(true)}>
+            <Plus className="size-4" />
+            Ajouter un prospect
           </Button>
         </div>
       </div>
@@ -616,6 +623,13 @@ export function ProspectsTable({ prospects, stages }: ProspectsTableProps) {
           </div>
         </div>
       )}
+
+      {/* ─── Add prospect dialog ─── */}
+      <AddProspectDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        stages={stages}
+      />
 
       {/* ─── Batch stage change dialog ─── */}
       <Dialog open={batchStageDialogOpen} onOpenChange={setBatchStageDialogOpen}>

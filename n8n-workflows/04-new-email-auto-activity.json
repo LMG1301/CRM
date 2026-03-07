@@ -1,0 +1,162 @@
+{
+  "name": "Boost CRM - New Email Auto Activity",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute" }]
+        },
+        "filters": {}
+      },
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger - New Email",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $input.first().json;\nconst MY_EMAIL = 'louis.matar.gueye@gmail.com';\n\n// n8n Gmail trigger returns resolved fields at top level\nconst fromRaw = msg.from || msg.From || '';\nconst toRaw = msg.to || msg.To || '';\nconst subject = msg.subject || msg.Subject || '(Sans objet)';\n\n// Also check payload.headers as fallback\nconst headers = msg.payload?.headers || [];\nconst getHeader = (name) => {\n  const h = headers.find(h => h.name?.toLowerCase() === name.toLowerCase());\n  return h ? h.value : '';\n};\n\nconst fromFinal = fromRaw || getHeader('From');\nconst toFinal = toRaw || getHeader('To');\nconst subjectFinal = subject || getHeader('Subject') || '(Sans objet)';\n\n// Extract email from \"Name <email>\" format\nconst fromMatch = fromFinal.match(/<(.+?)>/);\nconst toMatch = toFinal.match(/<(.+?)>/);\nconst from = fromMatch ? fromMatch[1] : fromFinal;\nconst to = toMatch ? toMatch[1] : toFinal;\n\nconst direction = from.toLowerCase().includes(MY_EMAIL.toLowerCase()) ? 'sent' : 'received';\nconst contactEmail = direction === 'sent' ? to : from;\n\n// Labels: handle both string array and object array\nconst rawLabels = msg.labelIds || msg.labels || [];\nconst labels = rawLabels.map(l => typeof l === 'object' ? l.id || l.name : l);\n\nreturn [{\n  json: {\n    email_data: {\n      gmail_message_id: msg.id,\n      gmail_thread_id: msg.threadId,\n      subject: subjectFinal,\n      from_email: from,\n      to_email: to,\n      body_preview: (msg.snippet || '').substring(0, 500),\n      direction,\n      labels: labels,\n      is_read: !labels.includes('UNREAD'),\n      gmail_date: msg.date ? new Date(msg.date).toISOString() : new Date(parseInt(msg.internalDate || Date.now())).toISOString()\n    },\n    contact_email: contactEmail,\n    direction,\n    subject: subjectFinal\n  }\n}];"
+      },
+      "id": "parse-email",
+      "name": "Parse Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://qbypfqpwrrtzntxgouww.supabase.co/rest/v1/prospects?or=(email.eq.{{ $json.contact_email }},email_pro.eq.{{ $json.contact_email }})&limit=1",
+        "authentication": "noAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Authorization", "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" }
+          ]
+        }
+      },
+      "id": "find-prospect",
+      "name": "Find Prospect by Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prospects = $input.first().json;\nconst emailData = $('Parse Email').first().json;\n\nconst results = [];\n\n// 1. Always upsert the email\nresults.push({\n  json: {\n    action: 'upsert_email',\n    data: emailData.email_data\n  }\n});\n\n// 2. If prospect found, create activity\nif (Array.isArray(prospects) && prospects.length > 0) {\n  const prospect = prospects[0];\n  const type = emailData.direction === 'sent' ? 'email_sent' : 'email_received';\n  results.push({\n    json: {\n      action: 'create_activity',\n      data: {\n        prospect_id: prospect.id,\n        type: type,\n        content: emailData.subject,\n        metadata: {\n          source: 'gmail_sync',\n          gmail_message_id: emailData.email_data.gmail_message_id,\n          from: emailData.email_data.from_email,\n          to: emailData.email_data.to_email,\n          subject: emailData.subject\n        }\n      }\n    }\n  });\n  \n  // 3. Update prospect last contact date\n  results.push({\n    json: {\n      action: 'update_prospect',\n      prospect_id: prospect.id,\n      data: {\n        date_dernier_contact: new Date().toISOString().split('T')[0]\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "build-actions",
+      "name": "Build Actions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "upsert_email",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "route-email",
+      "name": "Is Email Upsert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://qbypfqpwrrtzntxgouww.supabase.co/rest/v1/emails?on_conflict=gmail_message_id",
+        "authentication": "noAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Authorization", "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.data) }}"
+      },
+      "id": "upsert-email",
+      "name": "Supabase - Upsert Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://qbypfqpwrrtzntxgouww.supabase.co/rest/v1/activities",
+        "authentication": "noAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Authorization", "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.data) }}"
+      },
+      "id": "create-activity",
+      "name": "Supabase - Create Activity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 100]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://qbypfqpwrrtzntxgouww.supabase.co/rest/v1/prospects?id=eq.{{ $json.prospect_id }}",
+        "authentication": "noAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Authorization", "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.data) }}"
+      },
+      "id": "update-prospect",
+      "name": "Supabase - Update Prospect",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300]
+    }
+  ],
+  "connections": {
+    "Gmail Trigger - New Email": { "main": [[{ "node": "Parse Email", "type": "main", "index": 0 }]] },
+    "Parse Email": { "main": [[{ "node": "Find Prospect by Email", "type": "main", "index": 0 }]] },
+    "Find Prospect by Email": { "main": [[{ "node": "Build Actions", "type": "main", "index": 0 }]] },
+    "Build Actions": { "main": [[{ "node": "Is Email Upsert?", "type": "main", "index": 0 }]] },
+    "Is Email Upsert?": { "main": [[{ "node": "Supabase - Upsert Email", "type": "main", "index": 0 }], [{ "node": "Supabase - Create Activity", "type": "main", "index": 0 }, { "node": "Supabase - Update Prospect", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "boost-crm" }]
+}

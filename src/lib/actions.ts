@@ -1,7 +1,7 @@
 'use server'
 
 import { supabase } from './supabase'
-import type { Prospect, Activity, PipelineStage } from './types'
+import type { Prospect, Activity, PipelineStage, Email, Integration, BusinessContext } from './types'
 
 // ─── Pipeline Stages ───
 
@@ -113,6 +113,71 @@ export async function createActivity(
   return data
 }
 
+// ─── Emails (synced via n8n from Gmail) ───
+
+export async function getProspectEmails(prospectId: string): Promise<Email[]> {
+  const { data, error } = await supabase
+    .from('emails')
+    .select('*')
+    .eq('prospect_id', prospectId)
+    .order('gmail_date', { ascending: false })
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+export async function getRecentEmails(limit = 10): Promise<Email[]> {
+  const { data, error } = await supabase
+    .from('emails')
+    .select('*')
+    .order('gmail_date', { ascending: false })
+    .limit(limit)
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+export async function getEmailStats() {
+  const { data: emails } = await supabase
+    .from('emails')
+    .select('direction, gmail_date')
+
+  const all = emails || []
+  const total = all.length
+  const sent = all.filter(e => e.direction === 'sent').length
+  const received = all.filter(e => e.direction === 'received').length
+
+  // Emails this week
+  const weekAgo = new Date()
+  weekAgo.setDate(weekAgo.getDate() - 7)
+  const thisWeek = all.filter(e => new Date(e.gmail_date) >= weekAgo).length
+
+  return { total, sent, received, thisWeek }
+}
+
+// ─── Integrations ───
+
+export async function getIntegrations(): Promise<Integration[]> {
+  const { data, error } = await supabase
+    .from('integrations')
+    .select('*')
+    .order('service')
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+export async function updateIntegration(
+  service: string,
+  updates: Partial<Integration>
+): Promise<Integration> {
+  const { data, error } = await supabase
+    .from('integrations')
+    .update(updates)
+    .eq('service', service)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return data
+}
+
 // ─── Dashboard Stats ───
 
 export async function getDashboardStats() {
@@ -195,4 +260,58 @@ export async function bulkImportProspects(
   }
 
   return { inserted, errors }
+}
+
+// ─── Knowledge Documents (synced from Google Drive) ───
+
+export async function getKnowledgeDocuments(): Promise<Array<{
+  id: string
+  name: string
+  content: string
+  folder_path: string | null
+  mime_type: string | null
+}>> {
+  const { data, error } = await supabase
+    .from('knowledge_documents')
+    .select('id, name, content, folder_path, mime_type')
+    .order('name')
+  if (error) return []
+  return data || []
+}
+
+// ─── Business Context (for AI prompts) ───
+
+export async function getBusinessContext(): Promise<BusinessContext | null> {
+  const { data, error } = await supabase
+    .from('business_context')
+    .select('*')
+    .limit(1)
+    .single()
+  if (error) return null
+  return data
+}
+
+export async function updateBusinessContext(
+  updates: Partial<BusinessContext>
+): Promise<BusinessContext> {
+  // Get existing row first
+  const existing = await getBusinessContext()
+  if (existing) {
+    const { data, error } = await supabase
+      .from('business_context')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', existing.id)
+      .select()
+      .single()
+    if (error) throw new Error(error.message)
+    return data
+  }
+  // No row exists — insert
+  const { data, error } = await supabase
+    .from('business_context')
+    .insert(updates)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return data
 }
