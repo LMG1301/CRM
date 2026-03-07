@@ -4,7 +4,7 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Allow login page, auth API, and webhooks/AI API (they have their own auth)
-  if (pathname === '/login' || pathname.startsWith('/api/auth') || pathname.startsWith('/api/webhooks') || pathname.startsWith('/api/ai')) {
+  if (pathname === '/login' || pathname.startsWith('/api/auth') || pathname.startsWith('/api/webhooks') || pathname.startsWith('/api/ai') || pathname.startsWith('/api/gmail/oauth')) {
     return NextResponse.next()
   }
 

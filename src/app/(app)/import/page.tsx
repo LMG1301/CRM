@@ -769,42 +769,46 @@ export default function ImportPage() {
 // ─── Gmail Import Section ───
 
 function GmailImportSection() {
-  const [accessToken, setAccessToken] = useState('')
   const [afterDate, setAfterDate] = useState('2023/01/01')
   const [beforeDate, setBeforeDate] = useState('')
   const [maxResults, setMaxResults] = useState('500')
   const [importing, setImporting] = useState(false)
   const [gmailResult, setGmailResult] = useState<Record<string, unknown> | null>(null)
   const [gmailError, setGmailError] = useState('')
+  const [needOAuth, setNeedOAuth] = useState(false)
+  const [showManual, setShowManual] = useState(false)
+  const [manualToken, setManualToken] = useState('')
 
-  const handleGmailImport = async () => {
-    if (!accessToken.trim()) {
-      setGmailError('Le token OAuth est requis')
-      return
-    }
-
+  const handleGmailImport = async (manualAccessToken?: string) => {
     setImporting(true)
     setGmailResult(null)
     setGmailError('')
+    setNeedOAuth(false)
 
     try {
+      const body: Record<string, unknown> = {
+        after: afterDate || undefined,
+        before: beforeDate || undefined,
+        max_results: parseInt(maxResults) || 500,
+      }
+      if (manualAccessToken) {
+        body.access_token = manualAccessToken
+      }
+
       const res = await fetch('/api/gmail/import', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // Auth is handled via crm_auth cookie (httpOnly, set at login)
-        },
-        body: JSON.stringify({
-          access_token: accessToken.trim(),
-          after: afterDate || undefined,
-          before: beforeDate || undefined,
-          max_results: parseInt(maxResults) || 500,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       })
 
       const data = await res.json()
       if (!res.ok) {
-        setGmailError(data.error + (data.hint ? `\n${data.hint}` : ''))
+        if (data.need_oauth) {
+          setNeedOAuth(true)
+          setGmailError('Gmail non connecte. Cliquez sur "Connecter Gmail" ou collez un token manuellement.')
+        } else {
+          setGmailError(data.error + (data.hint ? `\n${data.hint}` : ''))
+        }
         return
       }
 
@@ -820,43 +824,17 @@ function GmailImportSection() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <span className="text-lg">✉️</span>
           Synchroniser les emails Gmail
         </CardTitle>
         <CardDescription>
-          Importez vos anciens emails directement depuis Gmail. Les emails seront lies aux prospects existants.
+          Importez vos emails directement depuis Gmail. Ils seront automatiquement lies aux prospects existants.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Instructions */}
-        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 text-sm space-y-2">
-          <p className="font-medium text-blue-400">Comment obtenir un token OAuth :</p>
-          <ol className="list-decimal list-inside space-y-1 text-muted-foreground text-xs">
-            <li>Allez sur <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">OAuth Playground</a></li>
-            <li>Dans la liste, selectionnez <strong>Gmail API v1</strong> → <code className="bg-muted px-1 rounded">https://www.googleapis.com/auth/gmail.readonly</code></li>
-            <li>Cliquez <strong>Authorize APIs</strong> et connectez votre compte Gmail</li>
-            <li>Cliquez <strong>Exchange authorization code for tokens</strong></li>
-            <li>Copiez le <strong>Access token</strong> et collez-le ci-dessous</li>
-          </ol>
-          <p className="text-xs text-muted-foreground/70">
-            Le token expire apres 1 heure. Vous pouvez en generer un nouveau a tout moment.
-          </p>
-        </div>
-
-        {/* Form */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <label className="mb-1.5 block text-sm font-medium">Access Token OAuth</label>
-            <input
-              type="password"
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
-              placeholder="ya29.a0AfH6SM..."
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
+        {/* Date filters */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
-            <label className="mb-1.5 block text-sm font-medium">Emails depuis (YYYY/MM/DD)</label>
+            <label className="mb-1.5 block text-sm font-medium">Emails depuis</label>
             <input
               type="text"
               value={afterDate}
@@ -866,7 +844,7 @@ function GmailImportSection() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium">Emails jusqu&apos;au (optionnel)</label>
+            <label className="mb-1.5 block text-sm font-medium">Jusqu&apos;au (optionnel)</label>
             <input
               type="text"
               value={beforeDate}
@@ -876,7 +854,7 @@ function GmailImportSection() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium">Nombre max d&apos;emails</label>
+            <label className="mb-1.5 block text-sm font-medium">Nombre max</label>
             <Select value={maxResults} onValueChange={setMaxResults}>
               <SelectTrigger>
                 <SelectValue />
@@ -885,34 +863,87 @@ function GmailImportSection() {
                 <SelectItem value="100">100</SelectItem>
                 <SelectItem value="250">250</SelectItem>
                 <SelectItem value="500">500</SelectItem>
-                <SelectItem value="1000">1000</SelectItem>
-                <SelectItem value="2000">2000</SelectItem>
+                <SelectItem value="1000">1 000</SelectItem>
+                <SelectItem value="2000">2 000</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
 
-        {/* Import button */}
-        <Button
-          onClick={handleGmailImport}
-          disabled={importing || !accessToken.trim()}
-          className="w-full gap-2"
-        >
-          {importing ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Import en cours... (peut prendre quelques minutes)
-            </>
-          ) : (
-            <>
-              <Upload className="h-4 w-4" />
-              Lancer la synchronisation Gmail
-            </>
-          )}
-        </Button>
+        {/* Main action buttons */}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            onClick={() => handleGmailImport()}
+            disabled={importing}
+            className="flex-1 gap-2"
+          >
+            {importing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Import en cours... (quelques minutes)
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4" />
+                Lancer la synchronisation
+              </>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => window.location.href = '/api/gmail/oauth/authorize'}
+            className="gap-2"
+          >
+            Connecter Gmail
+          </Button>
+        </div>
+
+        {/* Manual token fallback */}
+        {(needOAuth || showManual) && (
+          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-blue-400">Token manuel (si OAuth non configure)</p>
+              {!needOAuth && (
+                <button onClick={() => setShowManual(false)} className="text-xs text-muted-foreground hover:text-foreground">
+                  Fermer
+                </button>
+              )}
+            </div>
+            <ol className="list-decimal list-inside space-y-1 text-muted-foreground text-xs">
+              <li>Allez sur <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">OAuth Playground</a></li>
+              <li>Selectionnez <strong>Gmail API v1</strong> → <code className="bg-muted px-1 rounded text-[11px]">gmail.readonly</code></li>
+              <li>Authorize → Exchange → Copiez le <strong>Access token</strong></li>
+            </ol>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={manualToken}
+                onChange={(e) => setManualToken(e.target.value)}
+                placeholder="ya29.a0AfH6SM..."
+                className="flex h-9 flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <Button
+                size="sm"
+                onClick={() => handleGmailImport(manualToken.trim())}
+                disabled={importing || !manualToken.trim()}
+              >
+                Importer
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {!showManual && !needOAuth && (
+          <button
+            onClick={() => setShowManual(true)}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            Utiliser un token manuel
+          </button>
+        )}
 
         {/* Error */}
-        {gmailError && (
+        {gmailError && !needOAuth && (
           <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <p className="whitespace-pre-wrap">{gmailError}</p>

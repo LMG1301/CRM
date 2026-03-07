@@ -5,13 +5,46 @@ import { supabase } from '@/lib/supabase'
  * Gmail Import — fetches ALL emails directly via Gmail REST API
  * and pushes them through the same processing pipeline as the webhook.
  *
- * Auth: CRM_PASSWORD in Authorization header
- * Body: { access_token: string, after?: string (YYYY/MM/DD), before?: string, max_results?: number }
+ * Auth: CRM cookie or Bearer token
+ * Body: { access_token?: string, after?: string (YYYY/MM/DD), before?: string, max_results?: number }
  *
- * The access_token must be a valid Google OAuth token with gmail.readonly scope.
- * Get one from: https://developers.google.com/oauthplayground
- * (select Gmail API v1 > gmail.readonly, then authorize)
+ * If no access_token in body, tries to use OAuth cookies (gmail_access_token / gmail_refresh_token).
  */
+
+async function getAccessToken(req: NextRequest): Promise<string | null> {
+  // 1. Check body (manual token)
+  // This will be checked in the POST handler
+
+  // 2. Check cookie for cached access token
+  const cachedToken = req.cookies.get('gmail_access_token')?.value
+  if (cachedToken) return cachedToken
+
+  // 3. Try refresh token
+  const refreshToken = req.cookies.get('gmail_refresh_token')?.value
+  if (!refreshToken) return null
+
+  const clientId = process.env.GOOGLE_CLIENT_ID
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+  if (!clientId || !clientSecret) return null
+
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    })
+    const data = await res.json()
+    if (data.access_token) return data.access_token
+  } catch {
+    // Refresh failed
+  }
+  return null
+}
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
@@ -139,15 +172,20 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { access_token, after, before, max_results } = body as {
-      access_token: string
+    const { after, before, max_results } = body as {
+      access_token?: string
       after?: string
       before?: string
       max_results?: number
     }
 
+    // Get access token: from body (manual), from cookie, or via refresh
+    const access_token = body.access_token || await getAccessToken(req)
     if (!access_token) {
-      return NextResponse.json({ error: 'access_token requis' }, { status: 400 })
+      return NextResponse.json({
+        error: 'Gmail non connecte. Cliquez sur "Connecter Gmail" pour autoriser l\'acces.',
+        need_oauth: true,
+      }, { status: 401 })
     }
 
     // Build Gmail search query
