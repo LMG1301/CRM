@@ -75,35 +75,57 @@ export function AddActivityDialog({
         metadata.source = 'linkedin'
       }
 
-      // Auto-summarize long transcriptions
-      if (type === 'transcription' && finalContent.length > 1000) {
-        setSummarizing(true)
-        try {
-          const res = await fetch('/api/ai/summarize', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transcript: finalContent }),
-          })
-          if (res.ok) {
-            const { summary } = await res.json()
-            if (summary) {
-              metadata.full_transcript = finalContent
-              finalContent = summary
-            }
-          }
-        } catch {
-          // If summarization fails, keep original content
-        } finally {
-          setSummarizing(false)
-        }
-      }
+      // Transcriptions: use API route to bypass server action size limits
+      if (type === 'transcription') {
+        let summaryContent = finalContent
+        const transcriptMetadata: Record<string, unknown> = { ...metadata }
 
-      await createActivity({
-        prospect_id: prospectId,
-        type,
-        content: finalContent,
-        metadata,
-      })
+        // Auto-summarize long transcriptions
+        if (finalContent.length > 1000) {
+          setSummarizing(true)
+          try {
+            const res = await fetch('/api/ai/summarize', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ transcript: finalContent }),
+            })
+            if (res.ok) {
+              const { summary } = await res.json()
+              if (summary) {
+                transcriptMetadata.full_transcript = finalContent
+                summaryContent = summary
+              }
+            }
+          } catch {
+            // If summarization fails, keep original content
+          } finally {
+            setSummarizing(false)
+          }
+        }
+
+        // Save via API route (no server action size limit)
+        const saveRes = await fetch('/api/activities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prospect_id: prospectId,
+            type,
+            content: summaryContent,
+            metadata: transcriptMetadata,
+          }),
+        })
+        if (!saveRes.ok) {
+          const err = await saveRes.json()
+          throw new Error(err.error || 'Erreur sauvegarde transcription')
+        }
+      } else {
+        await createActivity({
+          prospect_id: prospectId,
+          type,
+          content: finalContent,
+          metadata,
+        })
+      }
 
       setContent('')
       setSubject('')

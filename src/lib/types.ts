@@ -19,6 +19,7 @@ export interface Prospect {
   telephone: string
   localisation: string
   linkedin_url: string
+  site_web: string
   pays: string
   source: string
   pipeline_stage: string

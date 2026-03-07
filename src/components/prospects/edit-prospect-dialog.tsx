@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Search, Sparkles, Loader2 } from 'lucide-react'
 import { updateProspect } from '@/lib/actions'
 import type { Prospect } from '@/lib/types'
 
@@ -36,6 +37,7 @@ const FIELD_GROUPS = [
       { key: 'prenom', label: 'Prenom', placeholder: 'Jean' },
       { key: 'nom', label: 'Nom', placeholder: 'Dupont' },
       { key: 'entreprise', label: 'Entreprise', placeholder: 'Acme Inc.' },
+      { key: 'site_web', label: 'Site web', placeholder: 'https://www.acme.com', type: 'url' },
       { key: 'fonction', label: 'Fonction / Poste', placeholder: 'Directeur commercial' },
     ],
   },
@@ -89,9 +91,70 @@ export function EditProspectDialog({
     return initial
   })
   const [saving, setSaving] = useState(false)
+  const [enriching, setEnriching] = useState(false)
+  const [enrichResult, setEnrichResult] = useState<string | null>(null)
 
   const handleChange = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleEnrich = async () => {
+    setEnriching(true)
+    setEnrichResult(null)
+    try {
+      const res = await fetch('/api/ai/enrich-prospect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prenom: form.prenom,
+          nom: form.nom,
+          entreprise: form.entreprise,
+          fonction: form.fonction,
+          email: form.email,
+          linkedin_url: form.linkedin_url,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setEnrichResult(json.error || 'Erreur')
+        return
+      }
+
+      const data = json.data as Record<string, string>
+      if (!data || Object.keys(data).length === 0) {
+        setEnrichResult('Aucune info trouvee')
+        return
+      }
+
+      // Only fill empty fields (don't overwrite existing values)
+      const enrichableFields = [
+        'prenom', 'nom', 'entreprise', 'fonction',
+        'email', 'email_pro', 'telephone', 'linkedin_url',
+        'site_web', 'localisation', 'pays',
+      ]
+      let filled = 0
+      setForm((prev) => {
+        const updated = { ...prev }
+        for (const key of enrichableFields) {
+          if (data[key] && !prev[key]) {
+            updated[key] = data[key]
+            filled++
+          }
+        }
+        return updated
+      })
+
+      const sourceInfo = data.source_info || ''
+      setEnrichResult(
+        filled > 0
+          ? `${filled} champ${filled > 1 ? 's' : ''} rempli${filled > 1 ? 's' : ''}${sourceInfo ? ` — ${sourceInfo}` : ''}`
+          : `Tous les champs sont deja remplis${sourceInfo ? ` — ${sourceInfo}` : ''}`
+      )
+    } catch (err) {
+      setEnrichResult('Erreur de connexion')
+    } finally {
+      setEnriching(false)
+    }
   }
 
   const handleSave = async () => {
@@ -131,6 +194,35 @@ export function EditProspectDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* Auto-enrich button */}
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleEnrich}
+            disabled={enriching || (!form.nom && !form.entreprise)}
+            className="w-full border-brand-accent/30 text-brand-accent hover:bg-brand-accent/10"
+          >
+            {enriching ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Recherche en cours...
+              </>
+            ) : (
+              <>
+                <Sparkles className="size-4" />
+                Remplir automatiquement
+                <Search className="size-3.5 ml-1 opacity-60" />
+              </>
+            )}
+          </Button>
+          {enrichResult && (
+            <p className="text-xs text-muted-foreground text-center px-2">
+              {enrichResult}
+            </p>
+          )}
+        </div>
+
         <div className="space-y-6 py-2">
           {FIELD_GROUPS.map((group) => (
             <div key={group.title}>
@@ -142,7 +234,7 @@ export function EditProspectDialog({
                   <div
                     key={field.key}
                     className={
-                      field.key === 'linkedin_url' || field.key === 'entreprise' || field.key === 'fonction' || field.key === 'source'
+                      field.key === 'linkedin_url' || field.key === 'entreprise' || field.key === 'site_web' || field.key === 'fonction' || field.key === 'source'
                         ? 'col-span-2'
                         : ''
                     }

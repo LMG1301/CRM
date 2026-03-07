@@ -19,6 +19,8 @@ import {
   CalendarClock,
   Pencil,
   ExternalLink,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -125,6 +127,7 @@ export function ProspectDetail({
     'note' | 'call' | 'email_sent' | 'email_received' | 'transcription' | 'linkedin_interaction' | null
   >(null)
   const [editOpen, setEditOpen] = useState(false)
+  const [notesExpanded, setNotesExpanded] = useState(!!initialProspect.notes)
 
   const currentStage = stages.find((s) => s.slug === prospect.pipeline_stage)
 
@@ -335,10 +338,15 @@ export function ProspectDetail({
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Left column */}
           <div className="space-y-6 lg:col-span-2">
-            {/* Notes section */}
+            {/* Notes section — collapsible */}
             <Card>
-              <CardHeader>
+              <CardHeader className="cursor-pointer" onClick={() => setNotesExpanded(!notesExpanded)}>
                 <CardTitle className="flex items-center gap-2 text-base">
+                  {notesExpanded ? (
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="size-4 text-muted-foreground" />
+                  )}
                   <StickyNote className="size-4" />
                   Notes
                   {savingNotes && (
@@ -346,17 +354,24 @@ export function ProspectDetail({
                       Sauvegarde...
                     </span>
                   )}
+                  {!notesExpanded && notes && (
+                    <span className="text-xs font-normal text-muted-foreground truncate max-w-[300px]">
+                      — {notes.slice(0, 80)}{notes.length > 80 ? '...' : ''}
+                    </span>
+                  )}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <Textarea
-                  placeholder="Ajouter des notes sur ce prospect..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  onBlur={handleNotesBlur}
-                  className="min-h-[120px] resize-y"
-                />
-              </CardContent>
+              {notesExpanded && (
+                <CardContent>
+                  <Textarea
+                    placeholder="Ajouter des notes sur ce prospect..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    onBlur={handleNotesBlur}
+                    className="min-h-[120px] resize-y"
+                  />
+                </CardContent>
+              )}
             </Card>
 
             {/* Prochaine action */}
@@ -437,6 +452,14 @@ export function ProspectDetail({
                   label="LinkedIn"
                   value={prospect.linkedin_url}
                   href={prospect.linkedin_url || undefined}
+                  external
+                />
+                <Separator />
+                <ContactRow
+                  icon={Globe}
+                  label="Site web"
+                  value={prospect.site_web}
+                  href={prospect.site_web || undefined}
                   external
                 />
                 <Separator />

@@ -16,52 +16,50 @@ import {
   type DragOverEvent,
 } from '@dnd-kit/core'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { PipelineStage, Prospect } from '@/lib/types'
-import { updateProspect } from '@/lib/actions'
-import { Building2, Clock, GripVertical } from 'lucide-react'
+import { updateProspect, deleteProspect } from '@/lib/actions'
+import { Building2, Clock, GripVertical, Trash2 } from 'lucide-react'
 
 // ─── Business Type Filter ───
 
-type BusinessType = 'all' | 'da_france' | 'partenariats_food' | 'services' | 'international'
+type BusinessType = 'all' | 'france' | 'belgique' | 'services'
 
 const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   all: 'Tous',
-  da_france: 'DA France',
-  partenariats_food: 'Partenariats Food',
+  france: 'France',
+  belgique: 'Belgique',
   services: 'Services',
-  international: 'International',
 }
 
-// Food brand partners
-const FOOD_PARTNERS = [
-  'sodeb', 'bofrost', 'boosting', 'sodeboost', 'picard', 'fleury michon',
-  'daunat', 'bonduelle', 'herta', 'labeyrie', 'charal',
+// Belgium indicators
+const BELGIQUE_INDICATORS = [
+  'belgium', 'belgique', 'belgie', 'bruxelles', 'brussels', 'liege',
+  'antwerp', 'gent', 'charleroi', '.be', 'luxembourg', '.lu',
 ]
 
-// International indicators
-const INTERNATIONAL_INDICATORS = [
-  'switzerland', 'suisse', 'schweiz', 'uk', 'united kingdom', 'germany',
-  'deutschland', 'spain', 'italia', 'belgium', 'belgique',
+// Services indicators (Boost services + food brand partners)
+const SERVICES_INDICATORS = [
+  'sodeb', 'bofrost', 'boosting', 'sodeboost', 'picard', 'fleury michon',
+  'daunat', 'bonduelle', 'herta', 'labeyrie', 'charal', 'shape-eat',
 ]
 
 function getBusinessType(prospect: Prospect): BusinessType {
   const company = (prospect.entreprise || '').toLowerCase()
   const country = (prospect.pays || '').toLowerCase()
   const location = (prospect.localisation || '').toLowerCase()
+  const email = (prospect.email || '').toLowerCase()
 
-  // Food partners
-  if (FOOD_PARTNERS.some(fp => company.includes(fp))) return 'partenariats_food'
-
-  // International
-  if (country && !['france', 'fr', ''].includes(country)) return 'international'
-  if (INTERNATIONAL_INDICATORS.some(ind => location.includes(ind) || company.includes(ind))) return 'international'
-
-  // Services (Boost inc Services related)
+  // Services (food partners + Boost services)
+  if (SERVICES_INDICATORS.some(s => company.includes(s))) return 'services'
   if (company.includes('boost') && company.includes('service')) return 'services'
 
-  // Default: DA France
-  return 'da_france'
+  // Belgique
+  if (BELGIQUE_INDICATORS.some(ind => country.includes(ind) || location.includes(ind) || company.includes(ind) || email.includes(ind))) return 'belgique'
+
+  // Default: France
+  return 'france'
 }
 
 // ─── Types ───
@@ -103,6 +101,8 @@ interface ProspectCardContentProps {
   stageColor: string
   isDragging?: boolean
   isOverlay?: boolean
+  onDelete?: (id: string) => void
+  showDelete?: boolean
 }
 
 function ProspectCardContent({
@@ -110,6 +110,8 @@ function ProspectCardContent({
   stageColor,
   isDragging,
   isOverlay,
+  onDelete,
+  showDelete,
 }: ProspectCardContentProps) {
   const days = daysSince(prospect.date_dernier_contact)
   const daysText = formatDaysSince(days)
@@ -146,7 +148,22 @@ function ProspectCardContent({
             <p className="truncate text-sm font-medium text-white">
               {prospect.prenom} {prospect.nom}
             </p>
-            <GripVertical className="h-3.5 w-3.5 shrink-0 text-white/25 opacity-0 transition-opacity group-hover:opacity-100" />
+            <div className="flex items-center gap-1">
+              {showDelete && onDelete && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    onDelete(prospect.id)
+                  }}
+                  className="shrink-0 rounded p-0.5 text-white/20 opacity-0 transition-all hover:bg-red-500/20 hover:text-red-400 group-hover:opacity-100"
+                  title="Supprimer"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <GripVertical className="h-3.5 w-3.5 shrink-0 text-white/25 opacity-0 transition-opacity group-hover:opacity-100" />
+            </div>
           </div>
 
           {prospect.entreprise && (
@@ -184,9 +201,13 @@ function ProspectCardContent({
 function DraggableProspectCard({
   prospect,
   stageColor,
+  onDelete,
+  showDelete,
 }: {
   prospect: Prospect
   stageColor: string
+  onDelete?: (id: string) => void
+  showDelete?: boolean
 }) {
   const router = useRouter()
   const didDrag = useRef(false)
@@ -234,6 +255,8 @@ function DraggableProspectCard({
         prospect={prospect}
         stageColor={stageColor}
         isDragging={isDragging}
+        onDelete={onDelete}
+        showDelete={showDelete}
       />
     </div>
   )
@@ -245,9 +268,11 @@ interface StageColumnProps {
   stage: PipelineStage
   prospects: Prospect[]
   isOver: boolean
+  onDelete?: (id: string) => void
+  showDelete?: boolean
 }
 
-function StageColumn({ stage, prospects, isOver }: StageColumnProps) {
+function StageColumn({ stage, prospects, isOver, onDelete, showDelete }: StageColumnProps) {
   const { setNodeRef } = useDroppable({
     id: `column-${stage.slug}`,
     data: {
@@ -298,6 +323,8 @@ function StageColumn({ stage, prospects, isOver }: StageColumnProps) {
               key={prospect.id}
               prospect={prospect}
               stageColor={stage.color}
+              onDelete={onDelete}
+              showDelete={showDelete}
             />
           ))
         )}
@@ -319,9 +346,11 @@ interface MobileStageSectionProps {
   stage: PipelineStage
   prospects: Prospect[]
   isOver: boolean
+  onDelete?: (id: string) => void
+  showDelete?: boolean
 }
 
-function MobileStageSection({ stage, prospects, isOver }: MobileStageSectionProps) {
+function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete }: MobileStageSectionProps) {
   const [isExpanded, setIsExpanded] = useState(
     prospects.length > 0 && prospects.length <= 10
   )
@@ -395,6 +424,8 @@ function MobileStageSection({ stage, prospects, isOver }: MobileStageSectionProp
                 key={prospect.id}
                 prospect={prospect}
                 stageColor={stage.color}
+                onDelete={onDelete}
+                showDelete={showDelete}
               />
             ))
           )}
@@ -542,6 +573,24 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
     [prospects, findColumnSlug]
   )
 
+  const handleDeleteProspect = useCallback(async (prospectId: string) => {
+    const prospect = prospects.find(p => p.id === prospectId)
+    if (!prospect) return
+    const name = [prospect.prenom, prospect.nom].filter(Boolean).join(' ') || prospect.entreprise || 'ce prospect'
+    if (!window.confirm(`Supprimer ${name} du pipeline ?`)) return
+
+    // Optimistic removal
+    setProspects(prev => prev.filter(p => p.id !== prospectId))
+
+    try {
+      await deleteProspect(prospectId)
+    } catch (error) {
+      console.error('Failed to delete prospect:', error)
+      // Revert on failure
+      setProspects(prev => [...prev, prospect])
+    }
+  }, [prospects])
+
   const handleDragCancel = useCallback(() => {
     setActiveProspect(null)
     setOverId(null)
@@ -601,6 +650,8 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
                 stage={stage}
                 prospects={prospectsByStage[stage.slug] || []}
                 isOver={overId === `column-${stage.slug}`}
+                onDelete={handleDeleteProspect}
+                showDelete
               />
             ))}
           </div>
@@ -614,6 +665,8 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
               stage={stage}
               prospects={prospectsByStage[stage.slug] || []}
               isOver={overId === `column-${stage.slug}`}
+              onDelete={handleDeleteProspect}
+              showDelete
             />
           ))}
         </div>

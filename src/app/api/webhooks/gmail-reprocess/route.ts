@@ -178,27 +178,15 @@ export async function GET() {
 // ─── Auto-progression logic ───
 
 const STAGE_ORDER: Record<string, number> = {
-  ciblage: 1,
-  touch_1: 2,
-  touch_2: 3,
-  touch_3: 4,
-  nurturing: 5,
-  repondu: 6,
-  call_decouverte: 7,
-  devis: 8,
-  client: 9,
-  refuse: 10,
-  bounced: 11,
+  ciblage: 1, touch_1: 2, repondu: 3, devis: 4, client: 5, refuse: 6,
 }
 
 const DEVIS_KEYWORDS = ['devis', 'proposition', 'offre commerciale', 'proposal', 'quotation', 'prix', 'tarif']
 const CLIENT_KEYWORDS = ['accord', 'signe', 'commande', 'valide', 'ok pour', 'go pour', 'on lance']
 
 const STAGE_NAMES: Record<string, string> = {
-  ciblage: 'Ciblage', touch_1: 'Touch 1', touch_2: 'Touch 2',
-  touch_3: 'Touch 3', nurturing: 'Nurturing', repondu: 'Repondu',
-  call_decouverte: 'Call Decouverte', devis: 'Devis',
-  client: 'Client', refuse: 'Refuse', bounced: 'Bounced',
+  ciblage: 'Ciblage', touch_1: 'Contacte', repondu: 'Repondu',
+  devis: 'Devis envoye', client: 'Client', refuse: 'Perdu',
 }
 
 /**
@@ -218,7 +206,7 @@ async function autoProgressProspect(prospectId: string): Promise<boolean> {
   const currentOrder = STAGE_ORDER[currentStage] || 0
 
   // Terminal stages — never auto-progress
-  if (['client', 'refuse', 'bounced'].includes(currentStage)) return false
+  if (['client', 'refuse'].includes(currentStage)) return false
 
   // Get all emails linked to this prospect
   const { data: emails } = await supabase
@@ -236,14 +224,8 @@ async function autoProgressProspect(prospectId: string): Promise<boolean> {
   const sentCount = emails.filter(e => e.direction === 'sent').length
   const hasReceived = emails.some(e => e.direction === 'received')
 
-  // Progress based on sent count
-  if (sentCount >= 3 && STAGE_ORDER.touch_3 > suggestedOrder) {
-    suggestedStage = 'touch_3'
-    suggestedOrder = STAGE_ORDER.touch_3
-  } else if (sentCount === 2 && STAGE_ORDER.touch_2 > suggestedOrder) {
-    suggestedStage = 'touch_2'
-    suggestedOrder = STAGE_ORDER.touch_2
-  } else if (sentCount === 1 && STAGE_ORDER.touch_1 > suggestedOrder) {
+  // Any sent email → Contacté
+  if (sentCount >= 1 && STAGE_ORDER.touch_1 > suggestedOrder) {
     suggestedStage = 'touch_1'
     suggestedOrder = STAGE_ORDER.touch_1
   }

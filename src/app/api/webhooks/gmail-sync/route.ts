@@ -302,15 +302,10 @@ function parseEmailName(
 const STAGE_ORDER: Record<string, number> = {
   ciblage: 1,
   touch_1: 2,
-  touch_2: 3,
-  touch_3: 4,
-  nurturing: 5,
-  repondu: 6,
-  call_decouverte: 7,
-  devis: 8,
-  client: 9,
-  refuse: 10,
-  bounced: 11,
+  repondu: 3,
+  devis: 4,
+  client: 5,
+  refuse: 6,
 }
 
 // Keywords that signal a devis/proposal was sent
@@ -337,7 +332,7 @@ async function autoProgressStage(
     const currentOrder = STAGE_ORDER[currentStage] || 0
 
     // Terminal stages — never auto-progress
-    if (['client', 'refuse', 'bounced'].includes(currentStage)) return
+    if (['client', 'refuse'].includes(currentStage)) return
 
     let suggestedStage: string | null = null
 
@@ -367,13 +362,9 @@ async function autoProgressStage(
 
       const sentCount = count || 0
 
-      // Progress based on sent count (only if currently behind)
-      if (sentCount === 1 && currentOrder < STAGE_ORDER.touch_1) {
+      // Any sent email → at least "Contacté"
+      if (sentCount >= 1 && currentOrder < STAGE_ORDER.touch_1) {
         suggestedStage = 'touch_1'
-      } else if (sentCount === 2 && currentOrder < STAGE_ORDER.touch_2) {
-        suggestedStage = 'touch_2'
-      } else if (sentCount >= 3 && currentOrder < STAGE_ORDER.touch_3) {
-        suggestedStage = 'touch_3'
       }
 
       // Check for devis signals in sent email
@@ -393,10 +384,8 @@ async function autoProgressStage(
 
       // Log the automatic stage change
       const stageNames: Record<string, string> = {
-        ciblage: 'Ciblage', touch_1: 'Touch 1', touch_2: 'Touch 2',
-        touch_3: 'Touch 3', nurturing: 'Nurturing', repondu: 'Repondu',
-        call_decouverte: 'Call Decouverte', devis: 'Devis',
-        client: 'Client', refuse: 'Refuse', bounced: 'Bounced',
+        ciblage: 'Ciblage', touch_1: 'Contacte', repondu: 'Repondu',
+        devis: 'Devis envoye', client: 'Client', refuse: 'Perdu',
       }
       await supabase.from('activities').insert({
         prospect_id: prospectId,

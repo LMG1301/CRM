@@ -17,20 +17,17 @@ function isMyEmail(email: string): boolean {
   return MY_EMAILS.some(me => email.toLowerCase().trim() === me.toLowerCase())
 }
 
-// Stage progression order
+// Stage progression order (simplified pipeline)
 const STAGE_ORDER: Record<string, number> = {
-  ciblage: 1, touch_1: 2, touch_2: 3, touch_3: 4, nurturing: 5,
-  repondu: 6, call_decouverte: 7, devis: 8, client: 9, refuse: 10, bounced: 11,
+  ciblage: 1, touch_1: 2, repondu: 3, devis: 4, client: 5, refuse: 6,
 }
 
 const DEVIS_KEYWORDS = ['devis', 'proposition', 'offre commerciale', 'proposal', 'quotation', 'prix', 'tarif']
 const CLIENT_KEYWORDS = ['accord', 'signe', 'commande', 'valide', 'ok pour', 'go pour', 'on lance']
 
 const STAGE_NAMES: Record<string, string> = {
-  ciblage: 'Ciblage', touch_1: 'Touch 1', touch_2: 'Touch 2',
-  touch_3: 'Touch 3', nurturing: 'Nurturing', repondu: 'Repondu',
-  call_decouverte: 'Call Decouverte', devis: 'Devis',
-  client: 'Client', refuse: 'Refuse', bounced: 'Bounced',
+  ciblage: 'Ciblage', touch_1: 'Contacte', repondu: 'Repondu',
+  devis: 'Devis envoye', client: 'Client', refuse: 'Perdu',
 }
 
 export async function POST(
@@ -136,21 +133,19 @@ export async function POST(
     const currentStage = prospect.pipeline_stage
     const currentOrder = STAGE_ORDER[currentStage] || 0
 
-    if (!['client', 'refuse', 'bounced'].includes(currentStage)) {
+    if (!['client', 'refuse'].includes(currentStage)) {
       const sentCount = linkedEmails.filter(e => isMyEmail(e.from_email)).length
       const hasReceived = linkedEmails.some(e => !isMyEmail(e.from_email))
 
       let suggestedStage: string | null = null
       let suggestedOrder = currentOrder
 
-      if (sentCount >= 3 && STAGE_ORDER.touch_3 > suggestedOrder) {
-        suggestedStage = 'touch_3'; suggestedOrder = STAGE_ORDER.touch_3
-      } else if (sentCount === 2 && STAGE_ORDER.touch_2 > suggestedOrder) {
-        suggestedStage = 'touch_2'; suggestedOrder = STAGE_ORDER.touch_2
-      } else if (sentCount === 1 && STAGE_ORDER.touch_1 > suggestedOrder) {
+      // Any sent email → Contacté
+      if (sentCount >= 1 && STAGE_ORDER.touch_1 > suggestedOrder) {
         suggestedStage = 'touch_1'; suggestedOrder = STAGE_ORDER.touch_1
       }
 
+      // Prospect responded → Répondu
       if (hasReceived && STAGE_ORDER.repondu > suggestedOrder) {
         suggestedStage = 'repondu'; suggestedOrder = STAGE_ORDER.repondu
       }

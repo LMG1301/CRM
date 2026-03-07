@@ -75,6 +75,9 @@ export async function createProspect(
 }
 
 export async function deleteProspect(id: string): Promise<void> {
+  // Delete related records first (FK constraints)
+  await supabase.from('activities').delete().eq('prospect_id', id)
+  await supabase.from('emails').delete().eq('prospect_id', id)
   const { error } = await supabase.from('prospects').delete().eq('id', id)
   if (error) throw new Error(error.message)
 }
@@ -127,7 +130,7 @@ export async function getProspectsSummary(): Promise<
     .select(
       'id, prenom, nom, entreprise, fonction, pipeline_stage, categorie, statut_commercial, source, date_dernier_contact, date_prochaine_action, type_prochaine_action, date_premier_contact'
     )
-    .not('pipeline_stage', 'in', '("bounced","refuse")')
+    .not('pipeline_stage', 'in', '("refuse")')
     .order('date_dernier_contact', { ascending: false })
   if (error) return []
   return data || []
@@ -163,7 +166,7 @@ export async function getCompanies(): Promise<CompanySummary[]> {
   const { data, error } = await supabase
     .from('prospects')
     .select('id, prenom, nom, entreprise, fonction, pipeline_stage, email, date_dernier_contact, date_prochaine_action')
-    .not('pipeline_stage', 'in', '("bounced")')
+    .not('pipeline_stage', 'in', '("refuse")')
     .order('date_dernier_contact', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -318,14 +321,14 @@ export async function getDashboardStats() {
   const total = all.length
   const clients = all.filter(p => p.pipeline_stage === 'client').length
   const discussions = all.filter(p =>
-    ['call_decouverte', 'devis', 'repondu'].includes(p.pipeline_stage) ||
+    ['devis', 'repondu'].includes(p.pipeline_stage) ||
     p.categorie === 'Client / Discussion active'
   ).length
   const replied = all.filter(p =>
     p.pipeline_stage === 'repondu' || p.categorie === 'A répondu'
   ).length
   const contacted = all.filter(p =>
-    !['ciblage', 'bounced'].includes(p.pipeline_stage)
+    !['ciblage', 'refuse'].includes(p.pipeline_stage)
   ).length
   const tauxReponse = contacted > 0 ? Math.round((replied + discussions + clients) / contacted * 100) : 0
 
@@ -360,7 +363,7 @@ export async function getActionsDuJour(): Promise<Prospect[]> {
     .from('prospects')
     .select('*')
     .lte('date_prochaine_action', today)
-    .not('pipeline_stage', 'in', '("client","refuse","bounced")')
+    .not('pipeline_stage', 'in', '("client","refuse")')
     .order('date_prochaine_action')
   if (error) throw new Error(error.message)
   return data || []
