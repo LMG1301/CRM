@@ -189,6 +189,119 @@ function resetSync() {
 }
 
 /**
+ * RE-SYNC COMPLET — Synchronise les 90 derniers jours d'emails.
+ * Utile pour rattraper les emails historiques et creer les prospects manquants.
+ *
+ * ATTENTION : Peut prendre du temps (limit Apps Script = 6 min).
+ * Lance cette fonction manuellement depuis l'editeur Apps Script.
+ * Tu peux la lancer plusieurs fois — les doublons seront ignores.
+ */
+function fullResync() {
+  var DAYS_BACK = 90;
+  var lookback = new Date();
+  lookback.setDate(lookback.getDate() - DAYS_BACK);
+  var dateStr = Utilities.formatDate(lookback, 'GMT', 'yyyy/MM/dd');
+  var query = 'after:' + dateStr + ' -category:promotions -category:social -category:updates';
+
+  Logger.log('=== FULL RESYNC - ' + DAYS_BACK + ' derniers jours ===');
+  Logger.log('Recherche: ' + query);
+
+  // Process in pages of 50 threads
+  var start = 0;
+  var pageSize = 50;
+  var totalEmails = 0;
+  var totalBatches = 0;
+
+  while (true) {
+    var threads = GmailApp.search(query, start, pageSize);
+    if (threads.length === 0) break;
+
+    Logger.log('Page ' + (start / pageSize + 1) + ': ' + threads.length + ' threads');
+
+    var emails = [];
+
+    for (var t = 0; t < threads.length; t++) {
+      var messages = threads[t].getMessages();
+
+      for (var m = 0; m < messages.length; m++) {
+        var message = messages[m];
+        var msgDate = message.getDate();
+
+        // Skip messages before lookback
+        if (msgDate < lookback) continue;
+
+        var email = {
+          gmail_message_id: message.getId(),
+          gmail_thread_id: threads[t].getId(),
+          subject: message.getSubject() || '',
+          from_email: extractEmail(message.getFrom()),
+          from_name: extractName(message.getFrom()),
+          to_email: extractEmail(message.getTo()),
+          body_preview: message.getPlainBody().substring(0, 500),
+          body_text: message.getPlainBody().substring(0, 5000),
+          labels: threads[t].getLabels().map(function(l) { return l.getName(); }),
+          is_read: !message.isUnread(),
+          gmail_date: msgDate.toISOString(),
+        };
+
+        emails.push(email);
+      }
+    }
+
+    // Send in batches of 10
+    for (var i = 0; i < emails.length; i += 10) {
+      var batch = emails.slice(i, i + 10);
+
+      try {
+        var response = UrlFetchApp.fetch(CONFIG.WEBHOOK_URL, {
+          method: 'POST',
+          contentType: 'application/json',
+          headers: {
+            'x-webhook-secret': CONFIG.WEBHOOK_SECRET,
+          },
+          payload: JSON.stringify(batch),
+          muteHttpExceptions: true,
+        });
+
+        var status = response.getResponseCode();
+        if (status === 200) {
+          try {
+            var result = JSON.parse(response.getContentText());
+            Logger.log('  Batch: ' + result.processed + ' traites, ' + result.prospects_created + ' nouveaux prospects, ' + result.activities_created + ' activites');
+          } catch(e) {
+            Logger.log('  Batch envoye (status ' + status + ')');
+          }
+        } else {
+          Logger.log('  ERREUR batch: status ' + status);
+        }
+
+        totalBatches++;
+      } catch(e) {
+        Logger.log('  ERREUR envoi: ' + e);
+      }
+
+      // Petit delai pour ne pas surcharger
+      Utilities.sleep(500);
+    }
+
+    totalEmails += emails.length;
+    start += pageSize;
+
+    // Safety: Apps Script 6min limit
+    if (start >= 500) {
+      Logger.log('Limite de 500 threads atteinte. Relance fullResync() pour continuer.');
+      break;
+    }
+  }
+
+  // Update sync time
+  saveLastSyncTime(new Date());
+
+  Logger.log('=== RESYNC TERMINE ===');
+  Logger.log('Total: ' + totalEmails + ' emails envoyes en ' + totalBatches + ' batches');
+}
+
+/**
  * Test — envoyer un email de test au webhook
  */
 function testWebhook() {
