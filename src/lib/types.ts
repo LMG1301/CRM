@@ -36,21 +36,33 @@ export interface Prospect {
 export interface Activity {
   id: string
   prospect_id: string
-  type: 'note' | 'call' | 'email_sent' | 'email_received' | 'status_change' | 'transcription'
+  type: ActivityType
   content: string
   metadata: Record<string, unknown>
   created_at: string
 }
 
-export type ActivityType = Activity['type']
+export type ActivityType =
+  | 'note'
+  | 'call'
+  | 'email_sent'
+  | 'email_received'
+  | 'status_change'
+  | 'transcription'
+  | 'linkedin_interaction'
+  | 'presentation'
+  | 'meeting'
 
 export const ACTIVITY_LABELS: Record<ActivityType, string> = {
   note: 'Note',
   call: 'Appel',
-  email_sent: 'Email envoyé',
-  email_received: 'Email reçu',
+  email_sent: 'Email envoye',
+  email_received: 'Email recu',
   status_change: 'Changement de statut',
   transcription: 'Transcription',
+  linkedin_interaction: 'LinkedIn',
+  presentation: 'Presentation',
+  meeting: 'Reunion',
 }
 
 export const ACTIVITY_ICONS: Record<ActivityType, string> = {
@@ -60,4 +72,68 @@ export const ACTIVITY_ICONS: Record<ActivityType, string> = {
   email_received: '📥',
   status_change: '🔄',
   transcription: '🎙️',
+  linkedin_interaction: '💼',
+  presentation: '📊',
+  meeting: '🤝',
+}
+
+// ─── Email (synced from Gmail via n8n) ───
+
+export interface Email {
+  id: string
+  prospect_id: string | null
+  gmail_message_id: string
+  gmail_thread_id: string | null
+  subject: string | null
+  from_email: string
+  to_email: string
+  body_preview: string | null
+  body_html: string | null
+  body_text: string | null
+  direction: 'sent' | 'received'
+  labels: string[]
+  is_read: boolean
+  gmail_date: string
+  created_at: string
+}
+
+// ─── Integration (connected services) ───
+
+export type IntegrationService = 'gmail' | 'linkedin' | 'n8n' | 'transcription'
+export type IntegrationStatus = 'connected' | 'disconnected' | 'error'
+
+export interface Integration {
+  id: string
+  service: IntegrationService
+  status: IntegrationStatus
+  config: Record<string, unknown>
+  last_sync: string | null
+  sync_count: number
+  error_message: string | null
+  created_at: string
+  updated_at: string
+}
+
+export const INTEGRATION_LABELS: Record<IntegrationService, string> = {
+  gmail: 'Gmail',
+  linkedin: 'LinkedIn',
+  n8n: 'n8n Automations',
+  transcription: 'Transcriptions',
+}
+
+export const INTEGRATION_ICONS: Record<IntegrationService, string> = {
+  gmail: '✉️',
+  linkedin: '💼',
+  n8n: '⚡',
+  transcription: '🎙️',
+}
+
+// ─── Source colors for activity feed ───
+
+export const SOURCE_COLORS: Record<string, string> = {
+  gmail: '#EA4335',
+  linkedin: '#0A66C2',
+  n8n: '#FF6D5A',
+  transcription: '#8B5CF6',
+  manual: '#6B7280',
 }

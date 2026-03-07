@@ -1,0 +1,109 @@
+{
+  "name": "Boost CRM - Gmail Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "id": "trigger",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 50,
+        "filters": {
+          "q": "newer_than:1d"
+        },
+        "options": {}
+      },
+      "id": "gmail-fetch",
+      "name": "Gmail - Fetch Recent",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [220, 0],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\nconst MY_EMAIL = 'louis.matar.gueye@gmail.com';\n\nfor (const item of items) {\n  const msg = item.json;\n  \n  const fromRaw = msg.from || msg.From || '';\n  const toRaw = msg.to || msg.To || '';\n  const subject = msg.subject || msg.Subject || '';\n  \n  const headers = msg.payload?.headers || [];\n  const getHeader = (name) => {\n    const h = headers.find(h => h.name?.toLowerCase() === name.toLowerCase());\n    return h ? h.value : '';\n  };\n  \n  const fromFinal = fromRaw || getHeader('From');\n  const toFinal = toRaw || getHeader('To');\n  const subjectFinal = subject || getHeader('Subject');\n  \n  const fromMatch = fromFinal.match(/<(.+?)>/);\n  const toMatch = toFinal.match(/<(.+?)>/);\n  const from = fromMatch ? fromMatch[1] : fromFinal;\n  const to = toMatch ? toMatch[1] : toFinal;\n  \n  const direction = from.toLowerCase().includes(MY_EMAIL.toLowerCase()) ? 'sent' : 'received';\n  \n  const rawLabels = msg.labelIds || msg.labels || [];\n  const labels = rawLabels.map(l => typeof l === 'object' ? l.id || l.name : l);\n  \n  let bodyHtml = msg.html || msg.textHtml || '';\n  let bodyText = msg.text || msg.textPlain || '';\n  \n  results.push({\n    json: {\n      gmail_message_id: msg.id,\n      gmail_thread_id: msg.threadId,\n      subject: subjectFinal,\n      from_email: from,\n      to_email: to,\n      body_preview: (msg.snippet || '').substring(0, 500),\n      body_html: bodyHtml.substring(0, 50000),\n      body_text: bodyText.substring(0, 10000),\n      direction: direction,\n      labels: labels,\n      is_read: !labels.includes('UNREAD'),\n      gmail_date: msg.date ? new Date(msg.date).toISOString() : new Date(parseInt(msg.internalDate || Date.now())).toISOString()\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "transform",
+      "name": "Transform Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://qbypfqpwrrtzntxgouww.supabase.co/rest/v1/emails",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Authorization", "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "supabase-upsert",
+      "name": "Supabase - Upsert Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "https://qbypfqpwrrtzntxgouww.supabase.co/rest/v1/integrations?service=eq.gmail",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Authorization", "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieXBmcXB3cnJ0em50eGdvdXd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjcyNTMsImV4cCI6MjA4ODMwMzI1M30.qKwr_DlKlrXp3D3j28uXh0W_6GtN8LLNcBjZWw_8YeA" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"status\": \"connected\", \"last_sync\": \"{{ new Date().toISOString() }}\" }"
+      },
+      "id": "update-integration",
+      "name": "Update Integration Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 0]
+    }
+  ],
+  "connections": {
+    "Every 15 minutes": { "main": [[{ "node": "Gmail - Fetch Recent", "type": "main", "index": 0 }]] },
+    "Gmail - Fetch Recent": { "main": [[{ "node": "Transform Messages", "type": "main", "index": 0 }]] },
+    "Transform Messages": { "main": [[{ "node": "Supabase - Upsert Email", "type": "main", "index": 0 }]] },
+    "Supabase - Upsert Email": { "main": [[{ "node": "Update Integration Status", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{ "name": "boost-crm" }]
+}
