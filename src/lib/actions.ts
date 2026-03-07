@@ -79,6 +79,60 @@ export async function deleteProspect(id: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+export async function batchDeleteProspects(ids: string[]): Promise<{ deleted: number; errors: string[] }> {
+  const errors: string[] = []
+  let deleted = 0
+
+  // Delete in batches of 20
+  for (let i = 0; i < ids.length; i += 20) {
+    const batch = ids.slice(i, i + 20)
+    // Delete activities first (FK constraint)
+    await supabase.from('activities').delete().in('prospect_id', batch)
+    // Delete emails linked to these prospects
+    await supabase.from('emails').delete().in('prospect_id', batch)
+    // Delete prospects
+    const { error } = await supabase.from('prospects').delete().in('id', batch)
+    if (error) {
+      errors.push(`Batch ${Math.floor(i / 20) + 1}: ${error.message}`)
+    } else {
+      deleted += batch.length
+    }
+  }
+
+  return { deleted, errors }
+}
+
+// ─── Prospects summary (for AI general questions) ───
+
+export async function getProspectsSummary(): Promise<
+  Pick<
+    Prospect,
+    | 'id'
+    | 'prenom'
+    | 'nom'
+    | 'entreprise'
+    | 'fonction'
+    | 'pipeline_stage'
+    | 'categorie'
+    | 'statut_commercial'
+    | 'source'
+    | 'date_dernier_contact'
+    | 'date_prochaine_action'
+    | 'type_prochaine_action'
+    | 'date_premier_contact'
+  >[]
+> {
+  const { data, error } = await supabase
+    .from('prospects')
+    .select(
+      'id, prenom, nom, entreprise, fonction, pipeline_stage, categorie, statut_commercial, source, date_dernier_contact, date_prochaine_action, type_prochaine_action, date_premier_contact'
+    )
+    .not('pipeline_stage', 'in', '("bounced","refuse")')
+    .order('date_dernier_contact', { ascending: false })
+  if (error) return []
+  return data || []
+}
+
 // ─── Company Colleagues ───
 
 export async function getCompanyColleagues(
@@ -94,6 +148,59 @@ export async function getCompanyColleagues(
     .order('date_dernier_contact', { ascending: false })
   if (error) return []
   return data || []
+}
+
+// ─── Companies (aggregated from prospects) ───
+
+export interface CompanySummary {
+  entreprise: string
+  contacts: Pick<Prospect, 'id' | 'prenom' | 'nom' | 'fonction' | 'pipeline_stage' | 'email' | 'date_dernier_contact' | 'date_prochaine_action'>[]
+  stages: string[]
+  lastContact: string | null
+}
+
+export async function getCompanies(): Promise<CompanySummary[]> {
+  const { data, error } = await supabase
+    .from('prospects')
+    .select('id, prenom, nom, entreprise, fonction, pipeline_stage, email, date_dernier_contact, date_prochaine_action')
+    .not('pipeline_stage', 'in', '("bounced")')
+    .order('date_dernier_contact', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  const prospects = data || []
+
+  // Group by company
+  const byCompany: Record<string, CompanySummary> = {}
+  for (const p of prospects) {
+    const key = (p.entreprise || '').trim()
+    if (!key) continue
+
+    if (!byCompany[key]) {
+      byCompany[key] = {
+        entreprise: key,
+        contacts: [],
+        stages: [],
+        lastContact: null,
+      }
+    }
+
+    byCompany[key].contacts.push(p)
+    if (p.pipeline_stage && !byCompany[key].stages.includes(p.pipeline_stage)) {
+      byCompany[key].stages.push(p.pipeline_stage)
+    }
+    if (p.date_dernier_contact) {
+      if (!byCompany[key].lastContact || p.date_dernier_contact > byCompany[key].lastContact!) {
+        byCompany[key].lastContact = p.date_dernier_contact
+      }
+    }
+  }
+
+  return Object.values(byCompany).sort((a, b) => {
+    // Sort by number of contacts desc, then by last contact
+    if (b.contacts.length !== a.contacts.length) return b.contacts.length - a.contacts.length
+    if (b.lastContact && a.lastContact) return b.lastContact > a.lastContact ? 1 : -1
+    return 0
+  })
 }
 
 // ─── Activities ───

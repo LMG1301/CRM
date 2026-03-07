@@ -23,6 +23,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Truncate transcript for API call if very long (keep first 50k chars for summary)
+    const truncatedTranscript = transcript.length > 50000
+      ? transcript.substring(0, 50000) + '\n[... tronque pour le resume]'
+      : transcript
+
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 500,
@@ -34,7 +39,7 @@ Garde les points cles : interlocuteur, sujet principal, decisions prises, procha
 Ecris en francais, style professionnel et concis.
 
 Transcription :
-${transcript}`,
+${truncatedTranscript}`,
         },
       ],
     })

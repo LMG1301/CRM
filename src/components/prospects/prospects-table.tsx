@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   CheckSquare,
   Plus,
+  Trash2,
 } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
@@ -51,7 +52,7 @@ import {
 
 import { StageBadge } from '@/components/prospects/stage-badge'
 import { AddProspectDialog } from '@/components/prospects/add-prospect-dialog'
-import { updateProspect } from '@/lib/actions'
+import { updateProspect, batchDeleteProspects } from '@/lib/actions'
 import type { Prospect, PipelineStage } from '@/lib/types'
 
 // ─── Constants ───
@@ -90,6 +91,7 @@ export function ProspectsTable({ prospects, stages }: ProspectsTableProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchStageDialogOpen, setBatchStageDialogOpen] = useState(false)
   const [batchTargetStage, setBatchTargetStage] = useState('')
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
@@ -237,6 +239,18 @@ export function ProspectsTable({ prospects, stages }: ProspectsTableProps) {
     })
   }
 
+  // --- Batch delete ---
+  const handleBatchDelete = () => {
+    if (selected.size === 0) return
+    startTransition(async () => {
+      const ids = Array.from(selected)
+      await batchDeleteProspects(ids)
+      setSelected(new Set())
+      setBatchDeleteDialogOpen(false)
+      window.location.reload()
+    })
+  }
+
   // --- Export CSV ---
   const exportCsv = () => {
     const headers = [
@@ -317,15 +331,24 @@ export function ProspectsTable({ prospects, stages }: ProspectsTableProps) {
         </div>
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setBatchStageDialogOpen(true)}
-            >
-              <CheckSquare className="size-4" />
-              {selected.size} selectionne{selected.size !== 1 ? 's' : ''} - Changer le
-              stage
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBatchStageDialogOpen(true)}
+              >
+                <CheckSquare className="size-4" />
+                {selected.size} selectionne{selected.size !== 1 ? 's' : ''} - Changer stage
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setBatchDeleteDialogOpen(true)}
+              >
+                <Trash2 className="size-4" />
+                Supprimer ({selected.size})
+              </Button>
+            </>
           )}
           <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="size-4" />
@@ -630,6 +653,33 @@ export function ProspectsTable({ prospects, stages }: ProspectsTableProps) {
         onOpenChange={setAddDialogOpen}
         stages={stages}
       />
+
+      {/* ─── Batch delete confirmation dialog ─── */}
+      <Dialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer {selected.size} prospect{selected.size !== 1 ? 's' : ''} ?</DialogTitle>
+            <DialogDescription>
+              Cette action est irreversible. Les activites et emails associes seront aussi supprimes.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBatchDeleteDialogOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBatchDelete}
+              disabled={isPending}
+            >
+              {isPending ? 'Suppression...' : `Supprimer ${selected.size} prospect${selected.size !== 1 ? 's' : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Batch stage change dialog ─── */}
       <Dialog open={batchStageDialogOpen} onOpenChange={setBatchStageDialogOpen}>

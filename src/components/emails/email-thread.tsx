@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Mail, MailOpen, Send, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Mail, MailOpen, Send, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,6 +10,7 @@ import type { Email } from '@/lib/types'
 
 interface EmailThreadProps {
   emails: Email[]
+  prospectId?: string
 }
 
 function formatEmailDate(dateStr: string): string {
@@ -98,19 +100,56 @@ function EmailRow({ email }: { email: Email }) {
   )
 }
 
-export function EmailThread({ emails }: EmailThreadProps) {
+export function EmailThread({ emails, prospectId }: EmailThreadProps) {
+  const router = useRouter()
   const [showAll, setShowAll] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<string | null>(null)
   const displayEmails = showAll ? emails : emails.slice(0, 5)
   const hasMore = emails.length > 5
+
+  const handleSync = async () => {
+    if (!prospectId || syncing) return
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res = await fetch(`/api/prospects/${prospectId}/sync-emails`, { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        const parts: string[] = []
+        if (data.emails_linked > 0) parts.push(`${data.emails_linked} emails lies`)
+        if (data.activities_created > 0) parts.push(`${data.activities_created} activites creees`)
+        if (data.stage_updated) parts.push(`Stage → ${data.new_stage}`)
+        setSyncResult(parts.length > 0 ? parts.join(', ') : 'Deja a jour')
+        if (data.emails_linked > 0 || data.activities_created > 0 || data.stage_updated) {
+          router.refresh()
+        }
+      } else {
+        setSyncResult(data.error || 'Erreur')
+      }
+    } catch {
+      setSyncResult('Erreur de connexion')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   if (emails.length === 0) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Mail className="size-4 text-[#EA4335]" />
-            Emails
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Mail className="size-4 text-[#EA4335]" />
+              Emails
+            </CardTitle>
+            {prospectId && (
+              <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
+                <RefreshCw className={`size-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Sync...' : 'Sync emails'}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="py-6 text-center">
@@ -119,9 +158,12 @@ export function EmailThread({ emails }: EmailThreadProps) {
               Aucun email synchronise.
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Connectez Gmail via n8n pour synchroniser les emails.
+              Cliquez sur &quot;Sync emails&quot; pour lier les emails existants.
             </p>
           </div>
+          {syncResult && (
+            <p className="mt-2 text-center text-xs text-muted-foreground">{syncResult}</p>
+          )}
         </CardContent>
       </Card>
     )
@@ -141,12 +183,23 @@ export function EmailThread({ emails }: EmailThreadProps) {
               {emails.length}
             </Badge>
           </CardTitle>
-          <div className="flex gap-2 text-xs text-muted-foreground">
-            <span>{sentCount} envoyes</span>
-            <span>&middot;</span>
-            <span>{receivedCount} recus</span>
+          <div className="flex items-center gap-3">
+            <div className="flex gap-2 text-xs text-muted-foreground">
+              <span>{sentCount} envoyes</span>
+              <span>&middot;</span>
+              <span>{receivedCount} recus</span>
+            </div>
+            {prospectId && (
+              <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
+                <RefreshCw className={`size-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Sync...' : 'Sync'}
+              </Button>
+            )}
           </div>
         </div>
+        {syncResult && (
+          <p className="text-xs text-muted-foreground">{syncResult}</p>
+        )}
       </CardHeader>
       <CardContent className="space-y-2">
         {displayEmails.map((email) => (

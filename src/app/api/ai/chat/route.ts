@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
 import { buildSystemPrompt } from '@/lib/ai-prompts'
-import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments } from '@/lib/actions'
+import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments, getProspectsSummary } from '@/lib/actions'
 import type { Prospect } from '@/lib/types'
 
 const anthropic = new Anthropic({
@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
     let activities: Awaited<ReturnType<typeof getActivities>> = []
     let businessContext: Awaited<ReturnType<typeof getBusinessContext>> = null
     let knowledgeDocs: Awaited<ReturnType<typeof getKnowledgeDocuments>> = []
+    let allProspects: Awaited<ReturnType<typeof getProspectsSummary>> = []
 
     try {
       const results = await Promise.all([
@@ -52,17 +53,19 @@ export async function POST(request: NextRequest) {
         getKnowledgeDocuments(),
         prospectId ? getProspect(prospectId) : Promise.resolve(null),
         prospectId ? getActivities(prospectId) : Promise.resolve([]),
+        !prospectId ? getProspectsSummary() : Promise.resolve([]),
       ])
 
       businessContext = results[0]
       knowledgeDocs = results[1]
       prospect = results[2]
       activities = results[3]
+      allProspects = results[4]
     } catch {
       // Continue without context
     }
 
-    const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs)
+    const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs, allProspects)
 
     // Determine if we should enable web search
     // Enable when prospect has a company, to auto-research for personalization

@@ -36,6 +36,7 @@ export function AddActivityDialog({
   const [transcription, setTranscription] = useState('')
   const [saving, setSaving] = useState(false)
   const [summarizing, setSummarizing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const label = ACTIVITY_LABELS[type] || type
 
@@ -53,6 +54,7 @@ export function AddActivityDialog({
     if (type === 'call' && !content.trim() && !transcription.trim()) return
 
     setSaving(true)
+    setError(null)
     try {
       const metadata: Record<string, unknown> = {}
       let finalContent = content.trim()
@@ -107,8 +109,9 @@ export function AddActivityDialog({
       setSubject('')
       setTranscription('')
       onSave()
-    } catch (error) {
-      console.error('Erreur creation activite:', error)
+    } catch (err) {
+      console.error('Erreur creation activite:', err)
+      setError((err as Error).message || 'Erreur lors de la sauvegarde')
     } finally {
       setSaving(false)
     }
@@ -239,6 +242,10 @@ export function AddActivityDialog({
             </div>
           )}
         </div>
+
+        {error && (
+          <p className="text-sm text-red-500 bg-red-500/10 rounded-md px-3 py-2">{error}</p>
+        )}
 
         <DialogFooter>
           <Button

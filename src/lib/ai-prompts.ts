@@ -10,13 +10,32 @@ interface KnowledgeDocument {
   mime_type: string | null
 }
 
+// ─── Prospect summary (for general pipeline questions) ───
+
+interface ProspectSummary {
+  id: string
+  prenom: string
+  nom: string
+  entreprise: string
+  fonction: string
+  pipeline_stage: string
+  categorie: string
+  statut_commercial: string
+  source: string
+  date_dernier_contact: string | null
+  date_prochaine_action: string | null
+  type_prochaine_action: string
+  date_premier_contact: string | null
+}
+
 // ─── Build system prompt with prospect context ───
 
 export function buildSystemPrompt(
   prospect?: Prospect | null,
   activities?: Activity[],
   businessContext?: BusinessContext | null,
-  knowledgeDocuments?: KnowledgeDocument[]
+  knowledgeDocuments?: KnowledgeDocument[],
+  allProspects?: ProspectSummary[]
 ): string {
   let prompt = buildBasePrompt(businessContext)
 
@@ -26,6 +45,11 @@ export function buildSystemPrompt(
 
   if (prospect) {
     prompt += '\n\n' + buildProspectContext(prospect, activities || [])
+  }
+
+  // When no specific prospect is selected, include full pipeline summary
+  if (!prospect && allProspects && allProspects.length > 0) {
+    prompt += '\n\n' + buildPipelineSummary(allProspects)
   }
 
   return prompt
@@ -251,6 +275,98 @@ function buildProspectContext(
         : rawContent
       lines.push(`- **${date} — ${typeLabel}** : ${content}`)
     }
+  }
+
+  return lines.join('\n')
+}
+
+// ─── Build pipeline summary (when no specific prospect selected) ───
+
+function buildPipelineSummary(prospects: ProspectSummary[]): string {
+  const lines: string[] = [
+    '## Pipeline commercial complet',
+    '',
+    `Tu as acces a **${prospects.length} prospects actifs** dans le CRM. Voici le resume complet :`,
+    '',
+  ]
+
+  // Stats by stage
+  const byStage: Record<string, ProspectSummary[]> = {}
+  for (const p of prospects) {
+    const stage = p.pipeline_stage || 'inconnu'
+    if (!byStage[stage]) byStage[stage] = []
+    byStage[stage].push(p)
+  }
+
+  lines.push('### Repartition par stage')
+  const stageOrder = [
+    'ciblage', 'touch_1', 'touch_2', 'touch_3', 'nurturing',
+    'repondu', 'call_decouverte', 'devis', 'client',
+  ]
+  for (const stage of stageOrder) {
+    if (byStage[stage]) {
+      lines.push(`- **${stage.replace(/_/g, ' ')}** : ${byStage[stage].length} prospects`)
+    }
+  }
+  // Any other stages
+  for (const [stage, list] of Object.entries(byStage)) {
+    if (!stageOrder.includes(stage)) {
+      lines.push(`- **${stage}** : ${list.length} prospects`)
+    }
+  }
+
+  // Companies with multiple contacts
+  const byCompany: Record<string, ProspectSummary[]> = {}
+  for (const p of prospects) {
+    if (p.entreprise) {
+      const key = p.entreprise.trim().toLowerCase()
+      if (!byCompany[key]) byCompany[key] = []
+      byCompany[key].push(p)
+    }
+  }
+  const multiContactCompanies = Object.entries(byCompany)
+    .filter(([, list]) => list.length > 1)
+    .sort((a, b) => b[1].length - a[1].length)
+
+  if (multiContactCompanies.length > 0) {
+    lines.push('')
+    lines.push('### Entreprises avec plusieurs contacts')
+    for (const [, list] of multiContactCompanies) {
+      const companyName = list[0].entreprise
+      const stages = [...new Set(list.map(p => p.pipeline_stage))].join(', ')
+      lines.push(`- **${companyName}** : ${list.length} contacts (stages: ${stages})`)
+    }
+  }
+
+  // Actions due (date_prochaine_action <= today)
+  const today = new Date().toISOString().split('T')[0]
+  const actionsDue = prospects.filter(
+    p => p.date_prochaine_action && p.date_prochaine_action <= today
+  )
+  if (actionsDue.length > 0) {
+    lines.push('')
+    lines.push(`### Actions en retard ou du jour (${actionsDue.length})`)
+    for (const p of actionsDue.slice(0, 20)) {
+      const name = [p.prenom, p.nom].filter(Boolean).join(' ') || 'Sans nom'
+      lines.push(
+        `- **${name}** (${p.entreprise || '?'}) — ${p.pipeline_stage} — action: ${p.type_prochaine_action || '?'} prevue le ${p.date_prochaine_action}`
+      )
+    }
+  }
+
+  // Full prospect list (compact)
+  lines.push('')
+  lines.push('### Liste complete des prospects')
+  lines.push('')
+  for (const p of prospects) {
+    const name = [p.prenom, p.nom].filter(Boolean).join(' ') || 'Sans nom'
+    const parts = [name]
+    if (p.entreprise) parts.push(p.entreprise)
+    parts.push(`[${p.pipeline_stage}]`)
+    if (p.categorie) parts.push(`cat:${p.categorie}`)
+    if (p.date_dernier_contact) parts.push(`dernier:${p.date_dernier_contact}`)
+    if (p.date_prochaine_action) parts.push(`action:${p.date_prochaine_action}`)
+    lines.push(`- ${parts.join(' | ')}`)
   }
 
   return lines.join('\n')

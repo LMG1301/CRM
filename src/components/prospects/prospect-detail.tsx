@@ -378,7 +378,7 @@ export function ProspectDetail({
             </Card>
 
             {/* Email thread (from Gmail sync) */}
-            <EmailThread emails={emails} />
+            <EmailThread emails={emails} prospectId={prospect.id} />
 
             {/* Activity timeline */}
             <Card>
