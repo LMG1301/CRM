@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenAI } from '@google/genai'
 import { NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { logApiUsage } from '@/lib/api-usage'
@@ -13,9 +13,7 @@ import { logApiUsage } from '@/lib/api-usage'
  * Can also be called with x-webhook-secret header for automated triggers.
  */
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
-})
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' })
 
 const STAGE_DESCRIPTIONS = `
 Les stages du pipeline commercial (du plus froid au plus chaud) :
@@ -34,8 +32,8 @@ Les stages du pipeline commercial (du plus froid au plus chaud) :
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return Response.json({ error: 'ANTHROPIC_API_KEY non configure' }, { status: 500 })
+    if (!process.env.GEMINI_API_KEY) {
+      return Response.json({ error: 'GEMINI_API_KEY non configure' }, { status: 500 })
     }
 
     // Check auth (either webhook secret or accept from internal calls)
@@ -137,41 +135,38 @@ async function analyzeProspect(prospectId: string) {
     .order('gmail_date', { ascending: false })
     .limit(20)
 
-  // Build context for Claude
+  // Build context
   const context = buildAnalysisContext(prospect, activities || [], emails || [])
 
-  // Ask Claude
-  const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    system: `Tu es un assistant commercial qui analyse les interactions avec un prospect pour determiner son stage dans le pipeline. Tu dois repondre UNIQUEMENT en JSON valide, sans markdown.
+  // Ask Gemini
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: `Analyse ce prospect et determine son stage optimal dans le pipeline :
+
+${context}
+
+Quel est le stage le plus adapte ? Reponds en JSON.`,
+    config: {
+      systemInstruction: `Tu es un assistant commercial qui analyse les interactions avec un prospect pour determiner son stage dans le pipeline. Tu dois repondre UNIQUEMENT en JSON valide, sans markdown.
 
 ${STAGE_DESCRIPTIONS}
 
 Reponds avec ce format JSON exact :
 {"stage": "slug_du_stage", "reason": "Explication courte en 1 phrase"}`,
-    messages: [
-      {
-        role: 'user',
-        content: `Analyse ce prospect et determine son stage optimal dans le pipeline :
-
-${context}
-
-Quel est le stage le plus adapte ? Reponds en JSON.`,
-      },
-    ],
+      maxOutputTokens: 300,
+    },
   })
 
   // Log API usage
   logApiUsage({
     endpoint: 'analyze-pipeline',
-    model: 'claude-haiku-4-5-20251001',
-    input_tokens: response.usage?.input_tokens || 0,
-    output_tokens: response.usage?.output_tokens || 0,
+    model: 'gemini-2.5-flash',
+    input_tokens: response.usageMetadata?.promptTokenCount || 0,
+    output_tokens: response.usageMetadata?.candidatesTokenCount || 0,
   })
 
   // Parse response
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  const text = response.text || ''
   let parsed: { stage: string; reason: string }
 
   try {

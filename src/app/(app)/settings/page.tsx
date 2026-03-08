@@ -346,7 +346,7 @@ export default function SettingsPage() {
           Consommation API (IA)
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Suivi de l&apos;utilisation de l&apos;API Anthropic (modele : Haiku — $0.80 / MTok entree, $4 / MTok sortie).
+          Suivi de l&apos;utilisation de l&apos;API Google Gemini (modele : 2.5 Flash — $0.15 / MTok entree, $0.60 / MTok sortie).
         </p>
 
         <Card>

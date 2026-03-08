@@ -1,32 +1,29 @@
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenAI } from '@google/genai'
 import { NextRequest } from 'next/server'
 import { buildSystemPrompt } from '@/lib/ai-prompts'
 import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments, getProspectsSummary } from '@/lib/actions'
 import { logApiUsage } from '@/lib/api-usage'
 import type { Prospect } from '@/lib/types'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
-})
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' })
 
-function parseAnthropicError(error: unknown): string {
-  if (error instanceof Anthropic.APIError) {
-    if (error.status === 401) return 'Cle API invalide. Verifiez votre ANTHROPIC_API_KEY.'
-    if (error.status === 400 && String(error.message).includes('credit'))
-      return 'Solde de credits insuffisant. Rechargez vos credits sur console.anthropic.com > Plans & Billing.'
-    if (error.status === 429) return 'Trop de requetes. Reessayez dans quelques secondes.'
-    if (error.status === 529) return 'API Anthropic surchargee. Reessayez dans un moment.'
-    return `Erreur API (${error.status}) : ${error.message}`
+function parseGeminiError(error: unknown): string {
+  if (error instanceof Error) {
+    const msg = error.message
+    if (msg.includes('API_KEY') || msg.includes('401')) return 'Cle API Gemini invalide. Verifiez votre GEMINI_API_KEY.'
+    if (msg.includes('quota') || msg.includes('429')) return 'Quota API depasse. Reessayez dans quelques secondes.'
+    if (msg.includes('500') || msg.includes('503')) return 'API Gemini surchargee. Reessayez dans un moment.'
+    if (msg.includes('SAFETY')) return 'Reponse bloquee par le filtre de securite. Reformulez votre demande.'
+    return `Erreur API : ${msg}`
   }
-  if (error instanceof Error) return error.message
   return 'Erreur inconnue'
 }
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
       return Response.json(
-        { error: 'Cle API Anthropic non configuree. Ajoutez ANTHROPIC_API_KEY dans .env.local' },
+        { error: 'Cle API Gemini non configuree. Ajoutez GEMINI_API_KEY dans .env.local' },
         { status: 500 }
       )
     }
@@ -68,8 +65,7 @@ export async function POST(request: NextRequest) {
 
     const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs, allProspects)
 
-    // Determine if we should enable web search
-    // Enable when prospect has a company, to auto-research for personalization
+    // Determine if we should enable Google Search grounding
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''
     const wantsWebSearch = lastMessage.includes('recherche') ||
       lastMessage.includes('info') ||
@@ -90,119 +86,67 @@ export async function POST(request: NextRequest) {
         lastMessage.includes('relance')
       ))
 
-    // Build tools array — include web search when relevant
-    const tools: Anthropic.Messages.Tool[] = []
-    if (wantsWebSearch) {
-      tools.push({
-        type: 'web_search_20250305',
-        name: 'web_search',
-        max_uses: 3,
-      } as unknown as Anthropic.Messages.Tool)
-    }
-
     // Enhanced system prompt with web search instructions
     let enhancedSystem = systemPrompt
     if (wantsWebSearch && prospect?.entreprise) {
       enhancedSystem += `\n\n## Recherche web
-Tu as acces a la recherche web. Avant de rediger un email ou message pour ce prospect, recherche des informations recentes sur ${prospect.entreprise} pour personnaliser ton message :
+Tu as acces a la recherche Google. Avant de rediger un email ou message pour ce prospect, recherche des informations recentes sur ${prospect.entreprise} pour personnaliser ton message :
 - Actualites recentes de l'entreprise
 - Projets, levees de fonds, nouveaux produits
 - Informations sur le secteur d'activite
 Utilise ces informations pour rendre le message plus pertinent et personnalise.`
     }
 
-    // Use streaming with tool use support
+    // Convert messages to Gemini format (assistant -> model)
+    const geminiMessages = messages.map((m) => ({
+      role: (m.role === 'assistant' ? 'model' : 'user') as 'model' | 'user',
+      parts: [{ text: m.content }],
+    }))
+
+    // Use streaming for real-time response
     const encoder = new TextEncoder()
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          // First call — may trigger web search
-          let response = await anthropic.messages.create({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 4096,
-            system: enhancedSystem,
-            tools: tools.length > 0 ? tools : undefined,
-            messages: messages.map((m) => ({
-              role: m.role as 'user' | 'assistant',
-              content: m.content,
-            })),
+          const stream = await ai.models.generateContentStream({
+            model: 'gemini-2.5-flash',
+            contents: geminiMessages,
+            config: {
+              systemInstruction: enhancedSystem,
+              maxOutputTokens: 4096,
+              tools: wantsWebSearch ? [{ googleSearch: {} }] : undefined,
+            },
           })
 
-          // Handle tool use loop (web search may be called)
-          const allMessages = [...messages.map((m) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content as string | Anthropic.Messages.ContentBlock[],
-          }))]
-          let loopCount = 0
-          const maxLoops = 5
+          let inputTokens = 0
+          let outputTokens = 0
 
-          while (response.stop_reason === 'tool_use' && loopCount < maxLoops) {
-            loopCount++
-
-            // Send a searching indicator to the client
-            controller.enqueue(encoder.encode(
-              `data: ${JSON.stringify({ text: '\n\n*Recherche en cours...*\n\n' })}\n\n`
-            ))
-
-            // Collect tool results
-            const toolUseBlocks = response.content.filter(
-              (block): block is Anthropic.Messages.ToolUseBlock => block.type === 'tool_use'
-            )
-
-            // Build the assistant message with all content blocks
-            allMessages.push({
-              role: 'assistant',
-              content: response.content,
-            })
-
-            // Build tool results
-            const toolResults: Anthropic.Messages.ToolResultBlockParam[] = toolUseBlocks.map((toolUse) => ({
-              type: 'tool_result' as const,
-              tool_use_id: toolUse.id,
-              content: 'Search completed',
-            }))
-
-            allMessages.push({
-              role: 'user',
-              content: toolResults as unknown as string,
-            })
-
-            // Continue the conversation
-            response = await anthropic.messages.create({
-              model: 'claude-haiku-4-5-20251001',
-              max_tokens: 4096,
-              system: enhancedSystem,
-              tools: tools.length > 0 ? tools : undefined,
-              messages: allMessages as Anthropic.Messages.MessageParam[],
-            })
+          for await (const chunk of stream) {
+            const text = chunk.text || ''
+            if (text) {
+              controller.enqueue(encoder.encode(
+                `data: ${JSON.stringify({ text })}\n\n`
+              ))
+            }
+            // Capture usage from chunks (last chunk typically has it)
+            if (chunk.usageMetadata) {
+              inputTokens = chunk.usageMetadata.promptTokenCount || 0
+              outputTokens = chunk.usageMetadata.candidatesTokenCount || 0
+            }
           }
 
           // Log API usage
           logApiUsage({
             endpoint: 'chat',
-            model: 'claude-haiku-4-5-20251001',
-            input_tokens: response.usage?.input_tokens || 0,
-            output_tokens: response.usage?.output_tokens || 0,
+            model: 'gemini-2.5-flash',
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
           })
-
-          // Extract text from final response
-          for (const block of response.content) {
-            if (block.type === 'text') {
-              // Send in chunks to simulate streaming
-              const chunkSize = 20
-              for (let i = 0; i < block.text.length; i += chunkSize) {
-                const chunk = block.text.slice(i, i + chunkSize)
-                controller.enqueue(encoder.encode(
-                  `data: ${JSON.stringify({ text: chunk })}\n\n`
-                ))
-              }
-            }
-          }
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (error) {
-          const errorMessage = parseAnthropicError(error)
+          const errorMessage = parseGeminiError(error)
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({ error: errorMessage })}\n\n`
@@ -221,7 +165,7 @@ Utilise ces informations pour rendre le message plus pertinent et personnalise.`
       },
     })
   } catch (error) {
-    const message = parseAnthropicError(error)
+    const message = parseGeminiError(error)
     return Response.json({ error: message }, { status: 500 })
   }
 }

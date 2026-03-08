@@ -1,15 +1,14 @@
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenAI } from '@google/genai'
 import { NextRequest } from 'next/server'
+import { logApiUsage } from '@/lib/api-usage'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
-})
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' })
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
       return Response.json(
-        { error: 'Cle API Anthropic non configuree' },
+        { error: 'Cle API Gemini non configuree' },
         { status: 500 }
       )
     }
@@ -28,24 +27,28 @@ export async function POST(request: NextRequest) {
       ? transcript.substring(0, 50000) + '\n[... tronque pour le resume]'
       : transcript
 
-    const response = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 500,
-      messages: [
-        {
-          role: 'user',
-          content: `Resume cette transcription d'appel commercial en 5 a 8 lignes maximum.
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Resume cette transcription d'appel commercial en 5 a 8 lignes maximum.
 Garde les points cles : interlocuteur, sujet principal, decisions prises, prochaines etapes.
 Ecris en francais, style professionnel et concis.
 
 Transcription :
 ${truncatedTranscript}`,
-        },
-      ],
+      config: {
+        maxOutputTokens: 500,
+      },
     })
 
-    const summary =
-      response.content[0].type === 'text' ? response.content[0].text : ''
+    // Log API usage
+    logApiUsage({
+      endpoint: 'summarize',
+      model: 'gemini-2.5-flash',
+      input_tokens: response.usageMetadata?.promptTokenCount || 0,
+      output_tokens: response.usageMetadata?.candidatesTokenCount || 0,
+    })
+
+    const summary = response.text || ''
 
     return Response.json({ summary })
   } catch (error) {

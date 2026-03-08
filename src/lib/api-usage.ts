@@ -49,9 +49,9 @@ export async function getUsageStats() {
     const totalInput = items.reduce((s, r) => s + (r.input_tokens || 0), 0)
     const totalOutput = items.reduce((s, r) => s + (r.output_tokens || 0), 0)
     const calls = items.length
-    // Haiku pricing: $0.80/MTok input, $4/MTok output
-    const costInput = (totalInput / 1_000_000) * 0.80
-    const costOutput = (totalOutput / 1_000_000) * 4.00
+    // Gemini 2.5 Flash pricing: $0.15/MTok input, $0.60/MTok output
+    const costInput = (totalInput / 1_000_000) * 0.15
+    const costOutput = (totalOutput / 1_000_000) * 0.60
     return {
       calls,
       input_tokens: totalInput,
