@@ -137,6 +137,38 @@
       color: #93c5fd;
       border: 1px solid #1e40af;
     }
+    .status.ai-suggest {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #14332a;
+      color: #4ade80;
+      border: 1px solid #166534;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .status.ai-suggest .btn-accept {
+      background: #4ade80;
+      color: #14231f;
+      border: none;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .status.ai-suggest .btn-accept:hover { background: #22c55e; }
+    .crm-link {
+      display: inline-block;
+      color: #4ade80;
+      text-decoration: underline;
+      cursor: pointer;
+      margin-top: 4px;
+      font-size: 12px;
+    }
+    .crm-link:hover { color: #22c55e; }
 
     /* Settings */
     .settings-toggle {
@@ -220,9 +252,20 @@
         <input id="f-localisation" placeholder="Paris, France">
       </div>
       <div class="field">
+        <label>Stage pipeline</label>
+        <select id="f-pipeline_stage">
+          <option value="ciblage">Ciblage</option>
+          <option value="touch_1">Touch 1</option>
+          <option value="nurturing">Nurturing</option>
+        </select>
+      </div>
+      <div class="field">
         <label>Source</label>
         <input id="f-source" value="Extension Chrome">
       </div>
+
+      <!-- AI suggestion banner -->
+      <div id="ai-suggestion" class="status" style="display:none; cursor:default;"></div>
 
       <button id="btn-save" class="btn btn-primary">
         Enregistrer dans le CRM

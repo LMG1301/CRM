@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { toLocalDateString } from '@/lib/utils'
 
 /**
  * Webhook endpoint for Genspark Meeting Notes sync.
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
             await supabase
               .from('prospects')
               .update({
-                date_dernier_contact: new Date(note.meeting_date).toISOString().split('T')[0],
+                date_dernier_contact: toLocalDateString(new Date(note.meeting_date)),
               })
               .eq('id', match.id)
           } else {

@@ -1,19 +1,36 @@
-import { getDashboardStats, getActionsDuJour, getRecentActivities, getProspects, getIntegrations, getEmailStats } from '@/lib/actions'
+import { getDashboardStats, getActionsDuJour, getRecentActivities, getProspects, getIntegrations, getEmailStats, getPendingReviewEmails } from '@/lib/actions'
+import { supabase } from '@/lib/supabase'
 import { KpiCards } from '@/components/dashboard/kpi-cards'
 import { ActionsToday } from '@/components/dashboard/actions-today'
+import { TasksToday } from '@/components/dashboard/tasks-today'
 import { HotProspects } from '@/components/dashboard/hot-prospects'
 import { RecentActivity } from '@/components/dashboard/recent-activity'
 import { IntegrationStatus } from '@/components/dashboard/integration-status'
 import { EmailStats } from '@/components/dashboard/email-stats'
+import { PendingSequenceEmails } from '@/components/dashboard/pending-sequence-emails'
+import { toLocalDateString } from '@/lib/utils'
+
+export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  const [stats, actionsDuJour, recentActivities, allProspects, integrations, emailStats] = await Promise.all([
+  const today = toLocalDateString(new Date())
+
+  const [stats, actionsDuJour, recentActivities, allProspects, integrations, emailStats, tasksDuJour, pendingSequenceEmails] = await Promise.all([
     getDashboardStats(),
     getActionsDuJour(),
     getRecentActivities(10),
     getProspects(),
     getIntegrations().catch(() => []),
     getEmailStats().catch(() => ({ total: 0, sent: 0, received: 0, thisWeek: 0 })),
+    Promise.resolve(
+      supabase
+        .from('tasks')
+        .select('*, prospect:prospects(prenom, nom, entreprise)')
+        .eq('status', 'pending')
+        .lte('due_date', `${today}T23:59:59`)
+        .order('due_date')
+    ).then(({ data }) => data || []).catch(() => []),
+    getPendingReviewEmails().catch(() => []),
   ])
 
   // Hot prospects: those in active discussion stages, limited to 8
@@ -51,6 +68,18 @@ export default async function DashboardPage() {
             <section>
               <ActionsToday prospects={actionsDuJour} />
             </section>
+
+            {pendingSequenceEmails.length > 0 && (
+              <section>
+                <PendingSequenceEmails initialPending={pendingSequenceEmails} />
+              </section>
+            )}
+
+            {tasksDuJour.length > 0 && (
+              <section>
+                <TasksToday initialTasks={tasksDuJour} />
+              </section>
+            )}
 
             <section>
               <HotProspects prospects={hotProspects} />

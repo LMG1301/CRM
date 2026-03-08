@@ -51,6 +51,67 @@ export async function getCalendarEvents(
 }
 
 /**
+ * Create a new event on Google Calendar.
+ */
+export async function createCalendarEvent(params: {
+  summary: string
+  description?: string
+  startDate: string // YYYY-MM-DD for all-day or ISO datetime
+  endDate?: string
+  attendees?: string[]
+}): Promise<{ id: string; htmlLink: string } | null> {
+  const token = await getGmailAccessToken()
+  if (!token) return null
+
+  const isAllDay = /^\d{4}-\d{2}-\d{2}$/.test(params.startDate)
+
+  // Build event body
+  const event: Record<string, unknown> = {
+    summary: params.summary,
+    description: params.description || undefined,
+  }
+
+  if (isAllDay) {
+    // All-day event — end date is exclusive in Google Calendar
+    const endDate = params.endDate || (() => {
+      const d = new Date(params.startDate + 'T12:00:00')
+      d.setDate(d.getDate() + 1)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    })()
+    event.start = { date: params.startDate }
+    event.end = { date: endDate }
+  } else {
+    event.start = { dateTime: params.startDate, timeZone: 'Europe/Paris' }
+    event.end = {
+      dateTime: params.endDate || new Date(new Date(params.startDate).getTime() + 60 * 60 * 1000).toISOString(),
+      timeZone: 'Europe/Paris',
+    }
+  }
+
+  if (params.attendees?.length) {
+    event.attendees = params.attendees.map(email => ({ email }))
+  }
+
+  const res = await fetch(`${CALENDAR_API}/calendars/primary/events`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(event),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    console.error('Calendar create error:', err)
+    return null
+  }
+
+  const data = await res.json()
+  return { id: data.id, htmlLink: data.htmlLink }
+}
+
+/**
  * Match calendar event attendees to CRM prospects by email.
  */
 export function matchEventsToCRM(

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
+import { toLocalDateString } from '@/lib/utils'
 import {
   Building2,
   Search,
@@ -44,7 +45,7 @@ function CompanyRow({ company }: { company: CompanySummary }) {
   const [expanded, setExpanded] = useState(false)
 
   const actionsDue = company.contacts.filter(
-    (c) => c.date_prochaine_action && c.date_prochaine_action <= new Date().toISOString().split('T')[0]
+    (c) => c.date_prochaine_action && c.date_prochaine_action <= toLocalDateString(new Date())
   )
 
   return (

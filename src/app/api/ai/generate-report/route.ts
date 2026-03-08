@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import { getAnthropicClient, parseAnthropicError } from '@/lib/anthropic'
 import { resolveModel } from '@/lib/ai-models'
 import { logApiUsage, enforceBudget } from '@/lib/api-usage'
+import { toLocalDateString } from '@/lib/utils'
 
 /**
  * AI Report Generation — generates a structured weekly check-in or bimonthly report.
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
     // Overdue follow-ups (3+ days late)
     const threeDaysAgo = new Date()
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
-    const threeDaysAgoStr = threeDaysAgo.toISOString().split('T')[0]
+    const threeDaysAgoStr = toLocalDateString(threeDaysAgo)
 
     const overdueFollowups = (prospects || [])
       .filter(p => p.date_prochaine_action && p.date_prochaine_action < threeDaysAgoStr)
@@ -110,7 +111,7 @@ export async function POST(request: Request) {
     // Cooling deals: no activity in 10+ days on active stages
     const tenDaysAgo = new Date()
     tenDaysAgo.setDate(tenDaysAgo.getDate() - 10)
-    const tenDaysAgoStr = tenDaysAgo.toISOString().split('T')[0]
+    const tenDaysAgoStr = toLocalDateString(tenDaysAgo)
     const activeStages = ['touch_1', 'touch_2', 'touch_3', 'nurturing', 'repondu', 'call_decouverte', 'devis']
 
     const coolingDeals = (prospects || [])

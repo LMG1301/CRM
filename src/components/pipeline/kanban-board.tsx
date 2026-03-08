@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext,
@@ -11,16 +11,19 @@ import {
   useSensors,
   useDroppable,
   useDraggable,
-  closestCorners,
+  pointerWithin,
+  rectIntersection,
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
+  type CollisionDetection,
 } from '@dnd-kit/core'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { PipelineStage, Prospect } from '@/lib/types'
 import { updateProspect, deleteProspect } from '@/lib/actions'
-import { Building2, GripVertical, Trash2 } from 'lucide-react'
+import { Building2, GripVertical, Trash2, Search, X, Zap, CheckSquare } from 'lucide-react'
+import { EnrollSequenceDialog } from '@/components/sequences/enroll-sequence-dialog'
 
 // ─── Business Type Filter ───
 
@@ -78,6 +81,11 @@ interface ProspectCardContentProps {
   isOverlay?: boolean
   onDelete?: (id: string) => void
   showDelete?: boolean
+  dimmed?: boolean
+  highlighted?: boolean
+  selectionMode?: boolean
+  isSelected?: boolean
+  onToggleSelect?: (id: string) => void
 }
 
 function ProspectCardContent({
@@ -87,6 +95,11 @@ function ProspectCardContent({
   isOverlay,
   onDelete,
   showDelete,
+  dimmed,
+  highlighted,
+  selectionMode,
+  isSelected,
+  onToggleSelect,
 }: ProspectCardContentProps) {
   const initials = (prospect.prenom?.[0] || '') + (prospect.nom?.[0] || '')
 
@@ -96,7 +109,10 @@ function ProspectCardContent({
         'group relative rounded-lg border border-white/[0.08] bg-[#152c28] p-2.5 transition-all',
         isDragging && 'opacity-40',
         isOverlay && 'rotate-2 shadow-2xl shadow-black/50 ring-2 ring-white/20',
-        !isDragging && !isOverlay && 'hover:border-white/20 hover:bg-[#1a332f]'
+        !isDragging && !isOverlay && 'hover:border-white/20 hover:bg-[#1a332f]',
+        dimmed && 'opacity-20 pointer-events-none',
+        highlighted && 'ring-2 ring-brand-accent/60 border-brand-accent/40',
+        isSelected && 'ring-2 ring-brand-accent border-brand-accent/50 bg-brand-accent/5'
       )}
     >
       {/* Left color accent bar */}
@@ -106,6 +122,25 @@ function ProspectCardContent({
       />
 
       <div className="flex items-center gap-2.5 pl-1">
+        {/* Selection checkbox */}
+        {selectionMode && onToggleSelect && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              onToggleSelect(prospect.id)
+            }}
+            className={cn(
+              'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors',
+              isSelected
+                ? 'border-brand-accent bg-brand-accent text-white'
+                : 'border-white/30 hover:border-white/50'
+            )}
+          >
+            {isSelected && <CheckSquare className="h-3 w-3" />}
+          </button>
+        )}
+
         {/* Avatar initials */}
         <div
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
@@ -158,11 +193,21 @@ function DraggableProspectCard({
   stageColor,
   onDelete,
   showDelete,
+  dimmed,
+  highlighted,
+  selectionMode,
+  isSelected,
+  onToggleSelect,
 }: {
   prospect: Prospect
   stageColor: string
   onDelete?: (id: string) => void
   showDelete?: boolean
+  dimmed?: boolean
+  highlighted?: boolean
+  selectionMode?: boolean
+  isSelected?: boolean
+  onToggleSelect?: (id: string) => void
 }) {
   const router = useRouter()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -174,11 +219,14 @@ function DraggableProspectCard({
   })
 
   const handleClick = useCallback(() => {
-    // activationConstraint distance:8 ensures this only fires on click, not drag
     if (!isDragging) {
-      router.push(`/prospects/${prospect.id}`)
+      if (selectionMode && onToggleSelect) {
+        onToggleSelect(prospect.id)
+      } else {
+        router.push(`/prospects/${prospect.id}`)
+      }
     }
-  }, [router, prospect.id, isDragging])
+  }, [router, prospect.id, isDragging, selectionMode, onToggleSelect])
 
   return (
     <div
@@ -194,6 +242,11 @@ function DraggableProspectCard({
         isDragging={isDragging}
         onDelete={onDelete}
         showDelete={showDelete}
+        dimmed={dimmed}
+        highlighted={highlighted}
+        selectionMode={selectionMode}
+        isSelected={isSelected}
+        onToggleSelect={onToggleSelect}
       />
     </div>
   )
@@ -207,9 +260,14 @@ interface StageColumnProps {
   isOver: boolean
   onDelete?: (id: string) => void
   showDelete?: boolean
+  matchesSearch?: (p: Prospect) => boolean
+  hasSearch?: boolean
+  selectionMode?: boolean
+  selectedIds?: Set<string>
+  onToggleSelect?: (id: string) => void
 }
 
-function StageColumn({ stage, prospects, isOver, onDelete, showDelete }: StageColumnProps) {
+function StageColumn({ stage, prospects, isOver, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect }: StageColumnProps) {
   const { setNodeRef } = useDroppable({
     id: `column-${stage.slug}`,
     data: {
@@ -221,8 +279,8 @@ function StageColumn({ stage, prospects, isOver, onDelete, showDelete }: StageCo
   return (
     <div
       className={cn(
-        'flex h-full w-[300px] shrink-0 flex-col rounded-xl border border-white/[0.06] bg-[#112220] transition-colors',
-        isOver && 'border-white/20 bg-[#142a27]'
+        'flex h-full w-[300px] shrink-0 flex-col rounded-xl border border-white/[0.06] bg-[#112220] transition-all duration-200',
+        isOver && 'border-brand-accent/50 bg-[#142a27] ring-1 ring-brand-accent/20'
       )}
     >
       {/* Column header */}
@@ -255,22 +313,33 @@ function StageColumn({ stage, prospects, isOver, onDelete, showDelete }: StageCo
             <p className="text-xs text-white/25">Aucun prospect</p>
           </div>
         ) : (
-          prospects.map((prospect) => (
-            <DraggableProspectCard
-              key={prospect.id}
-              prospect={prospect}
-              stageColor={stage.color}
-              onDelete={onDelete}
-              showDelete={showDelete}
-            />
-          ))
+          prospects.map((prospect) => {
+            const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
+            return (
+              <DraggableProspectCard
+                key={prospect.id}
+                prospect={prospect}
+                stageColor={stage.color}
+                onDelete={onDelete}
+                showDelete={showDelete}
+                dimmed={hasSearch && !matches}
+                highlighted={hasSearch && matches}
+                selectionMode={selectionMode}
+                isSelected={selectedIds?.has(prospect.id)}
+                onToggleSelect={onToggleSelect}
+              />
+            )
+          })
         )}
       </div>
 
       {/* Column footer */}
       <div className="border-t border-white/[0.06] px-4 py-2">
         <p className="text-[10px] text-white/25">
-          {prospects.length} prospect{prospects.length !== 1 ? 's' : ''}
+          {hasSearch && matchesSearch
+            ? `${prospects.filter(matchesSearch).length}/${prospects.length}`
+            : `${prospects.length} prospect${prospects.length !== 1 ? 's' : ''}`
+          }
         </p>
       </div>
     </div>
@@ -285,9 +354,14 @@ interface MobileStageSectionProps {
   isOver: boolean
   onDelete?: (id: string) => void
   showDelete?: boolean
+  matchesSearch?: (p: Prospect) => boolean
+  hasSearch?: boolean
+  selectionMode?: boolean
+  selectedIds?: Set<string>
+  onToggleSelect?: (id: string) => void
 }
 
-function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete }: MobileStageSectionProps) {
+function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect }: MobileStageSectionProps) {
   const [isExpanded, setIsExpanded] = useState(
     prospects.length > 0 && prospects.length <= 10
   )
@@ -356,15 +430,23 @@ function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete }: 
               <p className="text-xs text-white/25">Aucun prospect</p>
             </div>
           ) : (
-            prospects.map((prospect) => (
-              <DraggableProspectCard
-                key={prospect.id}
-                prospect={prospect}
-                stageColor={stage.color}
-                onDelete={onDelete}
-                showDelete={showDelete}
-              />
-            ))
+            prospects.map((prospect) => {
+              const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
+              return (
+                <DraggableProspectCard
+                  key={prospect.id}
+                  prospect={prospect}
+                  stageColor={stage.color}
+                  onDelete={onDelete}
+                  showDelete={showDelete}
+                  dimmed={hasSearch && !matches}
+                  highlighted={hasSearch && matches}
+                  selectionMode={selectionMode}
+                  isSelected={selectedIds?.has(prospect.id)}
+                  onToggleSelect={onToggleSelect}
+                />
+              )
+            })
           )}
         </div>
       )}
@@ -374,11 +456,66 @@ function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete }: 
 
 // ─── Main Kanban Board ───
 
+// Custom collision: pointerWithin first (most intuitive), fallback to rectIntersection
+const kanbanCollision: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args)
+  if (pointerCollisions.length > 0) return pointerCollisions
+  return rectIntersection(args)
+}
+
 export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoardProps) {
   const [prospects, setProspects] = useState<Prospect[]>(initialProspects)
   const [activeProspect, setActiveProspect] = useState<Prospect | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
   const [businessFilter, setBusinessFilter] = useState<BusinessType>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [sequenceDialogOpen, setSequenceDialogOpen] = useState(false)
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set())
+    setSelectionMode(false)
+  }, [])
+
+  // Cmd/Ctrl+F opens pipeline search instead of browser search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+      }
+      if (e.key === 'Escape' && searchQuery) {
+        setSearchQuery('')
+        searchInputRef.current?.blur()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [searchQuery])
+
+  // Simple fuzzy search: case-insensitive includes on nom, prenom, entreprise
+  const matchesSearch = useCallback((prospect: Prospect): boolean => {
+    if (!searchQuery.trim()) return true
+    const q = searchQuery.toLowerCase().trim()
+    const fields = [
+      prospect.prenom,
+      prospect.nom,
+      prospect.entreprise,
+      `${prospect.prenom} ${prospect.nom}`,
+    ].filter(Boolean)
+    return fields.some(f => f!.toLowerCase().includes(q))
+  }, [searchQuery])
 
   // Configure drag sensors with activation constraints to avoid accidental drags
   const pointerSensor = useSensor(PointerSensor, {
@@ -552,8 +689,30 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
         </p>
       </div>
 
-      {/* Business type filter chips */}
-      <div className="mb-4 flex flex-wrap gap-2">
+      {/* Search bar + Business type filter chips */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Rechercher un prospect... (Cmd+F)"
+            className="h-8 w-64 rounded-lg border border-white/[0.08] bg-white/[0.04] pl-8 pr-8 text-xs text-white placeholder:text-white/30 focus:border-brand-accent/40 focus:outline-none focus:ring-1 focus:ring-brand-accent/20"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Filter chips */}
         {(Object.keys(BUSINESS_TYPE_LABELS) as BusinessType[]).map((type) => (
           <button
             key={type}
@@ -568,12 +727,36 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
             {BUSINESS_TYPE_LABELS[type]}
           </button>
         ))}
+
+        {/* Selection mode toggle */}
+        <button
+          onClick={() => {
+            if (selectionMode) clearSelection()
+            else setSelectionMode(true)
+          }}
+          className={cn(
+            'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+            selectionMode
+              ? 'bg-brand-accent text-white'
+              : 'bg-white/[0.06] text-white/60 hover:bg-white/[0.1] hover:text-white/80'
+          )}
+        >
+          <CheckSquare className="mr-1 inline-block h-3 w-3" />
+          {selectionMode ? `${selectedIds.size} selectionnee${selectedIds.size !== 1 ? 's' : ''}` : 'Selectionner'}
+        </button>
+
+        {/* Search result count */}
+        {searchQuery.trim() && (
+          <span className="text-xs text-white/40">
+            {filteredProspects.filter(matchesSearch).length} resultat{filteredProspects.filter(matchesSearch).length !== 1 ? 's' : ''}
+          </span>
+        )}
       </div>
 
       {/* DnD context wrapping both desktop and mobile views */}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={kanbanCollision}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
@@ -590,6 +773,11 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
                 isOver={overId === `column-${stage.slug}`}
                 onDelete={handleDeleteProspect}
                 showDelete
+                matchesSearch={matchesSearch}
+                hasSearch={!!searchQuery.trim()}
+                selectionMode={selectionMode}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
               />
             ))}
           </div>
@@ -605,6 +793,11 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
               isOver={overId === `column-${stage.slug}`}
               onDelete={handleDeleteProspect}
               showDelete
+              matchesSearch={matchesSearch}
+              hasSearch={!!searchQuery.trim()}
+              selectionMode={selectionMode}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
             />
           ))}
         </div>
@@ -622,6 +815,37 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {/* Bulk action bar */}
+      {selectionMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-white/[0.12] bg-[#112220] px-5 py-3 shadow-2xl shadow-black/50">
+          <span className="text-sm font-medium text-white">
+            {selectedIds.size} prospect{selectedIds.size > 1 ? 's' : ''}
+          </span>
+          <button
+            onClick={() => setSequenceDialogOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-brand-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-accent/90 transition-colors"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            Inscrire en sequence
+          </button>
+          <button
+            onClick={clearSelection}
+            className="rounded-lg px-3 py-1.5 text-xs text-white/60 hover:text-white/90 transition-colors"
+          >
+            Annuler
+          </button>
+        </div>
+      )}
+
+      {/* Bulk enrollment dialog */}
+      <EnrollSequenceDialog
+        open={sequenceDialogOpen}
+        onOpenChange={setSequenceDialogOpen}
+        prospectIds={Array.from(selectedIds)}
+        prospectName={`${selectedIds.size} prospects selectionnes`}
+        onEnrolled={clearSelection}
+      />
     </div>
   )
 }

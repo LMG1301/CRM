@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
   DialogContent,
@@ -19,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Search, Sparkles, Loader2 } from 'lucide-react'
+import { Search, Sparkles, Loader2, Bot } from 'lucide-react'
 import { updateProspect } from '@/lib/actions'
 import type { Prospect } from '@/lib/types'
 
@@ -94,9 +95,16 @@ export function EditProspectDialog({
   const [saving, setSaving] = useState(false)
   const [enriching, setEnriching] = useState(false)
   const [enrichResult, setEnrichResult] = useState<string | null>(null)
+  const [enrichedFields, setEnrichedFields] = useState<Set<string>>(new Set())
 
   const handleChange = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+    // If user manually edits an enriched field, remove the IA badge
+    setEnrichedFields((prev) => {
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
   }
 
   const handleEnrich = async () => {
@@ -113,6 +121,7 @@ export function EditProspectDialog({
           fonction: form.fonction,
           email: form.email,
           linkedin_url: form.linkedin_url,
+          site_web: form.site_web,
         }),
       })
       const json = await res.json()
@@ -134,24 +143,30 @@ export function EditProspectDialog({
         'site_web', 'localisation', 'pays',
       ]
       let filled = 0
+      const newEnrichedFields = new Set<string>()
+
       setForm((prev) => {
         const updated = { ...prev }
         for (const key of enrichableFields) {
           if (data[key] && !prev[key]) {
             updated[key] = data[key]
+            newEnrichedFields.add(key)
             filled++
           }
         }
         return updated
       })
 
+      setEnrichedFields((prev) => new Set([...prev, ...newEnrichedFields]))
+
       const sourceInfo = data.source_info || ''
+      const webSearchUsed = json.web_search_used ? ' (recherche web)' : ''
       setEnrichResult(
         filled > 0
-          ? `${filled} champ${filled > 1 ? 's' : ''} rempli${filled > 1 ? 's' : ''}${sourceInfo ? ` — ${sourceInfo}` : ''}`
+          ? `${filled} champ${filled > 1 ? 's' : ''} rempli${filled > 1 ? 's' : ''}${webSearchUsed}${sourceInfo ? ` — ${sourceInfo}` : ''}`
           : `Tous les champs sont deja remplis${sourceInfo ? ` — ${sourceInfo}` : ''}`
       )
-    } catch (err) {
+    } catch {
       setEnrichResult('Erreur de connexion')
     } finally {
       setEnriching(false)
@@ -231,27 +246,40 @@ export function EditProspectDialog({
                 {group.title}
               </h3>
               <div className="grid grid-cols-2 gap-3">
-                {group.fields.map((field) => (
-                  <div
-                    key={field.key}
-                    className={
-                      field.key === 'linkedin_url' || field.key === 'entreprise' || field.key === 'site_web' || field.key === 'fonction' || field.key === 'source'
-                        ? 'col-span-2'
-                        : ''
-                    }
-                  >
-                    <Label htmlFor={field.key} className="mb-1.5 text-xs">
-                      {field.label}
-                    </Label>
-                    <Input
-                      id={field.key}
-                      type={'type' in field ? (field.type as string) : 'text'}
-                      placeholder={'placeholder' in field ? field.placeholder : ''}
-                      value={form[field.key] || ''}
-                      onChange={(e) => handleChange(field.key, e.target.value)}
-                    />
-                  </div>
-                ))}
+                {group.fields.map((field) => {
+                  const isEnriched = enrichedFields.has(field.key)
+                  return (
+                    <div
+                      key={field.key}
+                      className={
+                        field.key === 'linkedin_url' || field.key === 'entreprise' || field.key === 'site_web' || field.key === 'fonction' || field.key === 'source'
+                          ? 'col-span-2'
+                          : ''
+                      }
+                    >
+                      <Label htmlFor={field.key} className="mb-1.5 text-xs flex items-center gap-1.5">
+                        {field.label}
+                        {isEnriched && (
+                          <Badge
+                            variant="outline"
+                            className="h-4 px-1 text-[10px] font-medium border-violet-500/40 text-violet-400 bg-violet-500/10"
+                          >
+                            <Bot className="size-2.5 mr-0.5" />
+                            IA
+                          </Badge>
+                        )}
+                      </Label>
+                      <Input
+                        id={field.key}
+                        type={'type' in field ? (field.type as string) : 'text'}
+                        placeholder={'placeholder' in field ? field.placeholder : ''}
+                        value={form[field.key] || ''}
+                        onChange={(e) => handleChange(field.key, e.target.value)}
+                        className={isEnriched ? 'border-violet-500/30 bg-violet-500/5' : ''}
+                      />
+                    </div>
+                  )
+                })}
                 {/* Categorie Select — only in Commercial group */}
                 {group.title === 'Commercial' && (
                   <div>

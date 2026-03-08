@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { FileBarChart, ClipboardCopy, Check, Loader2, Calendar, TrendingUp } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { toLocalDateString } from '@/lib/utils'
 import type { Prospect, Activity } from '@/lib/types'
 
 interface ReportData {
@@ -44,7 +45,7 @@ function generateWeeklyReport(data: ReportData): string {
   // Prospects with upcoming actions
   const actionsDues = data.prospects.filter(p => {
     if (!p.date_prochaine_action) return false
-    return p.date_prochaine_action <= today.toISOString().split('T')[0]
+    return p.date_prochaine_action <= toLocalDateString(today)
   })
 
   const upcoming = data.prospects.filter(p => {
@@ -52,7 +53,7 @@ function generateWeeklyReport(data: ReportData): string {
     const d = p.date_prochaine_action
     const nextWeek = new Date()
     nextWeek.setDate(nextWeek.getDate() + 7)
-    return d > today.toISOString().split('T')[0] && d <= nextWeek.toISOString().split('T')[0]
+    return d > toLocalDateString(today) && d <= toLocalDateString(nextWeek)
   })
 
   let report = `# Weekly Check-in — ${today.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n\n`

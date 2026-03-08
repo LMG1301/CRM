@@ -1,5 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizedDistance } from '@/lib/company-matching'
+
+const CRM_BASE_URL = process.env.NEXT_PUBLIC_CRM_URL || 'https://boost-crm-six.vercel.app'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,7 +21,7 @@ export async function POST(req: NextRequest) {
     const authHeader = req.headers.get('authorization')
     const token = authHeader?.replace('Bearer ', '')
     if (!token || token !== process.env.CRM_PASSWORD) {
-      return NextResponse.json({ error: 'Non autorise' }, { status: 401 })
+      return NextResponse.json({ error: 'Non autorise' }, { status: 401, headers: corsHeaders })
     }
 
     const body = await req.json()
@@ -21,7 +30,7 @@ export async function POST(req: NextRequest) {
     if (!nom && !entreprise && !email) {
       return NextResponse.json(
         { error: 'Au moins un champ requis: nom, entreprise ou email' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       )
     }
 
@@ -51,18 +60,32 @@ export async function POST(req: NextRequest) {
         .limit(1)
       if (data && data.length > 0) existing = data[0]
     }
+    // Fuzzy match on nom + entreprise
+    if (!existing && nom && entreprise) {
+      const { data: candidates } = await supabase
+        .from('prospects')
+        .select('id, prenom, nom, entreprise')
+        .ilike('nom', nom)
+      if (candidates) {
+        existing = candidates.find(p =>
+          p.entreprise && normalizedDistance(p.entreprise, entreprise) < 0.35
+        ) || null
+      }
+    }
 
     if (existing) {
       return NextResponse.json({
         status: 'duplicate',
         message: `Prospect existant: ${existing.prenom || ''} ${existing.nom || ''} (${existing.entreprise || ''})`.trim(),
         prospect_id: existing.id,
+        crm_url: `${CRM_BASE_URL}/prospects/${existing.id}`,
       })
     }
 
     // Create the prospect
+    const validStages = ['ciblage', 'touch_1', 'touch_2', 'touch_3', 'nurturing', 'repondu', 'call_decouverte', 'devis', 'client', 'refuse', 'bounced']
     const prospect: Record<string, string> = {
-      pipeline_stage: 'ciblage',
+      pipeline_stage: body.pipeline_stage && validStages.includes(body.pipeline_stage) ? body.pipeline_stage : 'ciblage',
     }
     if (prenom) prospect.prenom = prenom
     if (nom) prospect.nom = nom
@@ -91,23 +114,15 @@ export async function POST(req: NextRequest) {
       status: 'created',
       message: `Prospect cree: ${data.prenom || ''} ${data.nom || ''} (${data.entreprise || ''})`.trim(),
       prospect_id: data.id,
-    }, {
-      headers: { 'Access-Control-Allow-Origin': '*' },
-    })
+      crm_url: `${CRM_BASE_URL}/prospects/${data.id}`,
+    }, { headers: corsHeaders })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur serveur'
-    return NextResponse.json({ error: message }, { status: 500, headers: { 'Access-Control-Allow-Origin': '*' } })
+    return NextResponse.json({ error: message }, { status: 500, headers: corsHeaders })
   }
 }
 
 // CORS preflight
 export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  })
+  return new NextResponse(null, { status: 204, headers: corsHeaders })
 }

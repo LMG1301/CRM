@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { toLocalDateString } from '@/lib/utils'
 
 /**
  * Gmail Import — fetches ALL emails directly via Gmail REST API
@@ -428,7 +429,7 @@ async function processMessage(
       }
 
       // 5. Update date_dernier_contact (only if this email is more recent)
-      const emailDate = new Date(gmailDate).toISOString().split('T')[0]
+      const emailDate = toLocalDateString(new Date(gmailDate))
       const { data: prospect } = await supabase
         .from('prospects')
         .select('date_dernier_contact, pipeline_stage')

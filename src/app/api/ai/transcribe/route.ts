@@ -1,20 +1,11 @@
 import { NextRequest } from 'next/server'
-import OpenAI from 'openai'
 import { getAnthropicClient, parseAnthropicError } from '@/lib/anthropic'
 import { resolveModel } from '@/lib/ai-models'
 import { logApiUsage, enforceBudget } from '@/lib/api-usage'
 import { supabase } from '@/lib/supabase'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
-
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return Response.json(
-        { error: 'OPENAI_API_KEY non configure' },
-        { status: 500 },
-      )
-    }
     if (!process.env.ANTHROPIC_API_KEY) {
       return Response.json(
         { error: 'ANTHROPIC_API_KEY non configure' },
@@ -25,35 +16,16 @@ export async function POST(request: NextRequest) {
     const budgetBlock = await enforceBudget()
     if (budgetBlock) return budgetBlock
 
-    const formData = await request.formData()
-    const audioFile = formData.get('audio') as File | null
-    const prospectId = formData.get('prospect_id') as string | null
+    // Web Speech API mode: receive pre-transcribed text
+    const body = await request.json()
+    const transcriptText: string = body.text
+    const prospectId: string | null = body.prospect_id || null
 
-    if (!audioFile) {
-      return Response.json({ error: 'Fichier audio requis' }, { status: 400 })
+    if (!transcriptText?.trim()) {
+      return Response.json({ error: 'Texte requis' }, { status: 400 })
     }
 
-    // Step 1: Transcribe with OpenAI Whisper
-    const transcription = await openai.audio.transcriptions.create({
-      file: audioFile,
-      model: 'whisper-1',
-      language: 'fr',
-      response_format: 'text',
-    })
-
-    const transcriptText = typeof transcription === 'string'
-      ? transcription
-      : (transcription as unknown as { text: string }).text
-
-    // Log Whisper usage (estimate tokens from audio size)
-    logApiUsage({
-      endpoint: 'transcribe-whisper',
-      model: 'whisper-1',
-      input_tokens: Math.round(audioFile.size / 100), // rough estimate
-      output_tokens: 0,
-    })
-
-    // Step 2: Structure with Claude Haiku
+    // Structure with Claude Haiku
     const model = resolveModel('transcribe-structure')
     const anthropic = getAnthropicClient()
 
@@ -83,9 +55,11 @@ Reponds UNIQUEMENT en JSON valide :
   "resume": "Resume en 2-3 phrases",
   "points_cles": ["point 1", "point 2"],
   "action_items": ["action 1", "action 2"],
+  "produits": ["Smart Fridge x5", "Micro Market x2"],
   "sentiment": "positif" | "neutre" | "negatif",
   "mentioned_prospects": [{"name": "nom_mentionne", "matched_id": "uuid_ou_null"}]
-}`,
+}
+Si aucun produit n'est mentionne, retourne un tableau vide pour "produits".`,
       messages: [
         {
           role: 'user',
@@ -111,6 +85,7 @@ Reponds UNIQUEMENT en JSON valide :
       resume: string
       points_cles: string[]
       action_items: string[]
+      produits: string[]
       sentiment: string
       mentioned_prospects: Array<{ name: string; matched_id: string | null }>
     }
@@ -127,6 +102,7 @@ Reponds UNIQUEMENT en JSON valide :
         resume: transcriptText,
         points_cles: [],
         action_items: [],
+        produits: [],
         sentiment: 'neutre',
         mentioned_prospects: [],
       }

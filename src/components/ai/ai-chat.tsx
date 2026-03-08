@@ -18,8 +18,10 @@ interface Message {
 interface AIChatProps {
   prospectId?: string
   prospectEmail?: string
+  prospectName?: string
   onSaveAsNote?: (content: string) => void
   quickActions?: Array<{ label: string; prompt: string; icon?: React.ReactNode }>
+  onQuickActionIntercept?: (prompt: string) => boolean
   placeholder?: string
   className?: string
 }
@@ -27,8 +29,10 @@ interface AIChatProps {
 export function AIChat({
   prospectId,
   prospectEmail,
+  prospectName,
   onSaveAsNote,
   quickActions,
+  onQuickActionIntercept,
   placeholder = 'Demande a l\'IA...',
   className = '',
 }: AIChatProps) {
@@ -36,7 +40,12 @@ export function AIChat({
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [selectedModel, setSelectedModel] = useState<AIModelId | undefined>(undefined)
-  const [emailDialog, setEmailDialog] = useState<{ open: boolean; contentId: string | null }>({ open: false, contentId: null })
+  const [emailDialog, setEmailDialog] = useState<{
+    open: boolean
+    contentId: string | null
+    bodyHtml?: string
+    subject?: string
+  }>({ open: false, contentId: null })
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -200,6 +209,37 @@ export function AIChat({
     setEmailDialog({ open: true, contentId })
   }, [])
 
+  // Send any AI message content as email (convert markdown to HTML)
+  const handleSendAsEmail = useCallback((content: string) => {
+    // Extract subject from "**Objet :** ..." line if present
+    let subject = ''
+    const lines = content.split('\n')
+    const bodyLines: string[] = []
+
+    for (const line of lines) {
+      const subjectMatch = line.match(/\*?\*?Objet\s*:?\*?\*?\s*:?\s*(.+)/i)
+      if (subjectMatch && !subject) {
+        subject = subjectMatch[1].replace(/\*\*/g, '').trim()
+      } else {
+        bodyLines.push(line)
+      }
+    }
+
+    // Convert markdown-ish text to simple HTML
+    const html = bodyLines
+      .map(l => {
+        if (l.trim() === '') return '<br>'
+        // Bold
+        let h = l.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        // Italic
+        h = h.replace(/\*(.+?)\*/g, '<em>$1</em>')
+        return `<p>${h}</p>`
+      })
+      .join('\n')
+
+    setEmailDialog({ open: true, contentId: null, bodyHtml: html, subject })
+  }, [])
+
   return (
     <div className={`flex flex-col ${className}`}>
       {/* Messages area */}
@@ -227,7 +267,10 @@ export function AIChat({
                 {quickActions.map((action, i) => (
                   <button
                     key={i}
-                    onClick={() => sendMessage(action.prompt)}
+                    onClick={() => {
+                      if (onQuickActionIntercept?.(action.prompt)) return
+                      sendMessage(action.prompt)
+                    }}
                     className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-brand-accent/30 hover:bg-brand-accent/10 hover:text-foreground"
                   >
                     {action.icon}
@@ -257,6 +300,11 @@ export function AIChat({
             onContentAction={
               msg.role === 'assistant' && prospectId && prospectEmail
                 ? handleContentAction
+                : undefined
+            }
+            onSendAsEmail={
+              msg.role === 'assistant' && prospectId && prospectEmail
+                ? handleSendAsEmail
                 : undefined
             }
           />
@@ -310,14 +358,17 @@ export function AIChat({
         </form>
       </div>
 
-      {/* Email compose dialog triggered by [CONTENT:id] buttons */}
+      {/* Email compose dialog triggered by [CONTENT:id] or send-as-email */}
       {prospectId && prospectEmail && (
         <ComposeEmailDialog
           open={emailDialog.open}
           onOpenChange={(open) => setEmailDialog({ open, contentId: open ? emailDialog.contentId : null })}
           prospectId={prospectId}
           prospectEmail={prospectEmail}
+          prospectName={prospectName}
           contentId={emailDialog.contentId}
+          initialBodyHtml={emailDialog.bodyHtml}
+          initialSubject={emailDialog.subject}
         />
       )}
     </div>

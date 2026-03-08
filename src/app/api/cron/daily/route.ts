@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { toLocalDateString } from '@/lib/utils'
 
 /**
  * Daily automation endpoint — called by Vercel Cron or Apps Script daily.
@@ -60,6 +61,8 @@ export async function POST(request: NextRequest) {
     const results = {
       relances: { checked: 0, flagged: 0, details: [] as Array<{ prospect: string; stage: string; days_since_contact: number }> },
       pipeline: { checked: 0, updated: 0, details: [] as Array<{ prospect: string; from: string; to: string; reason: string }> },
+      tasks: { overdue: 0 },
+      sequences: { checked: 0, generated: 0, auto_sent: 0, stopped_reply: 0, errors: [] as string[] },
     }
 
     // ═══════════════════════════════════════════
@@ -74,7 +77,7 @@ export async function POST(request: NextRequest) {
     if (activeProspects) {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-      const todayStr = today.toISOString().split('T')[0]
+      const todayStr = toLocalDateString(today)
 
       for (const prospect of activeProspects) {
         results.relances.checked++
@@ -196,6 +199,92 @@ export async function POST(request: NextRequest) {
               break // Only apply first matching rule
             }
           }
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════
+    // 3. TACHES EN RETARD
+    // ═══════════════════════════════════════════
+
+    const todayCron = toLocalDateString(new Date())
+    const { count } = await supabase
+      .from('tasks')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .lt('due_date', `${todayCron}T00:00:00`)
+
+    results.tasks.overdue = count || 0
+
+    // ═══════════════════════════════════════════
+    // 4. SEQUENCES — Auto-stop + execute due steps
+    // ═══════════════════════════════════════════
+
+    // 4a. AUTO-STOP: Check for replies from enrolled prospects
+    const { data: activeEnrollments } = await supabase
+      .from('sequence_enrollments')
+      .select('id, prospect_id, enrolled_at')
+      .eq('status', 'active')
+
+    if (activeEnrollments) {
+      for (const enrollment of activeEnrollments) {
+        const { data: replies } = await supabase
+          .from('activities')
+          .select('id')
+          .eq('prospect_id', enrollment.prospect_id)
+          .eq('type', 'email_received')
+          .gte('created_at', enrollment.enrolled_at)
+          .limit(1)
+
+        if (replies && replies.length > 0) {
+          await supabase
+            .from('sequence_enrollments')
+            .update({
+              status: 'stopped_reply',
+              stopped_at: new Date().toISOString(),
+              stopped_reason: 'Prospect a repondu par email',
+              pending_email: null,
+            })
+            .eq('id', enrollment.id)
+
+          results.sequences.stopped_reply++
+        }
+      }
+    }
+
+    // 4b. PROCESS DUE STEPS: Generate emails for due enrollments
+    const todaySeq = toLocalDateString(new Date())
+    const { data: dueEnrollments } = await supabase
+      .from('sequence_enrollments')
+      .select('id')
+      .eq('status', 'active')
+      .is('pending_email', null)
+      .lte('next_step_date', todaySeq)
+
+    if (dueEnrollments) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      for (const enrollment of dueEnrollments) {
+        results.sequences.checked++
+        try {
+          const res = await fetch(`${appUrl}/api/sequences/process-step`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-webhook-secret': process.env.WEBHOOK_SECRET || '',
+            },
+            body: JSON.stringify({ enrollment_id: enrollment.id }),
+          })
+          if (res.ok) {
+            const result = await res.json()
+            if (result.sent) results.sequences.auto_sent++
+            else if (result.generated) results.sequences.generated++
+            else if (result.stopped) results.sequences.stopped_reply++
+          } else {
+            const err = await res.json().catch(() => ({ error: 'Unknown' }))
+            results.sequences.errors.push(`${enrollment.id}: ${err.error}`)
+          }
+        } catch (e) {
+          results.sequences.errors.push(`${enrollment.id}: ${(e as Error).message}`)
         }
       }
     }

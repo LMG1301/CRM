@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toLocalDateString } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -64,7 +65,7 @@ export function AddProspectDialog({
         if (value.trim()) prospect[key] = value.trim()
       }
       if (!prospect.pipeline_stage) prospect.pipeline_stage = 'ciblage'
-      prospect.date_premier_contact = new Date().toISOString().split('T')[0]
+      prospect.date_premier_contact = toLocalDateString(new Date())
 
       await createProspect(prospect)
       setForm(EMPTY_FORM)

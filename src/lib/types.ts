@@ -29,6 +29,7 @@ export interface Prospect {
   date_dernier_contact: string | null
   date_prochaine_action: string | null
   type_prochaine_action: string
+  description_prochaine_action: string | null
   notes: string
   created_at: string
   updated_at: string
@@ -141,6 +142,7 @@ export interface BusinessContext {
   email_templates: string
   linkedin_templates: string
   additional_context: string
+  email_signature?: string
   created_at: string
   updated_at: string
 }
@@ -200,6 +202,81 @@ export const CONTENT_PRODUCTS = [
   'boost_stock',
   'boost_platform',
 ] as const
+
+// ─── Tasks (follow-up reminders) ───
+
+export interface Task {
+  id: string
+  prospect_id: string
+  title: string
+  description?: string
+  due_date: string
+  status: 'pending' | 'done' | 'skipped'
+  type: string
+  related_activity_id?: string
+  created_at: string
+  completed_at?: string
+  prospect?: { prenom: string; nom: string; entreprise?: string }
+}
+
+// ─── Email Templates ───
+
+export interface EmailTemplate {
+  id: string
+  name: string
+  subject: string
+  body_html: string
+  category: string
+  variables: string[]
+  is_active: boolean
+  usage_count: number
+  created_at: string
+  updated_at: string
+}
+
+// ─── Email Sequences ───
+
+export interface SequenceStep {
+  position: number
+  delay_days: number
+  prompt_hint: string
+  subject_hint?: string
+}
+
+export interface Sequence {
+  id: string
+  name: string
+  description: string
+  steps: SequenceStep[]
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface SequenceEnrollment {
+  id: string
+  sequence_id: string
+  prospect_id: string
+  status: 'active' | 'completed' | 'stopped_reply' | 'stopped_manual' | 'paused'
+  current_step: number
+  next_step_date: string | null
+  pending_email: {
+    subject: string
+    body_html: string
+    body_text: string
+    generated_at: string
+    step_position: number
+  } | null
+  send_mode: 'semi_auto' | 'auto'
+  enrolled_at: string
+  completed_at: string | null
+  stopped_at: string | null
+  stopped_reason: string | null
+  created_at: string
+  updated_at: string
+  sequence?: Sequence
+  prospect?: Prospect
+}
 
 // ─── Source colors for activity feed ───
 

@@ -1,10 +1,12 @@
 import { NextRequest } from 'next/server'
 import { buildSystemPrompt } from '@/lib/ai-prompts'
-import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments, getProspectsSummary } from '@/lib/actions'
+import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments, getProspectsSummary, getProspectEmails } from '@/lib/actions'
+import type { Email } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
 import { getAnthropicClient, parseAnthropicError } from '@/lib/anthropic'
 import { resolveModel } from '@/lib/ai-models'
 import { logApiUsage, enforceBudget } from '@/lib/api-usage'
+import { getCalendarEvents, type CalendarEvent } from '@/lib/calendar'
 import type { Prospect } from '@/lib/types'
 
 export async function POST(request: NextRequest) {
@@ -30,12 +32,13 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Messages requis' }, { status: 400 })
     }
 
-    // Load business context + prospect context + knowledge docs in parallel
+    // Load business context + prospect context + knowledge docs + emails in parallel
     let prospect: Prospect | null = null
     let activities: Awaited<ReturnType<typeof getActivities>> = []
     let businessContext: Awaited<ReturnType<typeof getBusinessContext>> = null
     let knowledgeDocs: Awaited<ReturnType<typeof getKnowledgeDocuments>> = []
     let allProspects: Awaited<ReturnType<typeof getProspectsSummary>> = []
+    let prospectEmails: Email[] = []
 
     try {
       const results = await Promise.all([
@@ -44,6 +47,7 @@ export async function POST(request: NextRequest) {
         prospectId ? getProspect(prospectId) : Promise.resolve(null),
         prospectId ? getActivities(prospectId) : Promise.resolve([]),
         !prospectId ? getProspectsSummary() : Promise.resolve([]),
+        prospectId ? getProspectEmails(prospectId) : Promise.resolve([]),
       ])
 
       businessContext = results[0]
@@ -51,11 +55,12 @@ export async function POST(request: NextRequest) {
       prospect = results[2]
       activities = results[3]
       allProspects = results[4]
+      prospectEmails = results[5] as Email[]
     } catch {
       // Continue without context
     }
 
-    const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs, allProspects)
+    const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs, allProspects, prospectEmails)
 
     // Enhance system prompt with knowledge context when relevant
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''
@@ -96,6 +101,70 @@ Utilise tes connaissances sur ${prospect.entreprise} pour personnaliser ton mess
       lastMessage.includes('recommande') ||
       lastMessage.includes('nurturing') ||
       lastMessage.includes('partager')
+
+    // Detect calendar/availability intent
+    const wantsCalendar = lastMessage.includes('calendrier') ||
+      lastMessage.includes('calendar') ||
+      lastMessage.includes('creneau') ||
+      lastMessage.includes('créneau') ||
+      lastMessage.includes('dispo') ||
+      lastMessage.includes('meeting') ||
+      lastMessage.includes('reunion') ||
+      lastMessage.includes('réunion') ||
+      lastMessage.includes('rdv') ||
+      lastMessage.includes('rendez') ||
+      lastMessage.includes('planifier') ||
+      lastMessage.includes('quand') ||
+      lastMessage.includes('semaine prochaine') ||
+      lastMessage.includes('prochain call')
+
+    if (wantsCalendar) {
+      try {
+        const calEvents = await getCalendarEvents(7, 14)
+        if (calEvents.length > 0) {
+          const now = new Date()
+          const upcoming = calEvents.filter((e: CalendarEvent) => {
+            const d = new Date(e.start.dateTime || e.start.date || '')
+            return d >= now
+          })
+
+          if (upcoming.length > 0) {
+            const eventLines = upcoming.slice(0, 20).map((e: CalendarEvent) => {
+              const start = new Date(e.start.dateTime || e.start.date || '')
+              const dateStr = start.toLocaleDateString('fr-FR', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+              })
+              const timeStr = e.start.dateTime
+                ? start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                : 'journee entiere'
+              const endTime = e.end?.dateTime
+                ? new Date(e.end.dateTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                : ''
+              const attendeeList = (e.attendees || [])
+                .filter(a => !a.email?.includes('calendar.google.com'))
+                .map(a => a.displayName || a.email)
+                .join(', ')
+              return `- ${dateStr} ${timeStr}${endTime ? `-${endTime}` : ''} : "${e.summary}"${attendeeList ? ` (avec ${attendeeList})` : ''}`
+            })
+
+            enhancedSystem += `\n\n## Calendrier Google — Evenements a venir
+
+Voici les evenements du calendrier des 2 prochaines semaines. Utilise ces informations pour :
+- Proposer des creneaux libres au prospect (en evitant les conflits)
+- Mentionner les meetings deja planifies avec ce prospect
+- Suggerer le meilleur moment pour un call ou une reunion
+
+${eventLines.join('\n')}
+
+IMPORTANT : Quand tu proposes des creneaux, verifie qu'ils ne chevauchent pas les evenements ci-dessus. Propose 2-3 options en heures ouvrables (9h-18h, lundi-vendredi).`
+          }
+        }
+      } catch {
+        // Calendar not available, continue without
+      }
+    }
 
     if (wantsContent) {
       try {

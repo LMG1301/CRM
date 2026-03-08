@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { toLocalDateString } from '@/lib/utils'
 
 /**
  * Webhook endpoint for Gmail sync — replaces n8n workflows.
@@ -198,8 +199,8 @@ export async function POST(request: NextRequest) {
               email: contactEmail,
               source: 'Email entrant',
               pipeline_stage: 'ciblage',
-              date_premier_contact: new Date().toISOString().split('T')[0],
-              date_dernier_contact: new Date().toISOString().split('T')[0],
+              date_premier_contact: toLocalDateString(new Date()),
+              date_dernier_contact: toLocalDateString(new Date()),
             })
             .select('id')
             .single()
@@ -247,7 +248,7 @@ export async function POST(request: NextRequest) {
           await supabase
             .from('prospects')
             .update({
-              date_dernier_contact: new Date(email.gmail_date).toISOString().split('T')[0],
+              date_dernier_contact: toLocalDateString(new Date(email.gmail_date)),
             })
             .eq('id', prospectId)
 

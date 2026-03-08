@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { toLocalDateString } from '@/lib/utils'
 
 /**
  * Sync emails for a specific prospect:
@@ -120,7 +121,7 @@ export async function POST(
       }
 
       // Update date_dernier_contact
-      const emailDate = new Date(email.gmail_date).toISOString().split('T')[0]
+      const emailDate = toLocalDateString(new Date(email.gmail_date))
       await supabase
         .from('prospects')
         .update({ date_dernier_contact: emailDate })

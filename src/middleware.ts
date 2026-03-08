@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Allow login page, auth API, and webhooks/AI API (they have their own auth)
-  if (pathname === '/login' || pathname.startsWith('/api/auth') || pathname.startsWith('/api/webhooks') || pathname.startsWith('/api/ai') || pathname.startsWith('/api/gmail/oauth')) {
+  // Allow login page and all API routes (they have their own auth)
+  if (pathname === '/login' || pathname.startsWith('/api/')) {
     return NextResponse.next()
   }
 

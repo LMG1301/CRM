@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { getGmailAccessToken, buildMimeMessage, sendGmailMessage } from '@/lib/gmail'
+import { toLocalDateString } from '@/lib/utils'
 
 /**
  * Send an email via Gmail API.
@@ -9,7 +10,7 @@ import { getGmailAccessToken, buildMimeMessage, sendGmailMessage } from '@/lib/g
  */
 export async function POST(request: Request) {
   try {
-    const { to, subject, body_html, prospect_id } = await request.json()
+    const { to, subject, body_html, prospect_id, attachments } = await request.json()
 
     if (!to || !subject || !body_html) {
       return Response.json({ error: 'to, subject et body_html requis' }, { status: 400 })
@@ -31,12 +32,21 @@ export async function POST(request: Request) {
     const profile = await profileRes.json()
     const fromEmail = profile.emailAddress || 'louis.matar@boostinc.com'
 
+    // Load email signature from business context
+    const { data: bizCtx } = await supabase
+      .from('business_context')
+      .select('email_signature')
+      .limit(1)
+      .single()
+
     // Build and send MIME message
     const mime = buildMimeMessage({
       from: fromEmail,
       to,
       subject,
       htmlBody: body_html,
+      signature: bizCtx?.email_signature || undefined,
+      attachments: attachments || undefined,
     })
 
     const result = await sendGmailMessage(accessToken, mime)
@@ -76,7 +86,7 @@ export async function POST(request: Request) {
       })
 
       // Update date_dernier_contact
-      const today = new Date().toISOString().split('T')[0]
+      const today = toLocalDateString(new Date())
       await supabase
         .from('prospects')
         .update({ date_dernier_contact: today })

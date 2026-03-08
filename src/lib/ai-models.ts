@@ -24,7 +24,7 @@ export const AI_MODELS: Record<AIModelId, AIModelConfig> = {
   },
   'claude-sonnet': {
     id: 'claude-sonnet',
-    apiModelId: 'claude-sonnet-4-20250514',
+    apiModelId: 'claude-sonnet-4-6',
     displayName: 'Claude Sonnet',
     inputPricePerMTok: 3.0,
     outputPricePerMTok: 15.0,
@@ -33,12 +33,12 @@ export const AI_MODELS: Record<AIModelId, AIModelConfig> = {
   },
   'claude-opus': {
     id: 'claude-opus',
-    apiModelId: 'claude-opus-4-20250514',
+    apiModelId: 'claude-opus-4-6',
     displayName: 'Claude Opus',
-    inputPricePerMTok: 15.0,
-    outputPricePerMTok: 75.0,
+    inputPricePerMTok: 5.0,
+    outputPricePerMTok: 25.0,
     maxOutputTokens: 4096,
-    description: 'Premium — strategies complexes (usage rare)',
+    description: 'Premium — analyses strategiques, rapports',
   },
 }
 
@@ -53,11 +53,16 @@ export type AIEndpoint =
   | 'generate-email'
   | 'generate-report'
   | 'summarize-url'
+  | 'suggest-stage'
+  | 'parse-signature'
+  | 'personalize-template'
+  | 'generate-sequence-email'
+  | 'knowledge-summary'
 
 export const DEFAULT_MODEL_ROUTING: Record<AIEndpoint, AIModelId> = {
   chat: 'claude-sonnet',
-  'analyze-pipeline': 'claude-haiku',
-  'enrich-prospect': 'claude-sonnet',
+  'analyze-pipeline': 'claude-sonnet',
+  'enrich-prospect': 'claude-haiku',
   summarize: 'claude-haiku',
   'transcribe-structure': 'claude-haiku',
   'tag-content': 'claude-haiku',
@@ -65,6 +70,11 @@ export const DEFAULT_MODEL_ROUTING: Record<AIEndpoint, AIModelId> = {
   'generate-email': 'claude-sonnet',
   'generate-report': 'claude-sonnet',
   'summarize-url': 'claude-haiku',
+  'suggest-stage': 'claude-haiku',
+  'parse-signature': 'claude-haiku',
+  'personalize-template': 'claude-haiku',
+  'generate-sequence-email': 'claude-sonnet',
+  'knowledge-summary': 'claude-haiku',
 }
 
 export const BUDGET_CONFIG = {
@@ -101,6 +111,11 @@ export function estimateActionCost(
     'generate-email': { input: 1500, output: 600 },
     'generate-report': { input: 3000, output: 800 },
     'summarize-url': { input: 2000, output: 300 },
+    'suggest-stage': { input: 500, output: 200 },
+    'parse-signature': { input: 500, output: 200 },
+    'personalize-template': { input: 1500, output: 600 },
+    'generate-sequence-email': { input: 2000, output: 600 },
+    'knowledge-summary': { input: 2000, output: 200 },
   }
   const est = estimates[endpoint]
   return estimateCost(model, est.input, est.output)

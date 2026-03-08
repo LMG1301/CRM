@@ -1,9 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Boost CRM - Quick Add",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Enregistrer des prospects dans Boost CRM depuis LinkedIn ou Gmail",
-  "permissions": ["activeTab", "storage", "scripting"],
+  "permissions": ["activeTab", "storage", "scripting", "sidePanel"],
+  "host_permissions": [
+    "https://boost-crm-six.vercel.app/*",
+    "http://localhost:3000/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -16,5 +20,18 @@
     "16": "icon16.png",
     "48": "icon48.png",
     "128": "icon128.png"
-  }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["gmail-content.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }

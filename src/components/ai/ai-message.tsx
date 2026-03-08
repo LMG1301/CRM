@@ -11,9 +11,10 @@ interface AIMessageProps {
   isStreaming?: boolean
   onSaveAsNote?: (content: string) => void
   onContentAction?: (contentId: string) => void
+  onSendAsEmail?: (content: string) => void
 }
 
-export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentAction }: AIMessageProps) {
+export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentAction, onSendAsEmail }: AIMessageProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -136,6 +137,17 @@ export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentA
               )}
               {copied ? 'Copie' : 'Copier'}
             </Button>
+            {onSendAsEmail && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => onSendAsEmail(content)}
+              >
+                <Mail className="h-3 w-3" />
+                Envoyer
+              </Button>
+            )}
             {onSaveAsNote && (
               <Button
                 variant="ghost"

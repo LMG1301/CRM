@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     const budgetBlock = await enforceBudget()
     if (budgetBlock) return budgetBlock
 
-    const { prenom, nom, entreprise, fonction, email, linkedin_url, model: requestedModel } =
+    const { prenom, nom, entreprise, fonction, email, linkedin_url, site_web, model: requestedModel } =
       await request.json()
 
     if (!nom && !entreprise) {
@@ -26,96 +26,125 @@ export async function POST(request: NextRequest) {
     }
 
     const fullName = [prenom, nom].filter(Boolean).join(' ')
-
-    const systemPrompt = `Tu es un assistant de recherche commercial. L'utilisateur te donne un nom de prospect et/ou une entreprise.
-Tu dois utiliser tes connaissances pour completer sa fiche contact.
-
-IMPORTANT : Tu n'as PAS acces a Internet en temps reel. Utilise tes connaissances pour :
-- Identifier l'entreprise si connue (site web, localisation, pays)
-- Deduire le format d'email professionnel si l'entreprise est connue (ex: prenom.nom@entreprise.com)
-- Donner des informations sur le secteur d'activite
-- Pour les champs que tu ne peux pas confirmer avec certitude, mets null
-
-Reponds UNIQUEMENT en JSON valide, sans texte avant ou apres. Pas de markdown, pas de commentaires.
-
-Le format de reponse attendu :
-{
-  "prenom": "...",
-  "nom": "...",
-  "entreprise": "...",
-  "fonction": "...",
-  "email": "...",
-  "email_pro": "...",
-  "telephone": "...",
-  "linkedin_url": "...",
-  "site_web": "...",
-  "localisation": "...",
-  "pays": "...",
-  "source_info": "..."
-}
-
-Regles :
-- Ne remplis QUE les champs pour lesquels tu as des informations fiables
-- Pour les champs sans information, mets null
-- "source_info" est un court resume de ce que tu sais et la fiabilite de tes informations
-- Pour "site_web", donne le site officiel de l'entreprise si tu le connais
-- Si l'entreprise est connue, deduis le pays et la localisation
-- Pour l'email, ne l'invente pas si tu n'es pas certain du format`
-
     const model = resolveModel('enrich-prospect', requestedModel)
     const anthropic = getAnthropicClient()
 
-    const response = await anthropic.messages.create({
-      model: model.apiModelId,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: `Recherche des informations sur ce prospect pour completer sa fiche CRM :
+    const userContent = [
+      `Recherche des informations sur ce prospect pour completer sa fiche CRM :`,
+      ``,
+      `Nom : ${fullName || '(inconnu)'}`,
+      `Entreprise : ${entreprise || '(inconnue)'}`,
+      fonction ? `Fonction actuelle : ${fonction}` : null,
+      email ? `Email connu : ${email}` : null,
+      linkedin_url ? `LinkedIn : ${linkedin_url}` : null,
+      site_web ? `Site web : ${site_web}` : null,
+      ``,
+      `Recherche sur le web les informations suivantes :`,
+      `- Son poste/fonction exact`,
+      `- Le site web de l'entreprise`,
+      `- Son email professionnel si trouvable publiquement`,
+      `- Le telephone de l'entreprise`,
+      `- La ville/localisation`,
+      `- Le pays`,
+      ``,
+      `Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de texte avant/apres) :`,
+      `{`,
+      `  "prenom": "...",`,
+      `  "nom": "...",`,
+      `  "entreprise": "...",`,
+      `  "fonction": "...",`,
+      `  "email": "...",`,
+      `  "email_pro": "...",`,
+      `  "telephone": "...",`,
+      `  "linkedin_url": "...",`,
+      `  "site_web": "...",`,
+      `  "localisation": "...",`,
+      `  "pays": "...",`,
+      `  "source_info": "court resume des sources utilisees"`,
+      `}`,
+      ``,
+      `Pour les champs sans information fiable, mets null.`,
+      `Ne devine PAS les emails — ne les retourne que si tu les trouves publiquement.`,
+      `"source_info" doit indiquer d'ou viennent les donnees (ex: "LinkedIn + site web entreprise").`,
+    ].filter(Boolean).join('\n')
 
-Nom : ${fullName || '(inconnu)'}
-Entreprise : ${entreprise || '(inconnue)'}
-${fonction ? `Fonction actuelle : ${fonction}` : ''}
-${email ? `Email connu : ${email}` : ''}
-${linkedin_url ? `LinkedIn : ${linkedin_url}` : ''}
-
-Cherche son profil LinkedIn, son poste actuel, l'adresse et le pays de l'entreprise, et tout contact utile.`,
-        },
-      ],
-    })
-
-    logApiUsage({
-      endpoint: 'enrich-prospect',
-      model: model.apiModelId,
-      input_tokens: response.usage.input_tokens,
-      output_tokens: response.usage.output_tokens,
-    })
-
-    const resultText = response.content
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
-
-    // Parse JSON from response (handle markdown code blocks)
+    // Try with web_search tool first
     let enrichedData: Record<string, string | null> = {}
+    let usedWebSearch = false
+
     try {
-      const jsonMatch =
-        resultText.match(/```(?:json)?\s*([\s\S]*?)```/) ||
-        resultText.match(/(\{[\s\S]*\})/)
-      if (jsonMatch) {
-        enrichedData = JSON.parse(jsonMatch[1].trim())
-      } else {
-        enrichedData = JSON.parse(resultText.trim())
-      }
-    } catch {
-      return Response.json(
-        { error: 'Impossible de parser les resultats', raw: resultText },
-        { status: 500 },
+      const response = await anthropic.messages.create({
+        model: model.apiModelId,
+        max_tokens: 1024,
+        tools: [
+          {
+            type: 'web_search_20250305' as const,
+            name: 'web_search',
+            max_uses: 3,
+          },
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: userContent,
+          },
+        ],
+      })
+
+      logApiUsage({
+        endpoint: 'enrich-prospect',
+        model: model.apiModelId,
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+      })
+
+      // Extract text from response (may contain web_search_tool_result blocks too)
+      const resultText = response.content
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+
+      usedWebSearch = response.content.some(
+        (b) => b.type === 'web_search_tool_result'
       )
+
+      // Parse JSON from response
+      enrichedData = parseJsonFromText(resultText)
+    } catch (webSearchError) {
+      // Fallback: try without web_search if the tool is not available
+      console.warn('Web search failed, falling back to knowledge-only:', webSearchError)
+
+      const fallbackResponse = await anthropic.messages.create({
+        model: model.apiModelId,
+        max_tokens: 1024,
+        system: `Tu es un assistant de recherche commercial. Complete la fiche contact avec tes connaissances.
+Reponds UNIQUEMENT en JSON valide, sans texte avant ou apres. Pas de markdown.
+Pour les champs sans information fiable, mets null.
+Ne devine PAS les emails.`,
+        messages: [
+          {
+            role: 'user',
+            content: userContent,
+          },
+        ],
+      })
+
+      logApiUsage({
+        endpoint: 'enrich-prospect',
+        model: model.apiModelId,
+        input_tokens: fallbackResponse.usage.input_tokens,
+        output_tokens: fallbackResponse.usage.output_tokens,
+      })
+
+      const fallbackText = fallbackResponse.content
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+
+      enrichedData = parseJsonFromText(fallbackText)
     }
 
-    // Filter out null values
+    // Filter out null values and build result
     const result: Record<string, string> = {}
     for (const [key, value] of Object.entries(enrichedData)) {
       if (value && value !== 'null' && value !== '') {
@@ -123,10 +152,35 @@ Cherche son profil LinkedIn, son poste actuel, l'adresse et le pays de l'entrepr
       }
     }
 
-    return Response.json({ data: result })
+    // Add metadata about the search method
+    if (!result.source_info) {
+      result.source_info = usedWebSearch
+        ? 'Recherche web Anthropic'
+        : 'Connaissances IA (pas de recherche web)'
+    }
+
+    return Response.json({ data: result, web_search_used: usedWebSearch })
   } catch (error) {
     console.error('Enrich error:', error)
     const message = parseAnthropicError(error)
     return Response.json({ error: message }, { status: 500 })
+  }
+}
+
+/**
+ * Parse JSON from Claude's response text, handling markdown code blocks
+ */
+function parseJsonFromText(text: string): Record<string, string | null> {
+  try {
+    const jsonMatch =
+      text.match(/```(?:json)?\s*([\s\S]*?)```/) ||
+      text.match(/(\{[\s\S]*\})/)
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[1].trim())
+    }
+    return JSON.parse(text.trim())
+  } catch {
+    console.error('Failed to parse enrich response:', text.substring(0, 200))
+    return {}
   }
 }

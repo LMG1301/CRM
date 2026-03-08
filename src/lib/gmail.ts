@@ -42,35 +42,101 @@ export async function getGmailAccessToken(): Promise<string | null> {
 
 /**
  * Build an RFC 2822 MIME message for the Gmail API.
+ * Supports optional signature and file attachments.
  */
 export function buildMimeMessage(params: {
   from: string
   to: string
   subject: string
   htmlBody: string
+  signature?: string
+  attachments?: { filename: string; mimeType: string; base64: string }[]
 }): string {
-  const boundary = `boundary_${Date.now()}`
+  // Inject signature into HTML body if provided
+  let htmlBody = params.htmlBody
+  if (params.signature) {
+    const signatureHtml = `<div class="gmail-signature" style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:12px;font-size:13px;color:#6b7280">${params.signature.replace(/\n/g, '<br>')}</div>`
+    // Insert before </body> if present, otherwise append
+    if (htmlBody.includes('</body>')) {
+      htmlBody = htmlBody.replace('</body>', `${signatureHtml}</body>`)
+    } else {
+      htmlBody = htmlBody + signatureHtml
+    }
+  }
+
+  const plainText = htmlBody.replace(/<[^>]*>/g, '')
+  const hasAttachments = params.attachments && params.attachments.length > 0
+
+  if (!hasAttachments) {
+    // Simple multipart/alternative (text + html)
+    const boundary = `boundary_${Date.now()}`
+    const lines = [
+      `From: ${params.from}`,
+      `To: ${params.to}`,
+      `Subject: =?UTF-8?B?${Buffer.from(params.subject).toString('base64')}?=`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from(plainText).toString('base64'),
+      '',
+      `--${boundary}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from(htmlBody).toString('base64'),
+      '',
+      `--${boundary}--`,
+    ]
+    return lines.join('\r\n')
+  }
+
+  // multipart/mixed with nested multipart/alternative + attachments
+  const mixedBoundary = `mixed_${Date.now()}`
+  const altBoundary = `alt_${Date.now()}`
   const lines = [
     `From: ${params.from}`,
     `To: ${params.to}`,
     `Subject: =?UTF-8?B?${Buffer.from(params.subject).toString('base64')}?=`,
     'MIME-Version: 1.0',
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
     '',
-    `--${boundary}`,
+    `--${mixedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+    '',
+    `--${altBoundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
     'Content-Transfer-Encoding: base64',
     '',
-    Buffer.from(params.htmlBody.replace(/<[^>]*>/g, '')).toString('base64'),
+    Buffer.from(plainText).toString('base64'),
     '',
-    `--${boundary}`,
+    `--${altBoundary}`,
     'Content-Type: text/html; charset="UTF-8"',
     'Content-Transfer-Encoding: base64',
     '',
-    Buffer.from(params.htmlBody).toString('base64'),
+    Buffer.from(htmlBody).toString('base64'),
     '',
-    `--${boundary}--`,
+    `--${altBoundary}--`,
   ]
+
+  // Add each attachment
+  for (const att of params.attachments!) {
+    const encodedName = `=?UTF-8?B?${Buffer.from(att.filename).toString('base64')}?=`
+    lines.push(
+      '',
+      `--${mixedBoundary}`,
+      `Content-Type: ${att.mimeType}; name="${encodedName}"`,
+      `Content-Disposition: attachment; filename="${encodedName}"`,
+      'Content-Transfer-Encoding: base64',
+      '',
+      att.base64,
+    )
+  }
+
+  lines.push('', `--${mixedBoundary}--`)
   return lines.join('\r\n')
 }
 
