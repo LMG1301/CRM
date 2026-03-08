@@ -1,7 +1,7 @@
 'use server'
 
 import { supabase } from './supabase'
-import type { Prospect, Activity, PipelineStage, Email, Integration, BusinessContext } from './types'
+import type { Prospect, Activity, PipelineStage, Email, Integration, BusinessContext, Content } from './types'
 
 // ─── Pipeline Stages ───
 
@@ -172,11 +172,29 @@ export async function getCompanies(): Promise<CompanySummary[]> {
   if (error) throw new Error(error.message)
   const prospects = data || []
 
-  // Group by company
+  // Collect all company names
+  const companyNames = prospects
+    .map((p) => (p.entreprise || '').trim())
+    .filter(Boolean)
+
+  // Fuzzy-group similar names (Beaufrost/Bofrost, Dallmayer/Dallmayr, etc.)
+  const { groupCompaniesFuzzy } = await import('@/lib/company-matching')
+  const nameGroups = groupCompaniesFuzzy(companyNames)
+
+  // Build a lookup: variant name → canonical name
+  const variantToCanonical = new Map<string, string>()
+  for (const [canonical, variants] of nameGroups) {
+    for (const v of variants) {
+      variantToCanonical.set(v, canonical)
+    }
+  }
+
+  // Group prospects by canonical company name
   const byCompany: Record<string, CompanySummary> = {}
   for (const p of prospects) {
-    const key = (p.entreprise || '').trim()
-    if (!key) continue
+    const raw = (p.entreprise || '').trim()
+    if (!raw) continue
+    const key = variantToCanonical.get(raw) || raw
 
     if (!byCompany[key]) {
       byCompany[key] = {
@@ -332,17 +350,16 @@ export async function getDashboardStats() {
   ).length
   const tauxReponse = contacted > 0 ? Math.round((replied + discussions + clients) / contacted * 100) : 0
 
+  // New business metrics
+  const prospectsActifs = all.filter(p =>
+    !['refuse', 'bounced', 'client'].includes(p.pipeline_stage)
+  ).length
+  const conversionRate = total > 0 ? Math.round(clients / total * 100) : 0
+
   // Count by stage
   const byStage: Record<string, number> = {}
   all.forEach(p => {
     byStage[p.pipeline_stage] = (byStage[p.pipeline_stage] || 0) + 1
-  })
-
-  // Count by source
-  const bySource: Record<string, number> = {}
-  all.forEach(p => {
-    const src = p.source || 'Inconnu'
-    bySource[src] = (bySource[src] || 0) + 1
   })
 
   // Count by categorie
@@ -352,7 +369,30 @@ export async function getDashboardStats() {
     byCategorie[cat] = (byCategorie[cat] || 0) + 1
   })
 
-  return { total, clients, discussions, replied, tauxReponse, byStage, bySource, byCategorie }
+  // Weekly activity (last 4 weeks)
+  const fourWeeksAgo = new Date()
+  fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28)
+  const { data: activities } = await supabase
+    .from('activities')
+    .select('created_at')
+    .gte('created_at', fourWeeksAgo.toISOString())
+
+  const weeklyActivity: Record<string, number> = {}
+  for (const a of activities || []) {
+    const d = new Date(a.created_at)
+    // Get Monday of that week
+    const day = d.getDay()
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+    const monday = new Date(d.setDate(diff))
+    const key = monday.toISOString().split('T')[0]
+    weeklyActivity[key] = (weeklyActivity[key] || 0) + 1
+  }
+
+  return {
+    total, clients, discussions, replied, tauxReponse,
+    prospectsActifs, conversionRate,
+    byStage, byCategorie, weeklyActivity,
+  }
 }
 
 // ─── Prospects due for action today ───
@@ -392,6 +432,61 @@ export async function bulkImportProspects(
   }
 
   return { inserted, errors }
+}
+
+// ─── Contents (LinkedIn posts, articles, etc.) ───
+
+export async function getContents(filters?: {
+  content_type?: string
+  theme?: string
+  search?: string
+}): Promise<Content[]> {
+  let query = supabase.from('contents').select('*')
+
+  if (filters?.content_type) query = query.eq('content_type', filters.content_type)
+  if (filters?.theme) query = query.contains('themes', [filters.theme])
+  if (filters?.search) {
+    query = query.or(`title.ilike.%${filters.search}%,body.ilike.%${filters.search}%`)
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false })
+  if (error) {
+    // Table may not exist yet — return empty
+    console.warn('getContents error:', error.message)
+    return []
+  }
+  return data || []
+}
+
+export async function createContent(
+  content: Omit<Content, 'id' | 'created_at' | 'updated_at'>
+): Promise<Content> {
+  const { data, error } = await supabase
+    .from('contents')
+    .insert(content)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function updateContent(
+  id: string,
+  updates: Partial<Content>
+): Promise<Content> {
+  const { data, error } = await supabase
+    .from('contents')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function deleteContent(id: string): Promise<void> {
+  const { error } = await supabase.from('contents').delete().eq('id', id)
+  if (error) throw new Error(error.message)
 }
 
 // ─── Knowledge Documents (synced from Google Drive) ───

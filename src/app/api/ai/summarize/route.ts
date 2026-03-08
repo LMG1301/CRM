@@ -1,61 +1,66 @@
-import { GoogleGenAI } from '@google/genai'
 import { NextRequest } from 'next/server'
-import { logApiUsage } from '@/lib/api-usage'
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' })
+import { getAnthropicClient, parseAnthropicError } from '@/lib/anthropic'
+import { resolveModel } from '@/lib/ai-models'
+import { logApiUsage, enforceBudget } from '@/lib/api-usage'
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.GEMINI_API_KEY) {
+    if (!process.env.ANTHROPIC_API_KEY) {
       return Response.json(
-        { error: 'Cle API Gemini non configuree' },
-        { status: 500 }
+        { error: 'ANTHROPIC_API_KEY non configure' },
+        { status: 500 },
       )
     }
 
-    const { transcript } = await request.json()
+    const budgetBlock = await enforceBudget()
+    if (budgetBlock) return budgetBlock
+
+    const { transcript, model: requestedModel } = await request.json()
 
     if (!transcript || typeof transcript !== 'string') {
-      return Response.json(
-        { error: 'Transcript manquant' },
-        { status: 400 }
-      )
+      return Response.json({ error: 'Transcript manquant' }, { status: 400 })
     }
 
-    // Truncate transcript for API call if very long (keep first 50k chars for summary)
-    const truncatedTranscript = transcript.length > 50000
-      ? transcript.substring(0, 50000) + '\n[... tronque pour le resume]'
-      : transcript
+    const truncatedTranscript =
+      transcript.length > 50000
+        ? transcript.substring(0, 50000) + '\n[... tronque pour le resume]'
+        : transcript
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: `Resume cette transcription d'appel commercial en 5 a 8 lignes maximum.
+    const model = resolveModel('summarize', requestedModel)
+    const anthropic = getAnthropicClient()
+
+    const response = await anthropic.messages.create({
+      model: model.apiModelId,
+      max_tokens: 500,
+      messages: [
+        {
+          role: 'user',
+          content: `Resume cette transcription d'appel commercial en 5 a 8 lignes maximum.
 Garde les points cles : interlocuteur, sujet principal, decisions prises, prochaines etapes.
 Ecris en francais, style professionnel et concis.
 
 Transcription :
 ${truncatedTranscript}`,
-      config: {
-        maxOutputTokens: 500,
-      },
+        },
+      ],
     })
 
-    // Log API usage
     logApiUsage({
       endpoint: 'summarize',
-      model: 'gemini-2.5-flash',
-      input_tokens: response.usageMetadata?.promptTokenCount || 0,
-      output_tokens: response.usageMetadata?.candidatesTokenCount || 0,
+      model: model.apiModelId,
+      input_tokens: response.usage.input_tokens,
+      output_tokens: response.usage.output_tokens,
     })
 
-    const summary = response.text || ''
+    const summary = response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
 
     return Response.json({ summary })
   } catch (error) {
     console.error('Summarize error:', error)
-    return Response.json(
-      { error: (error as Error).message },
-      { status: 500 }
-    )
+    const message = parseAnthropicError(error)
+    return Response.json({ error: message }, { status: 500 })
   }
 }

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Settings, Save, Loader2, Building2, Package, Target, Palette, Mail, Linkedin, FileText, FolderSync, ExternalLink, FileSpreadsheet, Presentation, File, BrainCircuit } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Settings, Save, Loader2, Building2, Package, Target, Palette, Mail, Linkedin, FileText, FolderSync, ExternalLink, FileSpreadsheet, Presentation, File, BrainCircuit, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -117,6 +117,9 @@ interface UsageStats {
   today: UsagePeriod | null
   week: UsagePeriod | null
   month: UsagePeriod | null
+  byModel: Record<string, { calls: number; cost: number }>
+  byEndpoint: Record<string, { calls: number; cost: number }>
+  budget: { limit: number; warning: number; current: number } | null
   error: string | null
 }
 
@@ -127,15 +130,27 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [documents, setDocuments] = useState<SyncedDocument[]>([])
   const [docsLoading, setDocsLoading] = useState(true)
+  const [docSearch, setDocSearch] = useState('')
+  const [docType, setDocType] = useState('')
+  const [docPage, setDocPage] = useState(0)
+  const [docTotal, setDocTotal] = useState(0)
+  const DOC_LIMIT = 20
   const [usage, setUsage] = useState<UsageStats | null>(null)
   const [usageLoading, setUsageLoading] = useState(true)
+  const searchTimeout = useRef<NodeJS.Timeout | null>(null)
 
-  const loadDocuments = useCallback(() => {
+  const loadDocuments = useCallback((search = '', type = '', offset = 0) => {
     setDocsLoading(true)
-    fetch('/api/webhooks/drive-sync', { headers: { 'x-internal': 'true' } })
+    const params = new URLSearchParams()
+    if (search) params.set('search', search)
+    if (type) params.set('type', type)
+    params.set('limit', String(DOC_LIMIT))
+    params.set('offset', String(offset))
+    fetch(`/api/webhooks/drive-sync?${params}`, { headers: { 'x-internal': 'true' } })
       .then((res) => res.json())
       .then((data) => {
         if (data?.documents) setDocuments(data.documents)
+        if (typeof data?.total === 'number') setDocTotal(data.total)
       })
       .catch(() => {})
       .finally(() => setDocsLoading(false))
@@ -150,7 +165,7 @@ export default function SettingsPage() {
       .catch(() => {})
       .finally(() => setLoading(false))
 
-    loadDocuments()
+    loadDocuments('', '', 0)
 
     // Load API usage stats
     fetch('/api/ai/usage')
@@ -271,6 +286,52 @@ export default function SettingsPage() {
 
         <Card>
           <CardContent className="pt-6">
+            {/* Search + type filters */}
+            <div className="mb-4 space-y-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+                <Input
+                  placeholder="Rechercher un document..."
+                  value={docSearch}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setDocSearch(v)
+                    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+                    searchTimeout.current = setTimeout(() => {
+                      setDocPage(0)
+                      loadDocuments(v, docType, 0)
+                    }, 300)
+                  }}
+                  className="pl-9"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: 'Tous', value: '' },
+                  { label: 'Docs', value: 'docs' },
+                  { label: 'Sheets', value: 'sheets' },
+                  { label: 'PDF', value: 'pdf' },
+                  { label: 'Slides', value: 'slides' },
+                ].map((f) => (
+                  <button
+                    key={f.value}
+                    onClick={() => {
+                      setDocType(f.value)
+                      setDocPage(0)
+                      loadDocuments(docSearch, f.value, 0)
+                    }}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      docType === f.value
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {docsLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -278,16 +339,20 @@ export default function SettingsPage() {
             ) : documents.length === 0 ? (
               <div className="py-8 text-center">
                 <FolderSync className="mx-auto mb-3 size-10 text-muted-foreground/50" />
-                <p className="text-sm font-medium text-muted-foreground">Aucun document synchronise</p>
-                <p className="mt-1 text-xs text-muted-foreground/70">
-                  Configurez le script Google Apps Script pour synchroniser vos documents Drive.
+                <p className="text-sm font-medium text-muted-foreground">
+                  {docSearch || docType ? 'Aucun document trouve' : 'Aucun document synchronise'}
                 </p>
+                {!docSearch && !docType && (
+                  <p className="mt-1 text-xs text-muted-foreground/70">
+                    Configurez le script Google Apps Script pour synchroniser vos documents Drive.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="space-y-2">
                 <div className="mb-3 flex items-center justify-between">
-                  <Badge variant="secondary">{documents.length} document{documents.length > 1 ? 's' : ''}</Badge>
-                  <Button variant="ghost" size="sm" onClick={loadDocuments}>
+                  <Badge variant="secondary">{docTotal} document{docTotal > 1 ? 's' : ''}</Badge>
+                  <Button variant="ghost" size="sm" onClick={() => loadDocuments(docSearch, docType, docPage * DOC_LIMIT)}>
                     <FolderSync className="size-3.5" />
                     Rafraichir
                   </Button>
@@ -333,6 +398,43 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 ))}
+
+                {/* Pagination */}
+                {docTotal > DOC_LIMIT && (
+                  <div className="flex items-center justify-between pt-3 border-t border-border">
+                    <span className="text-xs text-muted-foreground">
+                      {docPage * DOC_LIMIT + 1}-{Math.min((docPage + 1) * DOC_LIMIT, docTotal)} sur {docTotal}
+                    </span>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={docPage === 0}
+                        onClick={() => {
+                          const p = docPage - 1
+                          setDocPage(p)
+                          loadDocuments(docSearch, docType, p * DOC_LIMIT)
+                        }}
+                      >
+                        <ChevronLeft className="size-4" />
+                        Precedent
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={(docPage + 1) * DOC_LIMIT >= docTotal}
+                        onClick={() => {
+                          const p = docPage + 1
+                          setDocPage(p)
+                          loadDocuments(docSearch, docType, p * DOC_LIMIT)
+                        }}
+                      >
+                        Suivant
+                        <ChevronRight className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -346,16 +448,16 @@ export default function SettingsPage() {
           Consommation API (IA)
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Suivi de l&apos;utilisation de l&apos;API Google Gemini (modele : 2.5 Flash — $0.15 / MTok entree, $0.60 / MTok sortie).
+          Suivi de l&apos;utilisation des API Anthropic Claude. Budget mensuel : $10.
         </p>
 
-        <Card>
-          <CardContent className="pt-6">
-            {usageLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="size-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : usage?.error ? (
+        {usageLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : usage?.error ? (
+          <Card>
+            <CardContent className="pt-6">
               <div className="py-8 text-center">
                 <BrainCircuit className="mx-auto mb-3 size-10 text-muted-foreground/50" />
                 <p className="text-sm font-medium text-muted-foreground">Table api_usage non configuree</p>
@@ -375,15 +477,98 @@ CREATE INDEX idx_api_usage_created
   ON api_usage (created_at DESC);`}
                 </pre>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <UsageCard label="Aujourd'hui" data={usage?.today} />
-                <UsageCard label="7 derniers jours" data={usage?.week} />
-                <UsageCard label="Ce mois" data={usage?.month} />
-              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {/* Budget bar */}
+            {usage?.budget && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">Budget mensuel</span>
+                    <span className="text-sm font-mono">
+                      ${usage.budget.current.toFixed(2)} / ${usage.budget.limit.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="h-3 w-full rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        usage.budget.current >= usage.budget.limit
+                          ? 'bg-red-500'
+                          : usage.budget.current >= usage.budget.warning
+                            ? 'bg-orange-500'
+                            : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(100, (usage.budget.current / usage.budget.limit) * 100)}%` }}
+                    />
+                  </div>
+                  {usage.budget.current >= usage.budget.limit && (
+                    <p className="mt-2 text-xs text-red-400">Budget atteint — fonctions IA desactivees jusqu&apos;au 1er du mois prochain.</p>
+                  )}
+                  {usage.budget.current >= usage.budget.warning && usage.budget.current < usage.budget.limit && (
+                    <p className="mt-2 text-xs text-orange-400">Proche du plafond — ${(usage.budget.limit - usage.budget.current).toFixed(2)} restants.</p>
+                  )}
+                </CardContent>
+              </Card>
             )}
-          </CardContent>
-        </Card>
+
+            {/* Period cards */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <UsageCard label="Aujourd'hui" data={usage?.today} />
+              <UsageCard label="7 derniers jours" data={usage?.week} />
+              <UsageCard label="Ce mois" data={usage?.month} />
+            </div>
+
+            {/* By model breakdown */}
+            {usage?.byModel && Object.keys(usage.byModel).length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Par modele</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {Object.entries(usage.byModel)
+                      .sort(([, a], [, b]) => b.cost - a.cost)
+                      .map(([model, stats]) => (
+                        <div key={model} className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground font-mono">{model}</span>
+                          <div className="flex items-center gap-4">
+                            <span>{stats.calls} appels</span>
+                            <span className="text-brand-accent font-medium">${stats.cost.toFixed(4)}</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* By endpoint breakdown */}
+            {usage?.byEndpoint && Object.keys(usage.byEndpoint).length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Par fonctionnalite</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {Object.entries(usage.byEndpoint)
+                      .sort(([, a], [, b]) => b.cost - a.cost)
+                      .map(([endpoint, stats]) => (
+                        <div key={endpoint} className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">{endpoint}</span>
+                          <div className="flex items-center gap-4">
+                            <span>{stats.calls} appels</span>
+                            <span className="text-brand-accent font-medium">${stats.cost.toFixed(4)}</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -21,8 +21,9 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronRight,
-  BrainCircuit,
+  Sparkles,
   Loader2,
+  Mic,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -45,7 +46,11 @@ import { ScheduleAction } from './schedule-action'
 import { AIProspectPanel } from '@/components/ai/ai-prospect-panel'
 import { EmailThread } from '@/components/emails/email-thread'
 import { EditProspectDialog } from './edit-prospect-dialog'
+import { VoiceRecorder } from './voice-recorder'
 import { CompanyContextPanel } from './company-context-panel'
+import { SuggestedContents } from './suggested-contents'
+import { ModelSelector } from '@/components/ai/model-selector'
+import type { AIModelId } from '@/lib/ai-models'
 
 interface ProspectDetailProps {
   prospect: Prospect
@@ -133,6 +138,8 @@ export function ProspectDetail({
   const [notesExpanded, setNotesExpanded] = useState(!!initialProspect.notes)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<string | null>(null)
+  const [voiceRecorderOpen, setVoiceRecorderOpen] = useState(false)
+  const [analysisModel, setAnalysisModel] = useState<AIModelId | undefined>(undefined)
 
   const currentStage = stages.find((s) => s.slug === prospect.pipeline_stage)
 
@@ -188,18 +195,19 @@ export function ProspectDetail({
       const res = await fetch('/api/ai/analyze-pipeline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-internal': 'true' },
-        body: JSON.stringify({ prospect_id: prospect.id }),
+        body: JSON.stringify({ prospect_id: prospect.id, model: analysisModel }),
       })
       const data = await res.json()
       if (data.results?.[0]) {
         const r = data.results[0]
+        const nextActionText = r.next_action ? `\nProchaine action : ${r.next_action}` : ''
         if (r.old_stage !== r.new_stage) {
-          setAnalysisResult(`${r.old_stage} → ${r.new_stage} : ${r.reason}`)
+          setAnalysisResult(`${r.old_stage} → ${r.new_stage} : ${r.reason}${nextActionText}`)
           const newStage = stages.find(s => s.slug === r.new_stage)
           if (newStage) setProspect(prev => ({ ...prev, pipeline_stage: r.new_stage }))
           router.refresh()
         } else {
-          setAnalysisResult(`Stage confirme (${r.new_stage}) : ${r.reason}`)
+          setAnalysisResult(`Stage confirme (${r.new_stage}) : ${r.reason}${nextActionText}`)
         }
       } else {
         setAnalysisResult('Analyse terminee — aucun changement suggere')
@@ -386,14 +394,31 @@ export function ProspectDetail({
               Coller transcription
             </Button>
             <Button
+              variant="outline"
               size="sm"
-              onClick={handleAnalyzeIA}
-              disabled={analyzing}
-              className="bg-brand-accent hover:bg-brand-accent/90 text-white ml-auto"
+              onClick={() => setVoiceRecorderOpen(true)}
             >
-              {analyzing ? <Loader2 className="size-4 animate-spin" /> : <BrainCircuit className="size-4" />}
-              {analyzing ? 'Analyse...' : 'Analyser IA'}
+              <Mic className="size-4" />
+              Note vocale
             </Button>
+            <div className="ml-auto flex items-center gap-2">
+              <ModelSelector
+                endpoint="analyze-pipeline"
+                value={analysisModel}
+                onChange={setAnalysisModel}
+                compact
+                showCostBadge={false}
+              />
+              <Button
+                size="sm"
+                onClick={handleAnalyzeIA}
+                disabled={analyzing}
+                className="bg-brand-accent hover:bg-brand-accent/90 text-white"
+              >
+                {analyzing ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                {analyzing ? 'Analyse...' : 'Analyser IA'}
+              </Button>
+            </div>
             </div>
             {analysisResult && (
               <div className="rounded-md bg-brand-accent/10 border border-brand-accent/20 px-3 py-2 text-sm text-brand-accent">
@@ -402,6 +427,12 @@ export function ProspectDetail({
             )}
           </CardContent>
         </Card>
+
+        {/* Suggested contents for nurturing */}
+        <SuggestedContents
+          prospectId={prospect.id}
+          prospectEmail={prospect.email || prospect.email_pro || ''}
+        />
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Left column */}
@@ -629,6 +660,17 @@ export function ProspectDetail({
         onSave={(updated) => {
           setProspect(updated)
           setNotes(updated.notes || '')
+          router.refresh()
+        }}
+      />
+
+      {/* Voice recorder */}
+      <VoiceRecorder
+        prospectId={prospect.id}
+        open={voiceRecorderOpen}
+        onOpenChange={setVoiceRecorderOpen}
+        onSave={() => {
+          setVoiceRecorderOpen(false)
           router.refresh()
         }}
       />

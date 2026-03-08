@@ -14,7 +14,7 @@ import {
   Cell,
   Legend,
 } from 'recharts'
-import { Users, MessageSquare, Trophy, TrendingUp } from 'lucide-react'
+import { Users, MessageSquare, Trophy, TrendingUp, UserCheck, Target } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { PipelineStage } from '@/lib/types'
 
@@ -26,9 +26,11 @@ interface DashboardStats {
   discussions: number
   replied: number
   tauxReponse: number
+  prospectsActifs: number
+  conversionRate: number
   byStage: Record<string, number>
-  bySource: Record<string, number>
   byCategorie: Record<string, number>
+  weeklyActivity: Record<string, number>
 }
 
 interface StatsDashboardProps {
@@ -143,19 +145,24 @@ export function StatsDashboard({ stats, stages }: StatsDashboardProps) {
       }))
   }, [stages, stats.byStage])
 
-  // Donnees pour le camembert des sources
-  const sourceData = useMemo(() => {
-    return Object.entries(stats.bySource)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-  }, [stats.bySource])
-
   // Donnees pour le camembert des categories
   const categorieData = useMemo(() => {
     return Object.entries(stats.byCategorie)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
   }, [stats.byCategorie])
+
+  // Weekly activity data
+  const activityData = useMemo(() => {
+    const entries = Object.entries(stats.weeklyActivity || {}).sort(
+      ([a], [b]) => a.localeCompare(b)
+    )
+    return entries.map(([date, count]) => {
+      const d = new Date(date)
+      const label = `${d.getDate()}/${d.getMonth() + 1}`
+      return { name: `Sem. ${label}`, count }
+    })
+  }, [stats.weeklyActivity])
 
   // KPIs
   const kpis = [
@@ -168,6 +175,14 @@ export function StatsDashboard({ stats, stages }: StatsDashboardProps) {
       display: String(stats.total),
     },
     {
+      label: 'Prospects actifs',
+      value: stats.prospectsActifs,
+      icon: UserCheck,
+      color: 'text-cyan-500',
+      bgColor: 'bg-cyan-500/10',
+      display: String(stats.prospectsActifs),
+    },
+    {
       label: 'Clients',
       value: stats.clients,
       icon: Trophy,
@@ -176,19 +191,27 @@ export function StatsDashboard({ stats, stages }: StatsDashboardProps) {
       display: String(stats.clients),
     },
     {
+      label: 'Taux conversion',
+      value: stats.conversionRate,
+      icon: Target,
+      color: 'text-amber-500',
+      bgColor: 'bg-amber-500/10',
+      display: `${stats.conversionRate}%`,
+    },
+    {
       label: 'Discussions actives',
       value: stats.discussions,
       icon: MessageSquare,
-      color: 'text-amber-500',
-      bgColor: 'bg-amber-500/10',
+      color: 'text-violet-500',
+      bgColor: 'bg-violet-500/10',
       display: String(stats.discussions),
     },
     {
       label: 'Taux de reponse',
       value: stats.tauxReponse,
       icon: TrendingUp,
-      color: 'text-violet-500',
-      bgColor: 'bg-violet-500/10',
+      color: 'text-rose-500',
+      bgColor: 'bg-rose-500/10',
       display: `${stats.tauxReponse}%`,
     },
   ]
@@ -196,7 +219,7 @@ export function StatsDashboard({ stats, stages }: StatsDashboardProps) {
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {kpis.map((kpi) => {
           const Icon = kpi.icon
           return (
@@ -270,43 +293,53 @@ export function StatsDashboard({ stats, stages }: StatsDashboardProps) {
           </CardContent>
         </Card>
 
-        {/* Repartition par source */}
+        {/* Activite recente (4 semaines) */}
         <Card>
           <CardHeader>
-            <CardTitle>Repartition par source</CardTitle>
+            <CardTitle>Activite recente</CardTitle>
           </CardHeader>
           <CardContent>
-            {sourceData.length === 0 ? (
+            {activityData.length === 0 ? (
               <div className="flex h-[320px] items-center justify-center">
                 <p className="text-sm text-muted-foreground">
-                  Aucune donnee disponible
+                  Aucune activite sur les 4 dernieres semaines
                 </p>
               </div>
             ) : (
               <div className="h-[320px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={sourceData}
-                      cx="50%"
-                      cy="45%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={3}
-                      dataKey="value"
-                      nameKey="name"
-                      strokeWidth={0}
-                    >
-                      {sourceData.map((_entry, index) => (
-                        <Cell
-                          key={`source-${index}`}
-                          fill={PIE_COLORS[index % PIE_COLORS.length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<PieTooltip />} />
-                    <Legend content={<DarkLegend />} />
-                  </PieChart>
+                  <BarChart
+                    data={activityData}
+                    margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="#1a332f"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fill: '#8fa8a2', fontSize: 12 }}
+                      tickLine={false}
+                      axisLine={{ stroke: '#1a332f' }}
+                    />
+                    <YAxis
+                      tick={{ fill: '#8fa8a2', fontSize: 12 }}
+                      tickLine={false}
+                      axisLine={{ stroke: '#1a332f' }}
+                      allowDecimals={false}
+                    />
+                    <Tooltip
+                      content={<DarkTooltip />}
+                      cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                    />
+                    <Bar
+                      dataKey="count"
+                      name="Activites"
+                      fill="#1863DC"
+                      radius={[6, 6, 0, 0]}
+                    />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             )}

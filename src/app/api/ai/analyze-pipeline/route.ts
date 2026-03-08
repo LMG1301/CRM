@@ -1,19 +1,16 @@
-import { GoogleGenAI } from '@google/genai'
 import { NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { logApiUsage } from '@/lib/api-usage'
+import { getAnthropicClient, parseAnthropicError } from '@/lib/anthropic'
+import { resolveModel } from '@/lib/ai-models'
+import { logApiUsage, enforceBudget } from '@/lib/api-usage'
 
 /**
  * AI Pipeline Analysis — Analyzes prospect interactions and
  * automatically determines the appropriate pipeline stage.
  *
  * POST /api/ai/analyze-pipeline
- * Body: { prospect_id?: string } — if omitted, analyzes all prospects with recent activity
- *
- * Can also be called with x-webhook-secret header for automated triggers.
+ * Body: { prospect_id?: string, model?: string }
  */
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' })
 
 const STAGE_DESCRIPTIONS = `
 Les stages du pipeline commercial (du plus froid au plus chaud) :
@@ -32,18 +29,22 @@ Les stages du pipeline commercial (du plus froid au plus chaud) :
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.GEMINI_API_KEY) {
-      return Response.json({ error: 'GEMINI_API_KEY non configure' }, { status: 500 })
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return Response.json({ error: 'ANTHROPIC_API_KEY non configure' }, { status: 500 })
     }
 
-    // Check auth (either webhook secret or accept from internal calls)
+    // Budget enforcement
+    const budgetBlock = await enforceBudget()
+    if (budgetBlock) return budgetBlock
+
+    // Check auth
     const secret = request.headers.get('x-webhook-secret')
     const isInternal = request.headers.get('x-internal') === 'true'
     if (!isInternal && secret !== process.env.WEBHOOK_SECRET) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    let body: { prospect_id?: string } = {}
+    let body: { prospect_id?: string; model?: string } = {}
     try {
       body = await request.json()
     } catch {
@@ -55,7 +56,6 @@ export async function POST(request: NextRequest) {
     if (body.prospect_id) {
       prospectIds = [body.prospect_id]
     } else {
-      // Find prospects with activity in the last 24h that are not in terminal stages
       const yesterday = new Date()
       yesterday.setDate(yesterday.getDate() - 1)
 
@@ -75,7 +75,6 @@ export async function POST(request: NextRequest) {
       return Response.json({ message: 'No prospects to analyze', analyzed: 0 })
     }
 
-    // Limit to 10 per call to avoid timeout
     const toAnalyze = prospectIds.slice(0, 10)
     const results: Array<{
       prospect_id: string
@@ -83,11 +82,12 @@ export async function POST(request: NextRequest) {
       old_stage: string
       new_stage: string
       reason: string
+      next_action: string
     }> = []
 
     for (const prospectId of toAnalyze) {
       try {
-        const result = await analyzeProspect(prospectId)
+        const result = await analyzeProspect(prospectId, body.model)
         if (result) results.push(result)
       } catch (err) {
         console.error(`AI analysis failed for ${prospectId}:`, err)
@@ -104,8 +104,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function analyzeProspect(prospectId: string) {
-  // Load prospect
+async function analyzeProspect(prospectId: string, requestedModel?: string) {
   const { data: prospect } = await supabase
     .from('prospects')
     .select('*')
@@ -114,12 +113,10 @@ async function analyzeProspect(prospectId: string) {
 
   if (!prospect) return null
 
-  // Skip terminal stages
   if (['client', 'refuse', 'bounced'].includes(prospect.pipeline_stage)) {
     return null
   }
 
-  // Load recent activities
   const { data: activities } = await supabase
     .from('activities')
     .select('*')
@@ -127,7 +124,6 @@ async function analyzeProspect(prospectId: string) {
     .order('created_at', { ascending: false })
     .limit(20)
 
-  // Load emails
   const { data: emails } = await supabase
     .from('emails')
     .select('*')
@@ -135,45 +131,53 @@ async function analyzeProspect(prospectId: string) {
     .order('gmail_date', { ascending: false })
     .limit(20)
 
-  // Build context
   const context = buildAnalysisContext(prospect, activities || [], emails || [])
 
-  // Ask Gemini
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: `Analyse ce prospect et determine son stage optimal dans le pipeline :
+  const model = resolveModel('analyze-pipeline', requestedModel)
+  const anthropic = getAnthropicClient()
 
-${context}
-
-Quel est le stage le plus adapte ? Reponds en JSON.`,
-    config: {
-      systemInstruction: `Tu es un assistant commercial qui analyse les interactions avec un prospect pour determiner son stage dans le pipeline. Tu dois repondre UNIQUEMENT en JSON valide, sans markdown.
+  const response = await anthropic.messages.create({
+    model: model.apiModelId,
+    max_tokens: 400,
+    system: `Tu es un assistant commercial qui analyse les interactions avec un prospect pour determiner son stage dans le pipeline. Tu dois repondre UNIQUEMENT en JSON valide, sans markdown.
 
 ${STAGE_DESCRIPTIONS}
 
 Reponds avec ce format JSON exact :
-{"stage": "slug_du_stage", "reason": "Explication courte en 1 phrase"}`,
-      maxOutputTokens: 300,
-    },
+{"stage": "slug_du_stage", "reason": "Explication courte en 1 phrase", "next_action": "Action concrete suggeree (ex: Envoyer relance email, Planifier call decouverte, Envoyer devis)"}`,
+    messages: [
+      {
+        role: 'user',
+        content: `Analyse ce prospect et determine son stage optimal dans le pipeline :\n\n${context}\n\nQuel est le stage le plus adapte ? Reponds en JSON.`,
+      },
+    ],
   })
 
-  // Log API usage
   logApiUsage({
     endpoint: 'analyze-pipeline',
-    model: 'gemini-2.5-flash',
-    input_tokens: response.usageMetadata?.promptTokenCount || 0,
-    output_tokens: response.usageMetadata?.candidatesTokenCount || 0,
+    model: model.apiModelId,
+    input_tokens: response.usage.input_tokens,
+    output_tokens: response.usage.output_tokens,
   })
 
   // Parse response
-  const text = response.text || ''
-  let parsed: { stage: string; reason: string }
+  let rawText = response.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim()
+
+  const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenceMatch) {
+    rawText = fenceMatch[1].trim()
+  }
+
+  let parsed: { stage: string; reason: string; next_action?: string }
 
   try {
-    parsed = JSON.parse(text.trim())
+    parsed = JSON.parse(rawText)
   } catch {
-    // Try to extract JSON from response
-    const match = text.match(/\{[^}]+\}/)
+    const match = rawText.match(/\{[\s\S]*\}/)
     if (match) {
       parsed = JSON.parse(match[0])
     } else {
@@ -184,14 +188,12 @@ Reponds avec ce format JSON exact :
   const oldStage = prospect.pipeline_stage
   const newStage = parsed.stage
 
-  // Only update if stage changed
   if (newStage && newStage !== oldStage) {
     await supabase
       .from('prospects')
       .update({ pipeline_stage: newStage })
       .eq('id', prospectId)
 
-    // Log the AI stage change as activity
     await supabase.from('activities').insert({
       prospect_id: prospectId,
       type: 'status_change',
@@ -211,13 +213,14 @@ Reponds avec ce format JSON exact :
     old_stage: oldStage,
     new_stage: newStage,
     reason: parsed.reason,
+    next_action: parsed.next_action || '',
   }
 }
 
 function buildAnalysisContext(
   prospect: Record<string, unknown>,
   activities: Array<Record<string, unknown>>,
-  emails: Array<Record<string, unknown>>
+  emails: Array<Record<string, unknown>>,
 ): string {
   const lines: string[] = []
 
@@ -228,29 +231,26 @@ function buildAnalysisContext(
   if (prospect.date_premier_contact) lines.push(`Premier contact : ${prospect.date_premier_contact}`)
   if (prospect.date_dernier_contact) lines.push(`Dernier contact : ${prospect.date_dernier_contact}`)
 
-  // Count emails
   const sentEmails = emails.filter((e) => e.direction === 'sent').length
   const receivedEmails = emails.filter((e) => e.direction === 'received').length
   lines.push(`\nEmails : ${sentEmails} envoyes, ${receivedEmails} recus`)
 
-  // Recent emails
   if (emails.length > 0) {
     lines.push('\nDerniers emails :')
     for (const email of emails.slice(0, 10)) {
       const date = new Date(email.gmail_date as string).toLocaleDateString('fr-FR')
       const dir = email.direction === 'sent' ? '→ Envoye' : '← Recu'
       const subject = email.subject || '(sans objet)'
-      const preview = (email.body_preview as string || '').substring(0, 100)
+      const preview = ((email.body_preview as string) || '').substring(0, 100)
       lines.push(`- ${date} ${dir} : "${subject}" — ${preview}`)
     }
   }
 
-  // Recent activities
   if (activities.length > 0) {
     lines.push('\nDernieres activites :')
     for (const act of activities.slice(0, 10)) {
       const date = new Date(act.created_at as string).toLocaleDateString('fr-FR')
-      const content = (act.content as string || '').substring(0, 100)
+      const content = ((act.content as string) || '').substring(0, 100)
       lines.push(`- ${date} [${act.type}] : ${content}`)
     }
   }

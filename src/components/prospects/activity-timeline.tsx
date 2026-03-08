@@ -224,6 +224,37 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
           </div>
         )}
 
+        {/* Structured voice recording data */}
+        {activity.type === 'transcription' && activity.metadata?.source === 'voice_recording' && (
+          <div className="mt-2 space-y-2">
+            {Array.isArray(activity.metadata.points_cles) && (activity.metadata.points_cles as string[]).length > 0 && (
+              <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2">
+                <p className="text-xs font-medium text-foreground/80 mb-1">Points cles</p>
+                {(activity.metadata.points_cles as string[]).map((p, i) => (
+                  <p key={i} className="text-xs text-muted-foreground">- {p}</p>
+                ))}
+              </div>
+            )}
+            {Array.isArray(activity.metadata.action_items) && (activity.metadata.action_items as string[]).length > 0 && (
+              <div className="rounded-md border border-brand-accent/20 bg-brand-accent/5 px-3 py-2">
+                <p className="text-xs font-medium text-brand-accent mb-1">Actions a suivre</p>
+                {(activity.metadata.action_items as string[]).map((a, i) => (
+                  <p key={i} className="text-xs text-muted-foreground">- {a}</p>
+                ))}
+              </div>
+            )}
+            {typeof activity.metadata.sentiment === 'string' && (
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                activity.metadata.sentiment === 'positif' ? 'bg-green-500/20 text-green-400' :
+                activity.metadata.sentiment === 'negatif' ? 'bg-red-500/20 text-red-400' :
+                'bg-gray-500/20 text-gray-400'
+              }`}>
+                {activity.metadata.sentiment}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Expandable full transcript for transcription type */}
         {hasFullTranscript ? (
           <TranscriptionBlock

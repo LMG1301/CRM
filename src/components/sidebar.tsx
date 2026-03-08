@@ -15,6 +15,8 @@ import {
   Zap,
   Bot,
   Settings,
+  FileBarChart,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +33,8 @@ const navItems = [
   { label: "Prospects", href: "/prospects", icon: Users },
   { label: "Entreprises", href: "/entreprises", icon: Building2 },
   { label: "Stats", href: "/stats", icon: BarChart3 },
+  { label: "Rapports", href: "/reports", icon: FileBarChart },
+  { label: "Contenus", href: "/contenus", icon: FileText },
   { label: "Import", href: "/import", icon: Upload },
   { label: "Assistant IA", href: "/assistant", icon: Bot },
   { label: "Parametres", href: "/settings", icon: Settings },

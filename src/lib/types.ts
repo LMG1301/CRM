@@ -145,6 +145,62 @@ export interface BusinessContext {
   updated_at: string
 }
 
+// ─── Content Library ───
+
+export type ContentType = 'post_linkedin' | 'article' | 'case_study' | 'video' | 'infographie' | 'temoignage'
+
+export interface Content {
+  id: string
+  title: string
+  content_type: ContentType
+  url: string | null
+  body: string | null
+  themes: string[]
+  products: string[]
+  pipeline_stages: string[]
+  target_sectors: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ContentSuggestion {
+  content: Content
+  relevance_score: number
+  reason: string
+}
+
+export const CONTENT_TYPES: Record<ContentType, string> = {
+  post_linkedin: 'Post LinkedIn',
+  article: 'Article',
+  case_study: 'Case Study',
+  video: 'Video',
+  infographie: 'Infographie',
+  temoignage: 'Temoignage',
+}
+
+export const CONTENT_THEMES = [
+  'distribution_automatique',
+  'retail_connecte',
+  'micro_market',
+  'technologie_iot',
+  'paiement_sans_contact',
+  'telemetrie',
+  'gestion_stocks',
+  'roi_vending',
+  'developpement_durable',
+  'innovation',
+  'cas_client',
+  'tendances_marche',
+] as const
+
+export const CONTENT_PRODUCTS = [
+  'boost_telemetry',
+  'boost_payment',
+  'boost_analytics',
+  'boost_stock',
+  'boost_platform',
+] as const
+
 // ─── Source colors for activity feed ───
 
 export const SOURCE_COLORS: Record<string, string> = {

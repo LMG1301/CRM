@@ -94,3 +94,38 @@ ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all on pipeline_stages" ON pipeline_stages FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on prospects" ON prospects FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on activities" ON activities FOR ALL USING (true) WITH CHECK (true);
+
+-- =============================================
+-- CONTENTS (LinkedIn posts, articles, case studies, etc.)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS contents (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title text NOT NULL,
+  content_type text NOT NULL CHECK (content_type IN ('post_linkedin', 'article', 'case_study', 'video', 'infographie', 'temoignage')),
+  url text,
+  body text,
+  themes text[] DEFAULT '{}',
+  products text[] DEFAULT '{}',
+  pipeline_stages text[] DEFAULT '{}',
+  target_sectors text[] DEFAULT '{}',
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+-- GIN indexes for array-based filtering
+CREATE INDEX IF NOT EXISTS idx_contents_themes ON contents USING GIN (themes);
+CREATE INDEX IF NOT EXISTS idx_contents_products ON contents USING GIN (products);
+CREATE INDEX IF NOT EXISTS idx_contents_pipeline_stages ON contents USING GIN (pipeline_stages);
+CREATE INDEX IF NOT EXISTS idx_contents_target_sectors ON contents USING GIN (target_sectors);
+
+-- Auto-update updated_at
+DROP TRIGGER IF EXISTS set_updated_at ON contents;
+CREATE TRIGGER set_updated_at
+  BEFORE UPDATE ON contents
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- RLS
+ALTER TABLE contents ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on contents" ON contents FOR ALL USING (true) WITH CHECK (true);

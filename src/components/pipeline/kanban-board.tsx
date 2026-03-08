@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext,
@@ -11,16 +11,16 @@ import {
   useSensors,
   useDroppable,
   useDraggable,
+  closestCorners,
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
 } from '@dnd-kit/core'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { PipelineStage, Prospect } from '@/lib/types'
 import { updateProspect, deleteProspect } from '@/lib/actions'
-import { Building2, Clock, GripVertical, Trash2 } from 'lucide-react'
+import { Building2, GripVertical, Trash2 } from 'lucide-react'
 
 // ─── Business Type Filter ───
 
@@ -69,31 +69,6 @@ interface KanbanBoardProps {
   prospects: Prospect[]
 }
 
-// ─── Utilities ───
-
-function daysSince(dateStr: string | null): number | null {
-  if (!dateStr) return null
-  const then = new Date(dateStr)
-  const now = new Date()
-  const diff = now.getTime() - then.getTime()
-  return Math.floor(diff / (1000 * 60 * 60 * 24))
-}
-
-function formatDaysSince(days: number | null): string {
-  if (days === null) return 'Jamais contacte'
-  if (days === 0) return "Aujourd'hui"
-  if (days === 1) return 'Hier'
-  return `Il y a ${days}j`
-}
-
-function getDaysColor(days: number | null): string {
-  if (days === null) return 'text-white/30'
-  if (days <= 3) return 'text-emerald-400'
-  if (days <= 7) return 'text-amber-400'
-  if (days <= 14) return 'text-orange-400'
-  return 'text-red-400'
-}
-
 // ─── Prospect Card Content (shared between real card and drag overlay) ───
 
 interface ProspectCardContentProps {
@@ -113,15 +88,12 @@ function ProspectCardContent({
   onDelete,
   showDelete,
 }: ProspectCardContentProps) {
-  const days = daysSince(prospect.date_dernier_contact)
-  const daysText = formatDaysSince(days)
-  const daysColor = getDaysColor(days)
   const initials = (prospect.prenom?.[0] || '') + (prospect.nom?.[0] || '')
 
   return (
     <div
       className={cn(
-        'group relative rounded-lg border border-white/[0.08] bg-[#152c28] p-3 transition-all',
+        'group relative rounded-lg border border-white/[0.08] bg-[#152c28] p-2.5 transition-all',
         isDragging && 'opacity-40',
         isOverlay && 'rotate-2 shadow-2xl shadow-black/50 ring-2 ring-white/20',
         !isDragging && !isOverlay && 'hover:border-white/20 hover:bg-[#1a332f]'
@@ -133,78 +105,46 @@ function ProspectCardContent({
         style={{ backgroundColor: stageColor }}
       />
 
-      <div className="flex items-start gap-3 pl-1">
+      <div className="flex items-center gap-2.5 pl-1">
         {/* Avatar initials */}
         <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
           style={{ backgroundColor: stageColor + '40' }}
         >
           {initials.toUpperCase() || '?'}
         </div>
 
-        {/* Card body */}
+        {/* Card body — name + company only */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm font-medium text-white">
-              {prospect.prenom} {prospect.nom}
-            </p>
-            <div className="flex items-center gap-1">
-              {showDelete && onDelete && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-                    onDelete(prospect.id)
-                  }}
-                  className="shrink-0 rounded p-0.5 text-white/20 opacity-0 transition-all hover:bg-red-500/20 hover:text-red-400 group-hover:opacity-100"
-                  title="Supprimer"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              )}
-              <GripVertical className="h-3.5 w-3.5 shrink-0 text-white/25 opacity-0 transition-opacity group-hover:opacity-100" />
-            </div>
-          </div>
-
+          <p className="truncate text-sm font-medium text-white">
+            {prospect.prenom} {prospect.nom}
+          </p>
           {prospect.entreprise && (
-            <div className="mt-1 flex items-center gap-1.5">
-              <Building2 className="h-3 w-3 text-white/30" />
+            <div className="mt-0.5 flex items-center gap-1">
+              <Building2 className="h-3 w-3 shrink-0 text-white/30" />
               <p className="truncate text-xs text-white/40">
                 {prospect.entreprise}
               </p>
             </div>
           )}
+        </div>
 
-          <div className="mt-2 flex items-center justify-between">
-            <div className={cn('flex items-center gap-1.5 text-xs', daysColor)}>
-              <Clock className="h-3 w-3" />
-              <span>{daysText}</span>
-            </div>
-
-            <div className="flex items-center gap-1">
-              {prospect.categorie && prospect.categorie !== 'Client' && (
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    'h-5 max-w-[90px] truncate px-1.5 text-[10px] border-0',
-                    prospect.categorie === 'Partenaire' && 'bg-violet-500/20 text-violet-300',
-                    prospect.categorie === 'Prescripteur / Reseau' && 'bg-amber-500/20 text-amber-300',
-                    !['Partenaire', 'Prescripteur / Reseau'].includes(prospect.categorie) && 'bg-cyan-500/20 text-cyan-300'
-                  )}
-                >
-                  {prospect.categorie}
-                </Badge>
-              )}
-              {prospect.source && (
-                <Badge
-                  variant="secondary"
-                  className="h-5 max-w-[80px] truncate px-1.5 text-[10px]"
-                >
-                  {prospect.source}
-                </Badge>
-              )}
-            </div>
-          </div>
+        {/* Actions */}
+        <div className="flex items-center gap-0.5">
+          {showDelete && onDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                onDelete(prospect.id)
+              }}
+              className="shrink-0 rounded p-0.5 text-white/20 opacity-0 transition-all hover:bg-red-500/20 hover:text-red-400 group-hover:opacity-100"
+              title="Supprimer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <GripVertical className="h-3.5 w-3.5 shrink-0 text-white/25 opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
       </div>
     </div>
@@ -225,7 +165,6 @@ function DraggableProspectCard({
   showDelete?: boolean
 }) {
   const router = useRouter()
-  const didDrag = useRef(false)
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: prospect.id,
     data: {
@@ -234,36 +173,19 @@ function DraggableProspectCard({
     },
   })
 
-  // Track if a drag actually happened
-  if (isDragging) {
-    didDrag.current = true
-  }
-
-  const handlePointerUp = useCallback(() => {
-    // Small delay to let drag end settle first
-    requestAnimationFrame(() => {
-      if (!didDrag.current) {
-        router.push(`/prospects/${prospect.id}`)
-      }
-      didDrag.current = false
-    })
-  }, [router, prospect.id])
-
-  const handlePointerDown = useCallback(() => {
-    didDrag.current = false
-  }, [])
+  const handleClick = useCallback(() => {
+    // activationConstraint distance:8 ensures this only fires on click, not drag
+    if (!isDragging) {
+      router.push(`/prospects/${prospect.id}`)
+    }
+  }, [router, prospect.id, isDragging])
 
   return (
     <div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      onPointerDown={(e) => {
-        handlePointerDown()
-        // Call dnd-kit's onPointerDown
-        listeners?.onPointerDown?.(e as never)
-      }}
-      onPointerUp={handlePointerUp}
+      onClick={handleClick}
       style={{ cursor: isDragging ? 'grabbing' : 'pointer' }}
     >
       <ProspectCardContent
@@ -651,6 +573,7 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
       {/* DnD context wrapping both desktop and mobile views */}
       <DndContext
         sensors={sensors}
+        collisionDetection={closestCorners}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}

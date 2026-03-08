@@ -1,37 +1,28 @@
-import { GoogleGenAI } from '@google/genai'
 import { NextRequest } from 'next/server'
 import { buildSystemPrompt } from '@/lib/ai-prompts'
 import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments, getProspectsSummary } from '@/lib/actions'
-import { logApiUsage } from '@/lib/api-usage'
+import { getAnthropicClient, parseAnthropicError } from '@/lib/anthropic'
+import { resolveModel } from '@/lib/ai-models'
+import { logApiUsage, enforceBudget } from '@/lib/api-usage'
 import type { Prospect } from '@/lib/types'
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' })
-
-function parseGeminiError(error: unknown): string {
-  if (error instanceof Error) {
-    const msg = error.message
-    if (msg.includes('API_KEY') || msg.includes('401')) return 'Cle API Gemini invalide. Verifiez votre GEMINI_API_KEY.'
-    if (msg.includes('quota') || msg.includes('429')) return 'Quota API depasse. Reessayez dans quelques secondes.'
-    if (msg.includes('500') || msg.includes('503')) return 'API Gemini surchargee. Reessayez dans un moment.'
-    if (msg.includes('SAFETY')) return 'Reponse bloquee par le filtre de securite. Reformulez votre demande.'
-    return `Erreur API : ${msg}`
-  }
-  return 'Erreur inconnue'
-}
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.GEMINI_API_KEY) {
+    if (!process.env.ANTHROPIC_API_KEY) {
       return Response.json(
-        { error: 'Cle API Gemini non configuree. Ajoutez GEMINI_API_KEY dans .env.local' },
-        { status: 500 }
+        { error: 'Cle API Anthropic non configuree. Ajoutez ANTHROPIC_API_KEY dans .env.local' },
+        { status: 500 },
       )
     }
 
+    const budgetBlock = await enforceBudget()
+    if (budgetBlock) return budgetBlock
+
     const body = await request.json()
-    const { messages, prospectId } = body as {
+    const { messages, prospectId, model: requestedModel } = body as {
       messages: Array<{ role: 'user' | 'assistant'; content: string }>
       prospectId?: string
+      model?: string
     }
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -65,9 +56,9 @@ export async function POST(request: NextRequest) {
 
     const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs, allProspects)
 
-    // Determine if we should enable Google Search grounding
+    // Enhance system prompt with knowledge context when relevant
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''
-    const wantsWebSearch = lastMessage.includes('recherche') ||
+    const wantsEnrichment = lastMessage.includes('recherche') ||
       lastMessage.includes('info') ||
       lastMessage.includes('touch 1') ||
       lastMessage.includes('premier message') ||
@@ -86,71 +77,55 @@ export async function POST(request: NextRequest) {
         lastMessage.includes('relance')
       ))
 
-    // Enhanced system prompt with web search instructions
     let enhancedSystem = systemPrompt
-    if (wantsWebSearch && prospect?.entreprise) {
-      enhancedSystem += `\n\n## Recherche web
-Tu as acces a la recherche Google. Avant de rediger un email ou message pour ce prospect, recherche des informations recentes sur ${prospect.entreprise} pour personnaliser ton message :
-- Actualites recentes de l'entreprise
-- Projets, levees de fonds, nouveaux produits
-- Informations sur le secteur d'activite
-Utilise ces informations pour rendre le message plus pertinent et personnalise.`
+    if (wantsEnrichment && prospect?.entreprise) {
+      enhancedSystem += `\n\n## Recherche d'informations
+Utilise tes connaissances sur ${prospect.entreprise} pour personnaliser ton message :
+- Ce que tu sais sur cette entreprise (secteur, taille, localisation)
+- Des elements qui pourraient rendre le message pertinent
+- Si tu ne connais pas l'entreprise, propose un message generique mais professionnel`
     }
 
-    // Convert messages to Gemini format (assistant -> model)
-    const geminiMessages = messages.map((m) => ({
-      role: (m.role === 'assistant' ? 'model' : 'user') as 'model' | 'user',
-      parts: [{ text: m.content }],
-    }))
+    const model = resolveModel('chat', requestedModel)
+    const anthropic = getAnthropicClient()
 
-    // Use streaming for real-time response
     const encoder = new TextEncoder()
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          const stream = await ai.models.generateContentStream({
-            model: 'gemini-2.5-flash',
-            contents: geminiMessages,
-            config: {
-              systemInstruction: enhancedSystem,
-              maxOutputTokens: 4096,
-              tools: wantsWebSearch ? [{ googleSearch: {} }] : undefined,
-            },
+          const stream = anthropic.messages.stream({
+            model: model.apiModelId,
+            max_tokens: model.maxOutputTokens,
+            system: enhancedSystem,
+            messages: messages.map((m) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })),
           })
 
-          let inputTokens = 0
-          let outputTokens = 0
+          stream.on('text', (text) => {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ text })}\n\n`),
+            )
+          })
 
-          for await (const chunk of stream) {
-            const text = chunk.text || ''
-            if (text) {
-              controller.enqueue(encoder.encode(
-                `data: ${JSON.stringify({ text })}\n\n`
-              ))
-            }
-            // Capture usage from chunks (last chunk typically has it)
-            if (chunk.usageMetadata) {
-              inputTokens = chunk.usageMetadata.promptTokenCount || 0
-              outputTokens = chunk.usageMetadata.candidatesTokenCount || 0
-            }
-          }
+          const finalMessage = await stream.finalMessage()
 
-          // Log API usage
           logApiUsage({
             endpoint: 'chat',
-            model: 'gemini-2.5-flash',
-            input_tokens: inputTokens,
-            output_tokens: outputTokens,
+            model: model.apiModelId,
+            input_tokens: finalMessage.usage.input_tokens,
+            output_tokens: finalMessage.usage.output_tokens,
           })
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (error) {
-          const errorMessage = parseGeminiError(error)
+          const errorMessage = parseAnthropicError(error)
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ error: errorMessage })}\n\n`
-            )
+              `data: ${JSON.stringify({ error: errorMessage })}\n\n`,
+            ),
           )
           controller.close()
         }
@@ -165,7 +140,7 @@ Utilise ces informations pour rendre le message plus pertinent et personnalise.`
       },
     })
   } catch (error) {
-    const message = parseGeminiError(error)
+    const message = parseAnthropicError(error)
     return Response.json({ error: message }, { status: 500 })
   }
 }

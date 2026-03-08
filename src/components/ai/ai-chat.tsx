@@ -5,6 +5,8 @@ import { Send, Loader2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { AIMessage } from './ai-message'
+import { ModelSelector } from './model-selector'
+import type { AIModelId } from '@/lib/ai-models'
 
 interface Message {
   id: string
@@ -30,6 +32,7 @@ export function AIChat({
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<AIModelId | undefined>(undefined)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -76,6 +79,7 @@ export function AIChat({
           body: JSON.stringify({
             messages: history,
             prospectId,
+            model: selectedModel,
           }),
           signal: abortRef.current.signal,
         })
@@ -166,7 +170,7 @@ export function AIChat({
         abortRef.current = null
       }
     },
-    [messages, isStreaming, prospectId]
+    [messages, isStreaming, prospectId, selectedModel]
   )
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -248,8 +252,14 @@ export function AIChat({
 
       {/* Input area */}
       <div className="border-t border-white/[0.06] p-3">
-        {messages.length > 0 && (
-          <div className="mb-2 flex justify-end">
+        <div className="mb-2 flex items-center justify-between">
+          <ModelSelector
+            endpoint="chat"
+            value={selectedModel}
+            onChange={setSelectedModel}
+            compact
+          />
+          {messages.length > 0 && (
             <Button
               variant="ghost"
               size="sm"
@@ -259,8 +269,8 @@ export function AIChat({
               <Trash2 className="h-3 w-3" />
               Effacer
             </Button>
-          </div>
-        )}
+          )}
+        </div>
         <form onSubmit={handleSubmit} className="flex gap-2">
           <Textarea
             ref={textareaRef}

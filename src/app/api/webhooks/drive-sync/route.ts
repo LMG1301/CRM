@@ -133,20 +133,36 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { data, error } = await supabase
+    const { searchParams } = new URL(request.url)
+    const search = searchParams.get('search') || ''
+    const type = searchParams.get('type') || ''
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 100)
+    const offset = parseInt(searchParams.get('offset') || '0', 10)
+
+    let query = supabase
       .from('knowledge_documents')
-      .select('id, drive_file_id, name, mime_type, folder_path, url, last_modified, synced_at')
-      .order('name')
+      .select('id, drive_file_id, name, mime_type, folder_path, url, last_modified, synced_at', { count: 'exact' })
+
+    if (search) {
+      query = query.ilike('name', `%${search}%`)
+    }
+    if (type === 'docs') query = query.ilike('mime_type', '%document%')
+    else if (type === 'sheets') query = query.ilike('mime_type', '%spreadsheet%')
+    else if (type === 'slides') query = query.ilike('mime_type', '%presentation%')
+    else if (type === 'pdf') query = query.ilike('mime_type', '%pdf%')
+
+    query = query.order('name').range(offset, offset + limit - 1)
+
+    const { data, error, count } = await query
 
     if (error) {
-      // Table might not exist yet
       if (error.message.includes('knowledge_documents')) {
-        return Response.json({ documents: [], needsSetup: true, sql: CREATE_TABLE_SQL })
+        return Response.json({ documents: [], total: 0, needsSetup: true, sql: CREATE_TABLE_SQL })
       }
       throw error
     }
 
-    return Response.json({ documents: data || [] })
+    return Response.json({ documents: data || [], total: count || 0 })
   } catch (error) {
     return Response.json(
       { error: (error as Error).message },
