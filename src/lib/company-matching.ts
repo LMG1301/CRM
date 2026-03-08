@@ -18,7 +18,8 @@ export function normalizeCompanyName(name: string): string {
   // Remove legal suffixes
   const words = normalized.split(/\s+/).filter(Boolean)
   const filtered = words.filter(w => !LEGAL_SUFFIXES.includes(w))
-  return filtered.join(' ').trim() || normalized
+  // Join without spaces so "So I Dac" and "SOIDAC" both become "soidac"
+  return filtered.join('').trim() || normalized.replace(/\s+/g, '')
 }
 
 export function levenshteinDistance(a: string, b: string): number {
@@ -59,7 +60,7 @@ export function normalizedDistance(a: string, b: string): number {
  */
 export function groupCompaniesFuzzy(
   names: string[],
-  threshold = 0.3
+  threshold = 0.35
 ): Map<string, string[]> {
   const groups: string[][] = []
 

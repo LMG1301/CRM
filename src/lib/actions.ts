@@ -143,14 +143,17 @@ export async function getCompanyColleagues(
   excludeId: string
 ): Promise<Prospect[]> {
   if (!entreprise) return []
+  const { normalizedDistance } = await import('@/lib/company-matching')
   const { data, error } = await supabase
     .from('prospects')
     .select('*')
-    .ilike('entreprise', entreprise)
+    .not('entreprise', 'is', null)
     .neq('id', excludeId)
     .order('date_dernier_contact', { ascending: false })
   if (error) return []
-  return data || []
+  return (data || []).filter(p =>
+    p.entreprise && normalizedDistance(p.entreprise, entreprise) < 0.35
+  )
 }
 
 // ─── Companies (aggregated from prospects) ───

@@ -48,7 +48,7 @@ import { EmailThread } from '@/components/emails/email-thread'
 import { EditProspectDialog } from './edit-prospect-dialog'
 import { VoiceRecorder } from './voice-recorder'
 import { CompanyContextPanel } from './company-context-panel'
-import { SuggestedContents } from './suggested-contents'
+// SuggestedContents removed — content suggestions now available on-demand via chatbot
 import { ModelSelector } from '@/components/ai/model-selector'
 import type { AIModelId } from '@/lib/ai-models'
 
@@ -427,12 +427,6 @@ export function ProspectDetail({
             )}
           </CardContent>
         </Card>
-
-        {/* Suggested contents for nurturing */}
-        <SuggestedContents
-          prospectId={prospect.id}
-          prospectEmail={prospect.email || prospect.email_pro || ''}
-        />
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Left column */}

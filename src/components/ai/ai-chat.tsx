@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { AIMessage } from './ai-message'
 import { ModelSelector } from './model-selector'
+import { ComposeEmailDialog } from '@/components/emails/compose-email-dialog'
 import type { AIModelId } from '@/lib/ai-models'
 
 interface Message {
@@ -16,6 +17,7 @@ interface Message {
 
 interface AIChatProps {
   prospectId?: string
+  prospectEmail?: string
   onSaveAsNote?: (content: string) => void
   quickActions?: Array<{ label: string; prompt: string; icon?: React.ReactNode }>
   placeholder?: string
@@ -24,6 +26,7 @@ interface AIChatProps {
 
 export function AIChat({
   prospectId,
+  prospectEmail,
   onSaveAsNote,
   quickActions,
   placeholder = 'Demande a l\'IA...',
@@ -33,6 +36,7 @@ export function AIChat({
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [selectedModel, setSelectedModel] = useState<AIModelId | undefined>(undefined)
+  const [emailDialog, setEmailDialog] = useState<{ open: boolean; contentId: string | null }>({ open: false, contentId: null })
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -192,6 +196,10 @@ export function AIChat({
     }
   }
 
+  const handleContentAction = useCallback((contentId: string) => {
+    setEmailDialog({ open: true, contentId })
+  }, [])
+
   return (
     <div className={`flex flex-col ${className}`}>
       {/* Messages area */}
@@ -246,6 +254,11 @@ export function AIChat({
                 ? onSaveAsNote
                 : undefined
             }
+            onContentAction={
+              msg.role === 'assistant' && prospectId && prospectEmail
+                ? handleContentAction
+                : undefined
+            }
           />
         ))}
       </div>
@@ -296,6 +309,17 @@ export function AIChat({
           </Button>
         </form>
       </div>
+
+      {/* Email compose dialog triggered by [CONTENT:id] buttons */}
+      {prospectId && prospectEmail && (
+        <ComposeEmailDialog
+          open={emailDialog.open}
+          onOpenChange={(open) => setEmailDialog({ open, contentId: open ? emailDialog.contentId : null })}
+          prospectId={prospectId}
+          prospectEmail={prospectEmail}
+          contentId={emailDialog.contentId}
+        />
+      )}
     </div>
   )
 }

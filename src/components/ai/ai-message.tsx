@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Bot, User, Copy, Check, Save } from 'lucide-react'
+import { Bot, User, Copy, Check, Save, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -10,9 +10,10 @@ interface AIMessageProps {
   content: string
   isStreaming?: boolean
   onSaveAsNote?: (content: string) => void
+  onContentAction?: (contentId: string) => void
 }
 
-export function AIMessage({ role, content, isStreaming, onSaveAsNote }: AIMessageProps) {
+export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentAction }: AIMessageProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -55,27 +56,42 @@ export function AIMessage({ role, content, isStreaming, onSaveAsNote }: AIMessag
       >
         <div className="prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:bg-white/5 [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-brand-accent">
           {content.split('\n').map((line, i) => {
+            // Detect [CONTENT:id] and render as button
+            const contentMatch = line.match(/\[CONTENT:([a-zA-Z0-9-]+)\]/)
+            const renderLine = (text: string) => renderInlineMarkdown(text.replace(/\[CONTENT:[a-zA-Z0-9-]+\]/g, ''))
+
             if (line.startsWith('# ')) {
-              return <h1 key={i} className="font-bold">{line.slice(2)}</h1>
+              return <h1 key={i} className="font-bold">{renderLine(line.slice(2))}</h1>
             }
             if (line.startsWith('## ')) {
-              return <h2 key={i} className="font-semibold">{line.slice(3)}</h2>
+              return <h2 key={i} className="font-semibold">{renderLine(line.slice(3))}</h2>
             }
             if (line.startsWith('### ')) {
-              return <h3 key={i} className="font-medium">{line.slice(4)}</h3>
+              return <h3 key={i} className="font-medium">{renderLine(line.slice(4))}</h3>
             }
             if (line.startsWith('- ') || line.startsWith('* ')) {
               return (
-                <div key={i} className="flex gap-2 text-sm">
-                  <span className="text-muted-foreground">•</span>
-                  <span>{renderInlineMarkdown(line.slice(2))}</span>
+                <div key={i}>
+                  <div className="flex gap-2 text-sm">
+                    <span className="text-muted-foreground">•</span>
+                    <span>{renderLine(line.slice(2))}</span>
+                  </div>
+                  {contentMatch && onContentAction && !isStreaming && (
+                    <button
+                      onClick={() => onContentAction(contentMatch[1])}
+                      className="ml-5 mt-1 flex items-center gap-1.5 rounded-full border border-brand-accent/30 bg-brand-accent/10 px-3 py-1 text-[11px] text-brand-accent transition-colors hover:bg-brand-accent/20"
+                    >
+                      <Mail className="h-3 w-3" />
+                      Envoyer par email
+                    </button>
+                  )}
                 </div>
               )
             }
             if (line.startsWith('**Objet') || line.startsWith('Objet')) {
               return (
                 <p key={i} className="font-semibold text-brand-accent">
-                  {renderInlineMarkdown(line)}
+                  {renderLine(line)}
                 </p>
               )
             }
@@ -83,9 +99,20 @@ export function AIMessage({ role, content, isStreaming, onSaveAsNote }: AIMessag
               return <div key={i} className="h-2" />
             }
             return (
-              <p key={i} className="text-sm leading-relaxed">
-                {renderInlineMarkdown(line)}
-              </p>
+              <div key={i}>
+                <p className="text-sm leading-relaxed">
+                  {renderLine(line)}
+                </p>
+                {contentMatch && onContentAction && !isStreaming && (
+                  <button
+                    onClick={() => onContentAction(contentMatch[1])}
+                    className="mt-1 flex items-center gap-1.5 rounded-full border border-brand-accent/30 bg-brand-accent/10 px-3 py-1 text-[11px] text-brand-accent transition-colors hover:bg-brand-accent/20"
+                  >
+                    <Mail className="h-3 w-3" />
+                    Envoyer par email
+                  </button>
+                )}
+              </div>
             )
           })}
           {isStreaming && (

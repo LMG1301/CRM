@@ -51,6 +51,8 @@ export type AIEndpoint =
   | 'tag-content'
   | 'match-content'
   | 'generate-email'
+  | 'generate-report'
+  | 'summarize-url'
 
 export const DEFAULT_MODEL_ROUTING: Record<AIEndpoint, AIModelId> = {
   chat: 'claude-sonnet',
@@ -61,6 +63,8 @@ export const DEFAULT_MODEL_ROUTING: Record<AIEndpoint, AIModelId> = {
   'tag-content': 'claude-haiku',
   'match-content': 'claude-haiku',
   'generate-email': 'claude-sonnet',
+  'generate-report': 'claude-sonnet',
+  'summarize-url': 'claude-haiku',
 }
 
 export const BUDGET_CONFIG = {
@@ -95,6 +99,8 @@ export function estimateActionCost(
     'tag-content': { input: 800, output: 200 },
     'match-content': { input: 2000, output: 400 },
     'generate-email': { input: 1500, output: 600 },
+    'generate-report': { input: 3000, output: 800 },
+    'summarize-url': { input: 2000, output: 300 },
   }
   const est = estimates[endpoint]
   return estimateCost(model, est.input, est.output)

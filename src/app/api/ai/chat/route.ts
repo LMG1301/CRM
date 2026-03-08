@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { buildSystemPrompt } from '@/lib/ai-prompts'
 import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments, getProspectsSummary } from '@/lib/actions'
+import { supabase } from '@/lib/supabase'
 import { getAnthropicClient, parseAnthropicError } from '@/lib/anthropic'
 import { resolveModel } from '@/lib/ai-models'
 import { logApiUsage, enforceBudget } from '@/lib/api-usage'
@@ -84,6 +85,48 @@ Utilise tes connaissances sur ${prospect.entreprise} pour personnaliser ton mess
 - Ce que tu sais sur cette entreprise (secteur, taille, localisation)
 - Des elements qui pourraient rendre le message pertinent
 - Si tu ne connais pas l'entreprise, propose un message generique mais professionnel`
+    }
+
+    // Detect content suggestion intent
+    const wantsContent = lastMessage.includes('contenu') ||
+      lastMessage.includes('content') ||
+      lastMessage.includes('article') ||
+      lastMessage.includes('ressource') ||
+      lastMessage.includes('suggere') ||
+      lastMessage.includes('recommande') ||
+      lastMessage.includes('nurturing') ||
+      lastMessage.includes('partager')
+
+    if (wantsContent) {
+      try {
+        const { data: contents } = await supabase
+          .from('contents')
+          .select('id, title, content_type, url, body, themes, products, pipeline_stages')
+          .order('created_at', { ascending: false })
+          .limit(30)
+
+        if (contents && contents.length > 0) {
+          const contentList = contents.map(c => {
+            const tags = [
+              ...(c.themes || []),
+              ...(c.products || []),
+            ].join(', ')
+            return `- [CONTENT:${c.id}] "${c.title}" (${c.content_type}${tags ? `, tags: ${tags}` : ''}${c.url ? `, url: ${c.url}` : ''})${c.body ? `\n  Resume: ${c.body.slice(0, 150)}` : ''}`
+          }).join('\n')
+
+          enhancedSystem += `\n\n## Contenus disponibles pour nurturing
+
+Voici les contenus de notre base. Quand tu suggeres un contenu, utilise EXACTEMENT le format [CONTENT:id] dans ta reponse pour que l'utilisateur puisse envoyer le contenu par email directement.
+
+Exemple de format de reponse :
+"Je te recommande cet article : **Titre du contenu** [CONTENT:abc123] — il est pertinent parce que..."
+
+Contenus :
+${contentList}`
+        }
+      } catch {
+        // Continue without content context
+      }
     }
 
     const model = resolveModel('chat', requestedModel)

@@ -395,4 +395,7 @@ export const QUICK_ACTIONS = {
 
   linkedinMessage: (prospect: Prospect) =>
     `Redige un message LinkedIn (InMail ou message direct) pour ${prospect.prenom} ${prospect.nom}${prospect.entreprise ? ` de ${prospect.entreprise}` : ''}. Objectif : engager la conversation et proposer un echange.`,
+
+  contentSuggestion: (prospect: Prospect) =>
+    `Analyse le profil de ${prospect.prenom} ${prospect.nom}${prospect.entreprise ? ` (${prospect.entreprise})` : ''} (stage: ${prospect.pipeline_stage || 'inconnu'}) et suggere les 2-3 contenus les plus pertinents de notre base pour du nurturing. Pour chaque contenu, explique en 1 phrase pourquoi il est pertinent.`,
 } as const

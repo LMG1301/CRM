@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Loader2, Sparkles, X } from 'lucide-react'
+import { Loader2, Sparkles, X, Globe } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -48,7 +48,9 @@ export function AddContentDialog({
   const [targetSectors, setTargetSectors] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [tagging, setTagging] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [tagInput, setTagInput] = useState('')
+  const [importUrl, setImportUrl] = useState('')
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -73,6 +75,7 @@ export function AddContentDialog({
         setTargetSectors([])
       }
       setTagInput('')
+      setImportUrl('')
     }
   }, [open, content])
 
@@ -94,6 +97,28 @@ export function AddContentDialog({
       }
     } finally {
       setTagging(false)
+    }
+  }
+
+  const handleImportUrl = async () => {
+    if (!importUrl.trim()) return
+    setImporting(true)
+    try {
+      const res = await fetch('/api/ai/summarize-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: importUrl.trim() }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.title) setTitle(data.title)
+        if (data.summary) setBody(data.summary)
+        if (data.url) setUrl(data.url)
+        if (data.themes?.length) setThemes(data.themes)
+        if (data.products?.length) setProducts(data.products)
+      }
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -150,6 +175,31 @@ export function AddContentDialog({
         </DialogHeader>
 
         <div className="space-y-4 pt-2">
+          {/* URL Import */}
+          {!isEditing && (
+            <div className="flex gap-2 rounded-lg border border-dashed border-white/10 bg-white/[0.02] p-3">
+              <div className="flex-1">
+                <Input
+                  value={importUrl}
+                  onChange={e => setImportUrl(e.target.value)}
+                  placeholder="Coller une URL pour importer automatiquement..."
+                  className="h-9 text-sm"
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleImportUrl() } }}
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleImportUrl}
+                disabled={!importUrl.trim() || importing}
+                className="h-9 gap-2"
+              >
+                {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Globe className="h-3.5 w-3.5" />}
+                Importer
+              </Button>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label>Titre *</Label>
             <Input

@@ -49,6 +49,10 @@ const DRIVE_CONFIG = {
     'application/pdf',                           // PDF
   ],
 
+  // Exclure les Google Docs auto-convertis depuis PDF ?
+  // Mettre a true si vous n'uploadez que des PDFs dans Drive
+  EXCLUDE_GOOGLE_DOCS: true,
+
   // Taille max du contenu par document (en caracteres)
   MAX_CONTENT_LENGTH: 50000,
 };
@@ -120,6 +124,9 @@ function collectDocuments(folder, documents, path) {
 
     // Verifier si le type est supporte
     if (DRIVE_CONFIG.SUPPORTED_TYPES.indexOf(mimeType) === -1) continue;
+
+    // Exclure les Google Docs si configure (evite les doublons PDF → Google Doc)
+    if (DRIVE_CONFIG.EXCLUDE_GOOGLE_DOCS && mimeType === 'application/vnd.google-apps.document') continue;
 
     try {
       var content = extractContent(file, mimeType);

@@ -46,20 +46,30 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Contenu non trouve' }, { status: 404 })
     }
 
-    // Load recent emails for context
-    const { data: recentEmails } = await supabase
-      .from('emails')
-      .select('subject, body_preview, direction, gmail_date')
-      .eq('prospect_id', prospect_id)
-      .order('gmail_date', { ascending: false })
-      .limit(3)
+    // Load recent emails + activities + business context in parallel
+    const [emailsResult, activitiesResult, bizResult] = await Promise.all([
+      supabase
+        .from('emails')
+        .select('subject, body_preview, direction, gmail_date')
+        .eq('prospect_id', prospect_id)
+        .order('gmail_date', { ascending: false })
+        .limit(3),
+      supabase
+        .from('activities')
+        .select('type, content, created_at')
+        .eq('prospect_id', prospect_id)
+        .order('created_at', { ascending: false })
+        .limit(3),
+      supabase
+        .from('business_context')
+        .select('company_name, tone_and_style, email_templates')
+        .limit(1)
+        .single(),
+    ])
 
-    // Load business context
-    const { data: bizContext } = await supabase
-      .from('business_context')
-      .select('company_name, tone_and_style, email_templates')
-      .limit(1)
-      .single()
+    const recentEmails = emailsResult.data
+    const recentActivities = activitiesResult.data
+    const bizContext = bizResult.data
 
     const prospectInfo = [
       `Destinataire: ${prospect.prenom} ${prospect.nom}`,
@@ -71,7 +81,7 @@ export async function POST(request: Request) {
     const contentInfo = [
       `Contenu a partager: "${content.title}"`,
       `Type: ${content.content_type}`,
-      content.url && `URL: ${content.url}`,
+      content.url && `URL du contenu: ${content.url}`,
       content.body && `Resume du contenu: ${content.body.slice(0, 500)}`,
     ].filter(Boolean).join('\n')
 
@@ -80,11 +90,20 @@ export async function POST(request: Request) {
       return `- ${dir}: "${e.subject || '(sans objet)'}" — ${(e.body_preview || '').slice(0, 100)}`
     }).join('\n')
 
+    const activityHistory = (recentActivities || []).map(a => {
+      return `- ${a.type}: ${(a.content || '').slice(0, 120)}`
+    }).join('\n')
+
     const toneInstruction = tone
       ? `Ton souhaite: ${tone}`
       : bizContext?.tone_and_style
         ? `Style prefere: ${bizContext.tone_and_style}`
         : 'Ton: professionnel mais chaleureux, tutoiement si relation existante'
+
+    // Build content URL rule
+    const contentUrlRule = content.url
+      ? `- Tu DOIS inclure ce lien dans le corps de l'email : ${content.url}. Integre-le naturellement (ex: "J'ai publie un article sur ce sujet : [lien]" ou "Voici une ressource qui pourrait vous interesser : [lien]").`
+      : ''
 
     const model = resolveModel('generate-email')
     const anthropic = getAnthropicClient()
@@ -92,18 +111,26 @@ export async function POST(request: Request) {
     const response = await anthropic.messages.create({
       model: model.apiModelId,
       max_tokens: 600,
-      system: `Tu es un commercial B2B de ${bizContext?.company_name || 'Boost Inc.'}, specialise dans la distribution automatique et le retail connecte. Tu rediges des emails de prospection/nurturing en francais.
+      system: `Tu es Louis Matar, Business Development chez ${bizContext?.company_name || 'Boost Inc.'}, specialise dans la distribution automatique et le retail connecte. Tu rediges des emails de nurturing en francais.
 
-Regles:
-- Email court et percutant (max 150 mots)
-- Personnalise en fonction du profil du prospect
-- Integre le contenu de maniere naturelle (pas un spam)
-- Inclus un CTA clair mais pas agressif
-- Signe "Louis" sauf si indique autrement
+Regles strictes:
+- Email court et percutant (max 150 mots, 3 paragraphes max)
+- Personnalise en fonction du profil ET de l'historique des echanges
+${contentUrlRule}
+- CTA clair : propose un echange, un appel, ou renvoie vers le contenu
 - ${toneInstruction}
 
+Anti-patterns (INTERDIT) :
+- Ne commence JAMAIS par "J'espere que vous allez bien", "Suite a notre dernier echange", "Je me permets de", "Je reviens vers vous"
+- Ouvre DIRECTEMENT par la valeur : un fait sectoriel, une question pertinente, un insight lie au contenu
+
+Signature obligatoire (a inclure dans body_html et body_text) :
+Louis Matar
+Business Development
+Boost Inc.
+
 Reponds UNIQUEMENT en JSON valide:
-{"subject": "Objet de l'email", "body_html": "<p>Corps de l'email en HTML simple</p>", "body_text": "Version texte brut"}`,
+{"subject": "Objet de l'email", "body_html": "<p>Corps HTML avec signature</p>", "body_text": "Version texte brut avec signature"}`,
       messages: [
         {
           role: 'user',
@@ -112,7 +139,8 @@ Reponds UNIQUEMENT en JSON valide:
             '',
             contentInfo,
             '',
-            emailHistory ? `Historique recent des echanges:\n${emailHistory}` : 'Pas d\'echanges precedents.',
+            emailHistory ? `Historique emails recents:\n${emailHistory}` : 'Pas d\'echanges email precedents.',
+            activityHistory ? `\nDernieres activites/notes:\n${activityHistory}` : '',
             extraContext ? `\nContexte supplementaire: ${extraContext}` : '',
             '',
             'Genere un email de nurturing qui partage ce contenu avec ce prospect.',

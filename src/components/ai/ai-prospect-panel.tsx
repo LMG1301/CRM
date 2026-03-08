@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback } from 'react'
-import { Bot, Mail, RotateCcw, Sparkles, ListChecks, Linkedin } from 'lucide-react'
+import { Bot, Mail, RotateCcw, Sparkles, ListChecks, Linkedin, FileText } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AIChat } from './ai-chat'
 import { QUICK_ACTIONS } from '@/lib/ai-prompts'
@@ -39,7 +39,14 @@ export function AIProspectPanel({ prospect }: AIProspectPanelProps) {
       prompt: QUICK_ACTIONS.linkedinMessage(prospect),
       icon: <Linkedin className="h-3 w-3" />,
     },
+    {
+      label: 'Contenu',
+      prompt: QUICK_ACTIONS.contentSuggestion(prospect),
+      icon: <FileText className="h-3 w-3" />,
+    },
   ]
+
+  const prospectEmail = prospect.email || prospect.email_pro || ''
 
   const handleSaveAsNote = useCallback(
     async (content: string) => {
@@ -68,6 +75,7 @@ export function AIProspectPanel({ prospect }: AIProspectPanelProps) {
       <CardContent className="flex flex-1 flex-col overflow-hidden p-0">
         <AIChat
           prospectId={prospect.id}
+          prospectEmail={prospectEmail}
           onSaveAsNote={handleSaveAsNote}
           quickActions={quickActions}
           placeholder={`Demande a l'IA a propos de ${prospect.prenom || 'ce prospect'}...`}

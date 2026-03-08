@@ -166,25 +166,35 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
   const handleGenerate = async (type: ReportType) => {
     setGenerating(type)
     setCopied(null)
+    setPreview(null)
 
-    // Small delay for UX
-    await new Promise(r => setTimeout(r, 300))
+    let report: string
 
-    const report = type === 'weekly'
-      ? generateWeeklyReport(data)
-      : generateBimonthlyReport(data)
+    if (type === 'weekly') {
+      // Call AI API for weekly reports
+      try {
+        const res = await fetch('/api/ai/generate-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'weekly' }),
+        })
+        if (!res.ok) throw new Error('API error')
+        const json = await res.json()
+        report = json.report || ''
+        if (!report) throw new Error('Empty report')
+      } catch {
+        // Fallback to local generation
+        report = generateWeeklyReport(data)
+      }
+    } else {
+      report = generateBimonthlyReport(data)
+    }
 
     setPreview(report)
 
-    // Copy to clipboard with Claude prompt
-    const prompt = type === 'weekly'
-      ? 'Voici mon check-in hebdomadaire CRM. Analyse les donnees et donne-moi 3 priorites concretes pour cette semaine, avec des actions specifiques.'
-      : 'Voici mon rapport commercial bi-mensuel. Fais une analyse complete : points forts, points faibles, recommandations strategiques pour les 2 prochaines semaines.'
-
-    const fullText = `${prompt}\n\n${report}`
-
+    // Copy to clipboard
     try {
-      await navigator.clipboard.writeText(fullText)
+      await navigator.clipboard.writeText(report)
       setCopied(type)
       setTimeout(() => setCopied(null), 3000)
     } catch {
@@ -198,7 +208,7 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
     {
       type: 'weekly' as ReportType,
       title: 'Weekly Check-in',
-      description: 'Resume hebdomadaire : metriques cles, actions en retard, activites recentes.',
+      description: 'Rapport IA : recap semaine, priorites, points d\'attention.',
       icon: Calendar,
       color: 'text-brand-accent',
       bgColor: 'bg-brand-accent/10',
@@ -248,7 +258,7 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
                   ) : (
                     <ClipboardCopy className="size-4" />
                   )}
-                  {isGenerating ? 'Generation...' : isCopied ? 'Copie dans le presse-papier !' : 'Generer et copier'}
+                  {isGenerating ? (r.type === 'weekly' ? 'Generation IA...' : 'Generation...') : isCopied ? 'Copie dans le presse-papier !' : 'Generer et copier'}
                 </Button>
               </CardContent>
             </Card>
