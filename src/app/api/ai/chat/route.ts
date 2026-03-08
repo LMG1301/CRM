@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
 import { buildSystemPrompt } from '@/lib/ai-prompts'
 import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments, getProspectsSummary } from '@/lib/actions'
+import { logApiUsage } from '@/lib/api-usage'
 import type { Prospect } from '@/lib/types'
 
 const anthropic = new Anthropic({
@@ -175,6 +176,14 @@ Utilise ces informations pour rendre le message plus pertinent et personnalise.`
               messages: allMessages as Anthropic.Messages.MessageParam[],
             })
           }
+
+          // Log API usage
+          logApiUsage({
+            endpoint: 'chat',
+            model: 'claude-haiku-4-5-20251001',
+            input_tokens: response.usage?.input_tokens || 0,
+            output_tokens: response.usage?.output_tokens || 0,
+          })
 
           // Extract text from final response
           for (const block of response.content) {

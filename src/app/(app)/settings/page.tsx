@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Settings, Save, Loader2, Building2, Package, Target, Palette, Mail, Linkedin, FileText, FolderSync, ExternalLink, FileSpreadsheet, Presentation, File } from 'lucide-react'
+import { Settings, Save, Loader2, Building2, Package, Target, Palette, Mail, Linkedin, FileText, FolderSync, ExternalLink, FileSpreadsheet, Presentation, File, BrainCircuit } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -105,6 +105,21 @@ const fields: FieldConfig[] = [
   },
 ]
 
+interface UsagePeriod {
+  calls: number
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cost_usd: number
+}
+
+interface UsageStats {
+  today: UsagePeriod | null
+  week: UsagePeriod | null
+  month: UsagePeriod | null
+  error: string | null
+}
+
 export default function SettingsPage() {
   const [context, setContext] = useState<Partial<BusinessContext>>({})
   const [loading, setLoading] = useState(true)
@@ -112,6 +127,8 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [documents, setDocuments] = useState<SyncedDocument[]>([])
   const [docsLoading, setDocsLoading] = useState(true)
+  const [usage, setUsage] = useState<UsageStats | null>(null)
+  const [usageLoading, setUsageLoading] = useState(true)
 
   const loadDocuments = useCallback(() => {
     setDocsLoading(true)
@@ -134,6 +151,13 @@ export default function SettingsPage() {
       .finally(() => setLoading(false))
 
     loadDocuments()
+
+    // Load API usage stats
+    fetch('/api/ai/usage')
+      .then(res => res.json())
+      .then(data => setUsage(data))
+      .catch(() => {})
+      .finally(() => setUsageLoading(false))
   }, [loadDocuments])
 
   const handleSave = async () => {
@@ -313,6 +337,83 @@ export default function SettingsPage() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* API Usage Tracking */}
+      <div className="mt-10">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+          <BrainCircuit className="size-5" />
+          Consommation API (IA)
+        </h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Suivi de l&apos;utilisation de l&apos;API Anthropic (modele : Haiku — $0.80 / MTok entree, $4 / MTok sortie).
+        </p>
+
+        <Card>
+          <CardContent className="pt-6">
+            {usageLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : usage?.error ? (
+              <div className="py-8 text-center">
+                <BrainCircuit className="mx-auto mb-3 size-10 text-muted-foreground/50" />
+                <p className="text-sm font-medium text-muted-foreground">Table api_usage non configuree</p>
+                <p className="mt-1 text-xs text-muted-foreground/70">
+                  Executez le SQL suivant dans Supabase pour activer le suivi :
+                </p>
+                <pre className="mt-3 text-left text-xs bg-white/5 rounded-md p-3 overflow-x-auto">
+{`CREATE TABLE IF NOT EXISTS api_usage (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  endpoint text NOT NULL,
+  model text NOT NULL,
+  input_tokens integer DEFAULT 0,
+  output_tokens integer DEFAULT 0,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX idx_api_usage_created
+  ON api_usage (created_at DESC);`}
+                </pre>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <UsageCard label="Aujourd'hui" data={usage?.today} />
+                <UsageCard label="7 derniers jours" data={usage?.week} />
+                <UsageCard label="Ce mois" data={usage?.month} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+function UsageCard({ label, data }: { label: string; data: UsagePeriod | null | undefined }) {
+  if (!data) return (
+    <div className="rounded-lg border p-4 text-center">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-bold">—</p>
+    </div>
+  )
+
+  return (
+    <div className="rounded-lg border p-4">
+      <p className="text-xs text-muted-foreground mb-2">{label}</p>
+      <p className="text-2xl font-bold text-foreground">{data.calls} <span className="text-sm font-normal text-muted-foreground">appels</span></p>
+      <div className="mt-2 space-y-1">
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">Tokens entree</span>
+          <span>{data.input_tokens.toLocaleString('fr-FR')}</span>
+        </div>
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">Tokens sortie</span>
+          <span>{data.output_tokens.toLocaleString('fr-FR')}</span>
+        </div>
+        <div className="flex justify-between text-xs font-medium pt-1 border-t border-white/10">
+          <span className="text-muted-foreground">Cout estime</span>
+          <span className="text-brand-accent">${data.cost_usd.toFixed(4)}</span>
+        </div>
       </div>
     </div>
   )

@@ -21,6 +21,8 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronRight,
+  BrainCircuit,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -129,6 +131,8 @@ export function ProspectDetail({
   >(null)
   const [editOpen, setEditOpen] = useState(false)
   const [notesExpanded, setNotesExpanded] = useState(!!initialProspect.notes)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analysisResult, setAnalysisResult] = useState<string | null>(null)
 
   const currentStage = stages.find((s) => s.slug === prospect.pipeline_stage)
 
@@ -175,6 +179,38 @@ export function ProspectDetail({
   const handleActivitySaved = () => {
     setDialogType(null)
     router.refresh()
+  }
+
+  const handleAnalyzeIA = async () => {
+    setAnalyzing(true)
+    setAnalysisResult(null)
+    try {
+      const res = await fetch('/api/ai/analyze-pipeline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal': 'true' },
+        body: JSON.stringify({ prospect_id: prospect.id }),
+      })
+      const data = await res.json()
+      if (data.results?.[0]) {
+        const r = data.results[0]
+        if (r.old_stage !== r.new_stage) {
+          setAnalysisResult(`${r.old_stage} → ${r.new_stage} : ${r.reason}`)
+          const newStage = stages.find(s => s.slug === r.new_stage)
+          if (newStage) setProspect(prev => ({ ...prev, pipeline_stage: r.new_stage }))
+          router.refresh()
+        } else {
+          setAnalysisResult(`Stage confirme (${r.new_stage}) : ${r.reason}`)
+        }
+      } else {
+        setAnalysisResult('Analyse terminee — aucun changement suggere')
+      }
+      setTimeout(() => setAnalysisResult(null), 8000)
+    } catch {
+      setAnalysisResult('Erreur — verifiez vos credits API')
+      setTimeout(() => setAnalysisResult(null), 5000)
+    } finally {
+      setAnalyzing(false)
+    }
   }
 
   const fullName = [prospect.prenom, prospect.nom].filter(Boolean).join(' ')
@@ -299,7 +335,8 @@ export function ProspectDetail({
 
         {/* Quick actions bar */}
         <Card className="mb-6 py-3">
-          <CardContent className="flex flex-wrap gap-2">
+          <CardContent className="space-y-2">
+            <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -348,6 +385,21 @@ export function ProspectDetail({
               <ClipboardPaste className="size-4" />
               Coller transcription
             </Button>
+            <Button
+              size="sm"
+              onClick={handleAnalyzeIA}
+              disabled={analyzing}
+              className="bg-brand-accent hover:bg-brand-accent/90 text-white ml-auto"
+            >
+              {analyzing ? <Loader2 className="size-4 animate-spin" /> : <BrainCircuit className="size-4" />}
+              {analyzing ? 'Analyse...' : 'Analyser IA'}
+            </Button>
+            </div>
+            {analysisResult && (
+              <div className="rounded-md bg-brand-accent/10 border border-brand-accent/20 px-3 py-2 text-sm text-brand-accent">
+                {analysisResult}
+              </div>
+            )}
           </CardContent>
         </Card>
 

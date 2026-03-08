@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
+import { logApiUsage } from '@/lib/api-usage'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -141,6 +142,14 @@ Cherche son profil LinkedIn, son poste actuel, l'adresse et le pays de l'entrepr
         messages: allMessages,
       })
     }
+
+    // Log API usage
+    logApiUsage({
+      endpoint: 'enrich-prospect',
+      model: 'claude-haiku-4-5-20251001',
+      input_tokens: response.usage?.input_tokens || 0,
+      output_tokens: response.usage?.output_tokens || 0,
+    })
 
     // Extract text from response
     let resultText = ''

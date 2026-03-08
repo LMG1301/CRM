@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { logApiUsage } from '@/lib/api-usage'
 
 /**
  * AI Pipeline Analysis — Analyzes prospect interactions and
@@ -159,6 +160,14 @@ ${context}
 Quel est le stage le plus adapte ? Reponds en JSON.`,
       },
     ],
+  })
+
+  // Log API usage
+  logApiUsage({
+    endpoint: 'analyze-pipeline',
+    model: 'claude-haiku-4-5-20251001',
+    input_tokens: response.usage?.input_tokens || 0,
+    output_tokens: response.usage?.output_tokens || 0,
   })
 
   // Parse response
