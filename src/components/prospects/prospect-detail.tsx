@@ -322,7 +322,15 @@ export function ProspectDetail({
               onClick={() => setDialogType('email_sent')}
             >
               <Send className="size-4" />
-              Logger email
+              Logger email envoye
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDialogType('email_received')}
+            >
+              <Mail className="size-4" />
+              Logger email recu
             </Button>
             <Button
               variant="outline"

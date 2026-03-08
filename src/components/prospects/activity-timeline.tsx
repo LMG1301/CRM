@@ -349,9 +349,14 @@ export function ActivityTimeline({ activities }: ActivityTimelineProps) {
     )
   }
 
-  // Filter out emails — they're already shown in the Email section above
+  // Filter out Gmail-synced emails — they're already shown in the Email section above
+  // But KEEP manually logged emails (they have no gmail_sync source)
   const filteredActivities = activities.filter(
-    a => a.type !== 'email_sent' && a.type !== 'email_received'
+    a => {
+      if (a.type !== 'email_sent' && a.type !== 'email_received') return true
+      // Keep manually logged emails (no gmail_sync metadata)
+      return a.metadata?.source !== 'gmail_sync'
+    }
   )
 
   return (

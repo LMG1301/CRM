@@ -117,7 +117,7 @@ Utilise ces informations pour rendre le message plus pertinent et personnalise.`
         try {
           // First call — may trigger web search
           let response = await anthropic.messages.create({
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-haiku-4-5-20251001',
             max_tokens: 4096,
             system: enhancedSystem,
             tools: tools.length > 0 ? tools : undefined,
@@ -168,7 +168,7 @@ Utilise ces informations pour rendre le message plus pertinent et personnalise.`
 
             // Continue the conversation
             response = await anthropic.messages.create({
-              model: 'claude-sonnet-4-20250514',
+              model: 'claude-haiku-4-5-20251001',
               max_tokens: 4096,
               system: enhancedSystem,
               tools: tools.length > 0 ? tools : undefined,

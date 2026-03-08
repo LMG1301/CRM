@@ -80,6 +80,9 @@ export function AddActivityDialog({
         metadata.source = 'linkedin'
       }
 
+      // After saving an email, trigger AI pipeline auto-classification
+      const shouldTriggerAI = type === 'email_sent' || type === 'email_received'
+
       // Transcriptions: use API route to bypass server action size limits
       if (type === 'transcription') {
         let summaryContent = finalContent
@@ -130,6 +133,15 @@ export function AddActivityDialog({
           content: finalContent,
           metadata,
         })
+      }
+
+      // Trigger AI auto-classification for manually logged emails
+      if (shouldTriggerAI) {
+        fetch('/api/ai/analyze-pipeline', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-internal': 'true' },
+          body: JSON.stringify({ prospect_id: prospectId }),
+        }).catch(() => {}) // fire-and-forget
       }
 
       setContent('')
