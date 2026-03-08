@@ -53,7 +53,7 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
-    const { summary, description, startDate, endDate, attendees } = await request.json()
+    const { summary, description, startDate, endDate, durationMinutes } = await request.json()
 
     if (!summary || !startDate) {
       return Response.json(
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       description,
       startDate,
       endDate,
-      attendees,
+      durationMinutes,
     })
 
     if (!result) {

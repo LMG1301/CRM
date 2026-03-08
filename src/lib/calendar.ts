@@ -56,14 +56,16 @@ export async function getCalendarEvents(
 export async function createCalendarEvent(params: {
   summary: string
   description?: string
-  startDate: string // YYYY-MM-DD for all-day or ISO datetime
+  startDate: string // YYYY-MM-DD for all-day or ISO datetime (YYYY-MM-DDTHH:mm:ss)
   endDate?: string
+  durationMinutes?: number // Default 30 min for timed events
   attendees?: string[]
 }): Promise<{ id: string; htmlLink: string } | null> {
   const token = await getGmailAccessToken()
   if (!token) return null
 
   const isAllDay = /^\d{4}-\d{2}-\d{2}$/.test(params.startDate)
+  const durationMs = (params.durationMinutes || 30) * 60 * 1000
 
   // Build event body
   const event: Record<string, unknown> = {
@@ -83,14 +85,13 @@ export async function createCalendarEvent(params: {
   } else {
     event.start = { dateTime: params.startDate, timeZone: 'Europe/Paris' }
     event.end = {
-      dateTime: params.endDate || new Date(new Date(params.startDate).getTime() + 60 * 60 * 1000).toISOString(),
+      dateTime: params.endDate || new Date(new Date(params.startDate).getTime() + durationMs).toISOString(),
       timeZone: 'Europe/Paris',
     }
   }
 
-  if (params.attendees?.length) {
-    event.attendees = params.attendees.map(email => ({ email }))
-  }
+  // No attendees — calendar events are personal reminders only
+  // (prospect will be contacted separately)
 
   const res = await fetch(`${CALENDAR_API}/calendars/primary/events`, {
     method: 'POST',

@@ -1,6 +1,8 @@
 import { getProspects, getStages } from '@/lib/actions'
 import { ProspectsTable } from '@/components/prospects/prospects-table'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata = {
   title: 'Prospects - Boost CRM',
 }

@@ -84,7 +84,9 @@ export function ScheduleAction({
         try {
           const typeLabel = ACTION_TYPES.find(t => t.value === actionType)?.label || actionType
           const summary = `${typeLabel} — ${prospectName}`
-          const attendees = prospectEmail ? [prospectEmail] : undefined
+
+          // Build a timed event at 10:00 (30 min) — no prospect invite (personal reminder)
+          const startDateTime = `${dateStr}T10:00:00`
 
           const res = await fetch('/api/calendar/events', {
             method: 'POST',
@@ -92,8 +94,8 @@ export function ScheduleAction({
             body: JSON.stringify({
               summary,
               description: description || `Action CRM : ${typeLabel} avec ${prospectName}`,
-              startDate: dateStr,
-              attendees,
+              startDate: startDateTime,
+              durationMinutes: 30,
             }),
           })
 

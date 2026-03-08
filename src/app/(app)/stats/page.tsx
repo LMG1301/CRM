@@ -1,6 +1,8 @@
 import { getDashboardStats, getStages } from '@/lib/actions'
 import { StatsDashboard } from '@/components/stats/stats-dashboard'
 
+export const dynamic = 'force-dynamic'
+
 export default async function StatsPage() {
   const [stats, stages] = await Promise.all([
     getDashboardStats(),

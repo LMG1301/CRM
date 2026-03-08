@@ -1,5 +1,6 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { supabase } from '../supabase'
 import { toLocalDateString } from '../utils'
 import type { Prospect, PipelineStage } from '../types'
@@ -72,6 +73,10 @@ export async function createProspect(
     .select()
     .single()
   if (error) throw new Error(error.message)
+  revalidatePath('/prospects')
+  revalidatePath('/pipeline')
+  revalidatePath('/entreprises')
+  revalidatePath('/')
   return data
 }
 

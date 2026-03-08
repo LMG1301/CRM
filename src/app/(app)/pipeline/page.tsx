@@ -1,6 +1,8 @@
 import { getStages, getProspects } from '@/lib/actions'
 import { KanbanBoard } from '@/components/pipeline/kanban-board'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata = {
   title: 'Pipeline | Boost CRM',
   description: 'Visualisez et gerez votre pipeline commercial',
