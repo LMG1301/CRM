@@ -1,13 +1,11 @@
-import { getDashboardStats, getActionsDuJour, getRecentActivities, getProspects, getIntegrations, getEmailStats, getPendingReviewEmails } from '@/lib/actions'
+import { getDashboardStats, getActionsDuJour, getProspects, getPendingReviewEmails } from '@/lib/actions'
 import { supabase } from '@/lib/supabase'
 import { KpiCards } from '@/components/dashboard/kpi-cards'
 import { ActionsToday } from '@/components/dashboard/actions-today'
 import { TasksToday } from '@/components/dashboard/tasks-today'
 import { HotProspects } from '@/components/dashboard/hot-prospects'
-import { RecentActivity } from '@/components/dashboard/recent-activity'
-import { IntegrationStatus } from '@/components/dashboard/integration-status'
-import { EmailStats } from '@/components/dashboard/email-stats'
 import { PendingSequenceEmails } from '@/components/dashboard/pending-sequence-emails'
+import { WeeklyChecklist } from '@/components/dashboard/weekly-checklist'
 import { toLocalDateString } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
@@ -15,13 +13,10 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   const today = toLocalDateString(new Date())
 
-  const [stats, actionsDuJour, recentActivities, allProspects, integrations, emailStats, tasksDuJour, pendingSequenceEmails] = await Promise.all([
+  const [stats, actionsDuJour, allProspects, tasksDuJour, pendingSequenceEmails] = await Promise.all([
     getDashboardStats(),
     getActionsDuJour(),
-    getRecentActivities(10),
     getProspects(),
-    getIntegrations().catch(() => []),
-    getEmailStats().catch(() => ({ total: 0, sent: 0, received: 0, thisWeek: 0 })),
     Promise.resolve(
       supabase
         .from('tasks')
@@ -63,7 +58,7 @@ export default async function DashboardPage() {
 
         {/* Main content: 2-column layout */}
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
-          {/* Left column - Actions & Hot prospects */}
+          {/* Left column - Actions, Tasks, Hot prospects */}
           <div className="space-y-8 lg:col-span-3">
             <section>
               <ActionsToday prospects={actionsDuJour} />
@@ -86,28 +81,11 @@ export default async function DashboardPage() {
             </section>
           </div>
 
-          {/* Right column - Activity + Integrations */}
+          {/* Right column - Weekly checklist */}
           <div className="space-y-8 lg:col-span-2">
             <section>
-              <RecentActivity activities={recentActivities} />
+              <WeeklyChecklist />
             </section>
-
-            {emailStats.total > 0 && (
-              <section>
-                <EmailStats
-                  total={emailStats.total}
-                  sent={emailStats.sent}
-                  received={emailStats.received}
-                  thisWeek={emailStats.thisWeek}
-                />
-              </section>
-            )}
-
-            {integrations.length > 0 && (
-              <section>
-                <IntegrationStatus integrations={integrations} />
-              </section>
-            )}
           </div>
         </div>
       </div>

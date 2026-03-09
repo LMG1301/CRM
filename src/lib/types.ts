@@ -310,6 +310,38 @@ export interface ClientMachine {
   created_at: string
 }
 
+// ─── Weekly Tasks (checklist hebdo) ───
+
+export type WeeklyTaskCategory = 'key_priority' | 'follow_up' | 'meeting' | 'onboarding' | 'task'
+
+export const WEEKLY_TASK_CATEGORY_LABELS: Record<WeeklyTaskCategory, string> = {
+  key_priority: 'Priorite cle',
+  follow_up: 'Relance',
+  meeting: 'Reunion',
+  onboarding: 'Onboarding',
+  task: 'Tache',
+}
+
+export const WEEKLY_TASK_CATEGORY_ICONS: Record<WeeklyTaskCategory, string> = {
+  key_priority: '🎯',
+  follow_up: '📞',
+  meeting: '🤝',
+  onboarding: '🚀',
+  task: '📋',
+}
+
+export interface WeeklyTask {
+  id: string
+  week_start: string
+  category: WeeklyTaskCategory
+  title: string
+  completed: boolean
+  prospect_id: string | null
+  created_at: string
+  updated_at: string
+  prospect?: { prenom: string; nom: string; entreprise?: string } | null
+}
+
 // ─── Source colors for activity feed ───
 
 export const SOURCE_COLORS: Record<string, string> = {
