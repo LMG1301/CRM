@@ -237,7 +237,81 @@ async function executeCrmQuery(input: { data_type: string; filters?: string }): 
   }
 }
 
-// ─── CRM Tool definition ───
+// ─── Save Weekly Tasks executor ───
+
+async function executeSaveWeeklyTasks(input: { tasks: Array<{ title: string; category: string }> }): Promise<unknown> {
+  // Calculate current week's Monday
+  const now = new Date()
+  const day = now.getDay()
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1)
+  const monday = new Date(now)
+  monday.setDate(diff)
+  monday.setHours(0, 0, 0, 0)
+  const weekStart = monday.toISOString().split('T')[0]
+
+  // Check existing tasks for this week
+  const { data: existing } = await supabase
+    .from('weekly_tasks')
+    .select('id')
+    .eq('week_start', weekStart)
+
+  const existingCount = existing?.length || 0
+
+  // Insert all tasks
+  const rows = input.tasks.map(t => ({
+    week_start: weekStart,
+    category: t.category,
+    title: t.title,
+    completed: false,
+  }))
+
+  const { error } = await supabase.from('weekly_tasks').insert(rows)
+  if (error) return { error: error.message }
+
+  const weekNum = getISOWeekNumber(monday)
+
+  if (existingCount > 0) {
+    return { success: true, message: `${input.tasks.length} taches ajoutees a la checklist de la semaine S${weekNum} (${existingCount} taches existantes conservees).` }
+  }
+  return { success: true, message: `${input.tasks.length} taches ajoutees a la checklist de la semaine S${weekNum}.` }
+}
+
+function getISOWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const dayNum = d.getUTCDay() || 7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+}
+
+// ─── Tool definitions ───
+
+const SAVE_WEEKLY_TASKS_TOOL = {
+  name: "save_weekly_tasks",
+  description: "Sauvegarde une liste de taches dans la checklist hebdomadaire du dashboard. Utilise apres avoir genere un Monday Check-in ou une to-do list.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      tasks: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Titre de la tache" },
+            category: {
+              type: "string",
+              enum: ["key_priority", "follow_up", "meeting", "onboarding", "task"],
+              description: "Categorie : key_priority (priorite cle), follow_up (relance), meeting (reunion), onboarding, task (autre tache)",
+            },
+          },
+          required: ["title", "category"],
+        },
+        description: "Liste des taches a sauvegarder",
+      },
+    },
+    required: ["tasks"],
+  },
+}
 
 const CRM_TOOL = {
   name: "query_crm",
@@ -344,7 +418,20 @@ export async function POST(request: NextRequest) {
       ))
 
     let enhancedSystem = systemPrompt
-    enhancedSystem += `\n\nTu as un outil query_crm() pour interroger les donnees du CRM en temps reel. Utilise-le pour repondre aux questions sur les prospects, clients, pipeline, machines, activites recentes. Ne demande JAMAIS a l'utilisateur de copier-coller des donnees — interroge le CRM directement.`
+    enhancedSystem += `\n\nTu as un outil query_crm() pour interroger les donnees du CRM en temps reel. Utilise-le pour repondre aux questions sur les prospects, clients, pipeline, machines, activites recentes. Ne demande JAMAIS a l'utilisateur de copier-coller des donnees — interroge le CRM directement.
+
+Tu as un outil save_weekly_tasks() pour sauvegarder des taches dans la checklist hebdo du dashboard.
+
+## Monday Check-in
+Quand l'utilisateur dit "check-in", "monday check-in", "prepare ma semaine", "to-do list", "priorites de la semaine" :
+1. Appelle query_crm avec data_type "prospects" (filtre: stages actifs repondu/devis/onboarding), puis "deals_bloques", puis "activites_recentes" (7 jours).
+2. Genere une to-do list structuree avec ces categories :
+   - key_priority (max 5) : follow-ups urgents, meetings planifies, onboardings
+   - follow_up : prospects en attente de reponse, relances a faire
+   - meeting : meetings de la semaine (depuis prochaines actions planifiees)
+   - onboarding : clients en phase onboarding avec actions en cours
+3. Appelle save_weekly_tasks() avec la liste generee.
+4. Affiche aussi la liste formatee dans le chat pour le Monday call.`
 
     if (wantsEnrichment && prospect?.entreprise) {
       enhancedSystem += `\n\n## Recherche d'informations
@@ -494,6 +581,8 @@ ${contentList}`
                 },
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 CRM_TOOL as any,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                SAVE_WEEKLY_TASKS_TOOL as any,
               ],
               messages: apiMessages,
             })
@@ -511,21 +600,28 @@ ${contentList}`
             // If stop_reason is not tool_use, we're done
             if (finalMessage.stop_reason !== 'tool_use') break
 
-            // Find query_crm tool calls (web_search is handled server-side by the API)
-            const crmBlocks = finalMessage.content.filter(
+            // Find custom tool calls (web_search is handled server-side by the API)
+            const customToolBlocks = finalMessage.content.filter(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (b: any) => b.type === 'tool_use' && b.name === 'query_crm'
+              (b: any) => b.type === 'tool_use' && (b.name === 'query_crm' || b.name === 'save_weekly_tasks')
             )
 
-            if (crmBlocks.length === 0) break
+            if (customToolBlocks.length === 0) break
 
-            // Execute CRM queries and build tool results
+            // Execute tool calls and build tool results
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const toolResults: any[] = []
-            for (const block of crmBlocks) {
+            for (const block of customToolBlocks) {
               if (block.type !== 'tool_use') continue
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const result = await executeCrmQuery(block.input as any)
+              let result: unknown
+              if (block.name === 'query_crm') {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                result = await executeCrmQuery(block.input as any)
+              } else if (block.name === 'save_weekly_tasks') {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                result = await executeSaveWeeklyTasks(block.input as any)
+              }
               toolResults.push({
                 type: 'tool_result' as const,
                 tool_use_id: block.id,

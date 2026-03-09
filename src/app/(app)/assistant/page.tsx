@@ -1,10 +1,33 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Bot, Search } from 'lucide-react'
+import { Bot, Search, ClipboardList, BarChart3, Users, Zap } from 'lucide-react'
 import { AIChat } from '@/components/ai/ai-chat'
 import { Input } from '@/components/ui/input'
 import type { Prospect } from '@/lib/types'
+
+const GLOBAL_QUICK_ACTIONS = [
+  {
+    label: '📋 Monday Check-in',
+    prompt: 'Monday check-in : prepare ma to-do list de la semaine avec les priorites, relances, meetings et onboardings.',
+    icon: <ClipboardList className="size-3" />,
+  },
+  {
+    label: '📊 Resume pipeline',
+    prompt: 'Fais-moi un resume du pipeline : combien de prospects par etape, deals bloques, et actions urgentes.',
+    icon: <BarChart3 className="size-3" />,
+  },
+  {
+    label: '👥 Prospects chauds',
+    prompt: 'Quels sont les prospects les plus chauds en ce moment ? Ceux en devis, repondu ou onboarding avec des actions a faire.',
+    icon: <Users className="size-3" />,
+  },
+  {
+    label: '⚡ Deals bloques',
+    prompt: 'Quels deals sont bloques depuis plus de 2 semaines ? Propose des actions pour les debloquer.',
+    icon: <Zap className="size-3" />,
+  },
+]
 
 export default function AssistantPage() {
   const [prospects, setProspects] = useState<Prospect[]>([])
@@ -107,6 +130,7 @@ export default function AssistantPage() {
         <AIChat
           key={selectedProspect?.id || 'global'}
           prospectId={selectedProspect?.id}
+          quickActions={selectedProspect ? undefined : GLOBAL_QUICK_ACTIONS}
           placeholder={
             selectedProspect
               ? `Demande a l'IA a propos de ${selectedProspect.prenom}...`
