@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import type { PipelineStage, Content, MachineType } from '@/lib/types'
+import type { PipelineStage, MachineType } from '@/lib/types'
 import { MACHINE_TYPE_LABELS } from '@/lib/types'
 import type { MachineStats } from '@/lib/actions/machines'
 
@@ -30,7 +30,7 @@ interface StatsDashboardProps {
   stats: DashboardStats
   stages: PipelineStage[]
   machineStats: MachineStats
-  contents: Content[]
+  contents?: unknown[]  // kept for backward compat, no longer used
 }
 
 // ─── Funnel stage icons ───
@@ -47,27 +47,10 @@ const STAGE_ICONS: Record<string, string> = {
   refuse: '\u274C',
 }
 
-// ─── Funnel tag component ───
-
-function FunnelTag({ level }: { level: string }) {
-  const config: Record<string, { bg: string; text: string; label: string }> = {
-    tofu: { bg: 'bg-brand-accent/15', text: 'text-brand-accent', label: 'TOP' },
-    mofu: { bg: 'bg-amber-500/15', text: 'text-amber-500', label: 'MID' },
-    bofu: { bg: 'bg-emerald-500/15', text: 'text-emerald-500', label: 'BOT' },
-  }
-  const c = config[level] || { bg: 'bg-white/5', text: 'text-white/40', label: '\u2014' }
-  return (
-    <span className={`rounded px-2.5 py-0.5 text-[10px] font-bold tracking-wider ${c.bg} ${c.text}`}>
-      {c.label}
-    </span>
-  )
-}
-
 // ─── Main component ───
 
-export function StatsDashboard({ stats, stages, machineStats, contents }: StatsDashboardProps) {
+export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardProps) {
   const [view, setView] = useState<'pilotage' | 'reporting'>('reporting')
-  const [funnelFilter, setFunnelFilter] = useState<'all' | 'tofu' | 'mofu' | 'bofu'>('all')
   const isReporting = view === 'reporting'
 
   // Build funnel data from stages
@@ -159,12 +142,6 @@ export function StatsDashboard({ stats, stages, machineStats, contents }: StatsD
     return items
   }, [funnelData, totalContacted])
 
-  // Filter contents by funnel level
-  const filteredContents = useMemo(() => {
-    if (funnelFilter === 'all') return contents
-    return contents.filter(c => c.funnel_level === funnelFilter)
-  }, [contents, funnelFilter])
-
   // KPI cards
   const kpis = [
     { label: 'Contactes', value: String(totalContacted), sub: 'total pipeline', color: '#1863DC', icon: '\u{1F4E4}' },
@@ -247,13 +224,13 @@ export function StatsDashboard({ stats, stages, machineStats, contents }: StatsD
 
               return (
                 <div key={f.slug} className={stageBlockers.length > 0 && isReporting ? 'mb-2' : ''}>
-                  {/* Drop indicator */}
+                  {/* Drop indicator — only show when there is actual loss */}
                   {i > 0 && (
                     <div className="ml-[42px] mb-1 flex items-center gap-2">
                       <div className="h-4 w-px bg-white/10" />
-                      {drop && (
+                      {drop && dropNum > 0 && (
                         <span className={`text-[11px] font-semibold ${dropColor}`}>
-                          \u2193 -{drop}%
+                          -{drop}%
                         </span>
                       )}
                     </div>
@@ -405,77 +382,7 @@ export function StatsDashboard({ stats, stages, machineStats, contents }: StatsD
         </div>
       </div>
 
-      {/* Contents by funnel level */}
-      {contents.length > 0 && (
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-white/40">
-              Contenus par niveau funnel
-            </h3>
-            <div className="flex gap-1">
-              {([
-                { key: 'all' as const, label: 'Tous' },
-                { key: 'tofu' as const, label: 'Top' },
-                { key: 'mofu' as const, label: 'Middle' },
-                { key: 'bofu' as const, label: 'Bottom' },
-              ]).map(f => (
-                <button
-                  key={f.key}
-                  onClick={() => setFunnelFilter(f.key)}
-                  className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-all ${
-                    funnelFilter === f.key
-                      ? f.key === 'all'
-                        ? 'border-brand-accent bg-brand-accent/20 text-white'
-                        : 'border-white/20 bg-white/10 text-white'
-                      : 'border-white/[0.08] text-white/40 hover:text-white/60'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {filteredContents.length === 0 ? (
-            <p className="py-4 text-center text-xs text-white/30">
-              Aucun contenu pour ce filtre
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {filteredContents.map(c => (
-                <div
-                  key={c.id}
-                  className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3.5 py-2.5"
-                >
-                  <FunnelTag level={c.funnel_level || ''} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium">{c.title}</div>
-                    <div className="text-[10px] text-white/40">
-                      {c.content_type === 'post_linkedin' ? 'Post LinkedIn' :
-                       c.content_type === 'case_study' ? 'Cas client' :
-                       c.content_type === 'article' ? 'Article' :
-                       c.content_type === 'video' ? 'Video' :
-                       c.content_type === 'infographie' ? 'Infographie' :
-                       c.content_type === 'temoignage' ? 'Temoignage' :
-                       c.content_type}
-                    </div>
-                  </div>
-                  {c.url && (
-                    <a
-                      href={c.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="shrink-0 text-[10px] text-brand-accent hover:underline"
-                    >
-                      Voir
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* NOTE: Contents section removed — accessible from dedicated Contenus page */}
     </div>
   )
 }

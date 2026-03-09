@@ -19,6 +19,7 @@ export function MachinesParcPanel({ prospectId }: MachinesParcPanelProps) {
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Form state
   const [formType, setFormType] = useState<MachineType>('screenkit')
@@ -42,6 +43,7 @@ export function MachinesParcPanel({ prospectId }: MachinesParcPanelProps) {
   const handleAdd = async () => {
     if (formQuantity < 1) return
     setSaving(true)
+    setError(null)
     try {
       await addClientMachine({
         prospect_id: prospectId,
@@ -56,8 +58,8 @@ export function MachinesParcPanel({ prospectId }: MachinesParcPanelProps) {
       setFormNotes('')
       setFormDate('')
       await loadMachines()
-    } catch {
-      // ignore
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de l\'ajout de la machine')
     } finally {
       setSaving(false)
     }
@@ -65,11 +67,12 @@ export function MachinesParcPanel({ prospectId }: MachinesParcPanelProps) {
 
   const handleDelete = async (id: string) => {
     setDeletingId(id)
+    setError(null)
     try {
       await deleteClientMachine(id)
       setMachines(prev => prev.filter(m => m.id !== id))
-    } catch {
-      // ignore
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la suppression')
     } finally {
       setDeletingId(null)
     }
@@ -91,6 +94,11 @@ export function MachinesParcPanel({ prospectId }: MachinesParcPanelProps) {
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {error && (
+          <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            {error}
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center py-4">
             <Loader2 className="size-4 animate-spin text-muted-foreground" />
