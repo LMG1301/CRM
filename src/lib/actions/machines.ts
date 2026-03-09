@@ -3,9 +3,40 @@
 import { supabase } from '../supabase'
 import type { ClientMachine } from '../types'
 
+// ─── Normalize company name for matching ───
+
+function normalizeEntreprise(name: string | null | undefined): string {
+  return (name || '').trim().toLowerCase()
+}
+
 // ─── Client Machines CRUD ───
 
+/**
+ * Get machines for a prospect's company (not just the prospect).
+ * Falls back to prospect_id if no entreprise.
+ */
 export async function getClientMachines(prospectId: string): Promise<ClientMachine[]> {
+  // First get the prospect's company
+  const { data: prospect } = await supabase
+    .from('prospects')
+    .select('entreprise')
+    .eq('id', prospectId)
+    .single()
+
+  const entreprise = normalizeEntreprise(prospect?.entreprise)
+
+  if (entreprise) {
+    // Query by normalized company name
+    const { data, error } = await supabase
+      .from('client_machines')
+      .select('*')
+      .ilike('entreprise', entreprise)
+      .order('created_at', { ascending: false })
+    if (error) throw new Error(error.message)
+    return data || []
+  }
+
+  // Fallback: query by prospect_id if no company
   const { data, error } = await supabase
     .from('client_machines')
     .select('*')
@@ -21,11 +52,24 @@ export async function addClientMachine(machine: {
   quantity: number
   notes?: string
   installed_at?: string
+  entreprise?: string
 }): Promise<ClientMachine> {
+  // Get the prospect's company if not provided
+  let entreprise = machine.entreprise
+  if (!entreprise) {
+    const { data: prospect } = await supabase
+      .from('prospects')
+      .select('entreprise')
+      .eq('id', machine.prospect_id)
+      .single()
+    entreprise = prospect?.entreprise || null
+  }
+
   const { data, error } = await supabase
     .from('client_machines')
     .insert({
       prospect_id: machine.prospect_id,
+      entreprise: entreprise ? entreprise.trim() : null,
       machine_type: machine.machine_type,
       quantity: machine.quantity,
       notes: machine.notes || null,
@@ -46,6 +90,7 @@ export async function deleteClientMachine(machineId: string): Promise<void> {
 }
 
 // ─── Stats aggregation for the Stats page ───
+// Groups by entreprise instead of prospect
 
 export interface MachineStats {
   totalMachines: number
@@ -65,10 +110,9 @@ export interface MachineStats {
 }
 
 export async function getMachineStats(): Promise<MachineStats> {
-  // Fetch all machines with prospect info
   const { data: machines } = await supabase
     .from('client_machines')
-    .select('machine_type, quantity, installed_at, prospect_id')
+    .select('machine_type, quantity, installed_at, prospect_id, entreprise')
     .order('created_at', { ascending: false })
 
   if (!machines || machines.length === 0) {
@@ -83,16 +127,8 @@ export async function getMachineStats(): Promise<MachineStats> {
     totalMachines += m.quantity
   }
 
-  // Group by prospect
-  const prospectIds = [...new Set(machines.map(m => m.prospect_id))]
-  const { data: prospects } = await supabase
-    .from('prospects')
-    .select('id, prenom, nom, entreprise')
-    .in('id', prospectIds)
-
-  const prospectMap = new Map((prospects || []).map(p => [p.id, p]))
-
-  const clientMap = new Map<string, {
+  // Group by entreprise (normalized) instead of prospect
+  const entrepriseMap = new Map<string, {
     prospect_id: string
     prenom: string
     nom: string
@@ -101,31 +137,51 @@ export async function getMachineStats(): Promise<MachineStats> {
     totalQuantity: number
   }>()
 
+  // Get prospect names for display
+  const prospectIds = [...new Set(machines.map(m => m.prospect_id))]
+  const { data: prospects } = await supabase
+    .from('prospects')
+    .select('id, prenom, nom, entreprise')
+    .in('id', prospectIds)
+
+  const prospectMap = new Map((prospects || []).map(p => [p.id, p]))
+
   for (const m of machines) {
     const p = prospectMap.get(m.prospect_id)
-    if (!p) continue
-    if (!clientMap.has(m.prospect_id)) {
-      clientMap.set(m.prospect_id, {
+    const entName = m.entreprise || p?.entreprise || ''
+    const entKey = normalizeEntreprise(entName)
+
+    if (!entKey) continue
+
+    if (!entrepriseMap.has(entKey)) {
+      entrepriseMap.set(entKey, {
         prospect_id: m.prospect_id,
-        prenom: p.prenom || '',
-        nom: p.nom || '',
-        entreprise: p.entreprise || '',
+        prenom: p?.prenom || '',
+        nom: p?.nom || '',
+        entreprise: entName,
         machines: [],
         totalQuantity: 0,
       })
     }
-    const entry = clientMap.get(m.prospect_id)!
-    entry.machines.push({
-      machine_type: m.machine_type,
-      quantity: m.quantity,
-      installed_at: m.installed_at,
-    })
+
+    const entry = entrepriseMap.get(entKey)!
+    // Check if same machine_type already exists, merge quantities
+    const existing = entry.machines.find(em => em.machine_type === m.machine_type)
+    if (existing) {
+      existing.quantity += m.quantity
+    } else {
+      entry.machines.push({
+        machine_type: m.machine_type,
+        quantity: m.quantity,
+        installed_at: m.installed_at,
+      })
+    }
     entry.totalQuantity += m.quantity
   }
 
   return {
     totalMachines,
     byType,
-    clients: Array.from(clientMap.values()).sort((a, b) => b.totalQuantity - a.totalQuantity),
+    clients: Array.from(entrepriseMap.values()).sort((a, b) => b.totalQuantity - a.totalQuantity),
   }
 }

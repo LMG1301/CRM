@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import type { PipelineStage, MachineType } from '@/lib/types'
 import { MACHINE_TYPE_LABELS } from '@/lib/types'
 import type { MachineStats } from '@/lib/actions/machines'
@@ -30,7 +30,7 @@ interface StatsDashboardProps {
   stats: DashboardStats
   stages: PipelineStage[]
   machineStats: MachineStats
-  contents?: unknown[]  // kept for backward compat, no longer used
+  contents?: unknown[]
 }
 
 // ─── Funnel stage icons ───
@@ -50,9 +50,6 @@ const STAGE_ICONS: Record<string, string> = {
 // ─── Main component ───
 
 export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardProps) {
-  const [view, setView] = useState<'pilotage' | 'reporting'>('reporting')
-  const isReporting = view === 'reporting'
-
   // Build funnel data from stages
   const funnelData = useMemo(() => {
     return stages
@@ -85,17 +82,6 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
   const responseRate = (contactedCount + postContactStages) > 0
     ? Math.round(postContactStages / (contactedCount + postContactStages) * 100)
     : 0
-
-  // Group blockers by stage
-  const blockersByStage = useMemo(() => {
-    const map: Record<string, typeof stats.blockers> = {}
-    for (const b of stats.blockers || []) {
-      if (!map[b.stage]) map[b.stage] = []
-      map[b.stage]!.push(b)
-    }
-    return map
-  }, [stats.blockers])
-  const totalBlockers = (stats.blockers || []).length
 
   // Quick stats insights
   const quickStats = useMemo(() => {
@@ -142,44 +128,24 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
     return items
   }, [funnelData, totalContacted])
 
-  // KPI cards
+  // KPI cards (4 only)
   const kpis = [
     { label: 'Contactes', value: String(totalContacted), sub: 'total pipeline', color: '#1863DC', icon: '\u{1F4E4}' },
     { label: 'Taux de reponse', value: `${responseRate}%`, sub: `${postContactStages} / ${contactedCount + postContactStages}`, color: '#fbbf24', icon: '\u{1F4AC}' },
     { label: 'Conversion globale', value: `${convGlobal}%`, sub: 'Contactes \u2192 Client', color: '#22c55e', icon: '\u{1F4C8}' },
     { label: 'Machines signees', value: String(machineStats.totalMachines), sub: `${machineStats.clients.length} client${machineStats.clients.length > 1 ? 's' : ''}`, color: '#10b981', icon: '\u2705' },
-    ...(isReporting ? [{
-      label: 'Deals bloques', value: String(totalBlockers), sub: `prospects en stagnation`, color: '#ef4444', icon: '\u26A0\uFE0F',
-    }] : []),
   ]
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Statistiques</h1>
-          <p className="mt-1 text-sm text-white/40">Analyse de votre pipeline commercial</p>
-        </div>
-        <div className="flex gap-1 rounded-lg bg-white/5 p-1">
-          {([['pilotage', 'Mon pilotage'], ['reporting', 'Reporting']] as const).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setView(key)}
-              className={`rounded-md px-4 py-1.5 text-xs font-semibold transition-all ${
-                view === key
-                  ? 'bg-brand-accent text-white'
-                  : 'text-white/40 hover:text-white/60'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <div>
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Statistiques</h1>
+        <p className="mt-1 text-sm text-white/40">Analyse de votre pipeline commercial</p>
       </div>
 
       {/* KPI Cards */}
-      <div className={`grid gap-3 ${isReporting ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-4'}`}>
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         {kpis.map(k => (
           <div
             key={k.label}
@@ -202,16 +168,9 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Funnel */}
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-white/40">
-              Entonnoir de conversion
-            </h3>
-            {isReporting && totalBlockers > 0 && (
-              <span className="text-[11px] font-semibold text-amber-400">
-                \u26A0 {totalBlockers} blocage{totalBlockers > 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
+          <h3 className="mb-5 text-sm font-bold uppercase tracking-wider text-white/40">
+            Entonnoir de conversion
+          </h3>
 
           <div className="space-y-1">
             {funnelData.map((f, i) => {
@@ -220,11 +179,10 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
               const drop = i > 0 && prevCount > 0 ? ((prevCount - f.count) / prevCount * 100).toFixed(0) : null
               const dropNum = drop ? parseFloat(drop) : 0
               const dropColor = dropNum > 60 ? 'text-red-400' : dropNum > 40 ? 'text-amber-400' : 'text-emerald-400'
-              const stageBlockers = blockersByStage[f.slug] || []
 
               return (
-                <div key={f.slug} className={stageBlockers.length > 0 && isReporting ? 'mb-2' : ''}>
-                  {/* Drop indicator — only show when there is actual loss */}
+                <div key={f.slug}>
+                  {/* Drop indicator */}
                   {i > 0 && (
                     <div className="ml-[42px] mb-1 flex items-center gap-2">
                       <div className="h-4 w-px bg-white/10" />
@@ -260,32 +218,6 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
                       </div>
                     </div>
                   </div>
-
-                  {/* Blockers (reporting mode only) */}
-                  {isReporting && stageBlockers.length > 0 && (
-                    <div className="ml-[42px] mt-2 space-y-1.5">
-                      {stageBlockers.map(b => (
-                        <div
-                          key={b.name}
-                          className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2.5"
-                        >
-                          <div className="mb-1 flex items-center justify-between">
-                            <span className="text-xs font-semibold">{b.name}</span>
-                            <span
-                              className={`rounded px-2 py-0.5 text-[10px] font-bold ${
-                                b.days > 30
-                                  ? 'bg-red-500/20 text-red-400'
-                                  : 'bg-amber-400/20 text-amber-400'
-                              }`}
-                            >
-                              {b.days}j
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-white/50">{b.reason}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )
             })}
@@ -300,7 +232,7 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
 
         {/* Right column */}
         <div className="flex flex-col gap-5">
-          {/* Quick stats / Points cles */}
+          {/* Points cles */}
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
             <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-white/40">
               Points cles
@@ -381,8 +313,6 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
           </div>
         </div>
       </div>
-
-      {/* NOTE: Contents section removed — accessible from dedicated Contenus page */}
     </div>
   )
 }

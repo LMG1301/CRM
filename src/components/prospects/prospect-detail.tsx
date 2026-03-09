@@ -793,7 +793,7 @@ export function ProspectDetail({
 
             {/* Parc machines — only for onboarding/client stages */}
             {['onboarding', 'client'].includes(prospect.pipeline_stage) && (
-              <MachinesParcPanel prospectId={prospect.id} />
+              <MachinesParcPanel prospectId={prospect.id} entreprise={prospect.entreprise} />
             )}
 
             {/* Dates */}

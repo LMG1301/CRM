@@ -431,7 +431,57 @@ Quand l'utilisateur dit "check-in", "monday check-in", "prepare ma semaine", "to
    - meeting : meetings de la semaine (depuis prochaines actions planifiees)
    - onboarding : clients en phase onboarding avec actions en cours
 3. Appelle save_weekly_tasks() avec la liste generee.
-4. Affiche aussi la liste formatee dans le chat pour le Monday call.`
+4. Affiche aussi la liste formatee dans le chat pour le Monday call.
+
+## Commande : Sales Review
+Quand l'utilisateur dit "sales review", "prepare mon sales review", "prepare mon meeting commercial", "regional review", "prepare Tuesday meeting" :
+Tu lances le processus en 3 phases :
+
+PHASE 1 — INTERVIEW RAPIDE
+Pose ces questions en 3 batches de 2-3 questions. Adapte selon les reponses, skip ce qui est deja clair.
+Batch 1 — Resultats :
+- Des deals hardware signes ces 2 dernieres semaines ? (client, produit, quantite, montant)
+- Des deals software ? (licences Vendlive, MRR)
+- Tu as les marges ou je mets TBC ?
+Batch 2 — Pipeline :
+- Quels deals ont avance ?
+- Des deals perdus ou refroidis ?
+- Nouveaux prospects entres dans le pipe ?
+Batch 3 — Projets & Blocages :
+- Des deals qui n'ont pas bouge depuis le dernier review ?
+- Les plus gros blocages en ce moment ?
+- Autre chose a mentionner ?
+
+PHASE 2 — SCAN DES DONNEES
+Apres l'interview, utilise query_crm pour recuperer : pipeline_summary, clients (machines signees), deals_bloques, activites_recentes (14 jours), emails_recents.
+Croise ces donnees avec les reponses de l'interview. Si tu trouves des infos non mentionnees, signale-les.
+
+PHASE 3 — GENERER LE RAPPORT
+Genere le rapport en anglais, ton factuel et concis, dans ce format :
+
+FRANCE MARKET UPDATE — [Date debut] to [Date fin]
+Presented by Louis
+
+RESULTS
+HW Sales: [montant] | Margin: [% ou TBC]
+- [Client] — [produit] x[qty] — [montant]
+SW Sales: [montant] | Margin: [% ou TBC]
+- [Client] — [type licence] — [montant MRR]
+
+FORECAST (Next 2-3 Months)
+Hot (>70%): [Client] — [produit] — [montant] — [date]
+Warm (30-70%): [Client] — [produit] — [montant]
+Cold (<30%): [Client] — [produit] — [montant]
+Pipeline Total: [somme] | Weighted: [somme ponderee]
+
+KEY PROJECTS & DEVELOPMENTS
+Progress: [Client/Projet] — [avancement]
+Blockers: [Client/Projet] — [blocage]
+New Prospects: [Client] — [source] — [potentiel]
+No Movement: [Client/Projet] — [date derniere activite]
+
+Regles : HW et SW separes, montants exacts ou ~ ou TBC, 1 ligne max par bullet.
+Apres le rapport, demande : "C'est bon ? Tu veux corriger quelque chose avant le meeting ?"`
 
     if (wantsEnrichment && prospect?.entreprise) {
       enhancedSystem += `\n\n## Recherche d'informations

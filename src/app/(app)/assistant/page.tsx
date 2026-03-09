@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Bot, Search, ClipboardList, BarChart3, Users, Zap } from 'lucide-react'
+import { Bot, Search, ClipboardList, BarChart3, Users, Zap, FileText } from 'lucide-react'
 import { AIChat } from '@/components/ai/ai-chat'
 import { Input } from '@/components/ui/input'
 import type { Prospect } from '@/lib/types'
@@ -26,6 +26,11 @@ const GLOBAL_QUICK_ACTIONS = [
     label: '⚡ Deals bloques',
     prompt: 'Quels deals sont bloques depuis plus de 2 semaines ? Propose des actions pour les debloquer.',
     icon: <Zap className="size-3" />,
+  },
+  {
+    label: '📊 Sales Review',
+    prompt: 'Prepare mon sales review.',
+    icon: <FileText className="size-3" />,
   },
 ]
 

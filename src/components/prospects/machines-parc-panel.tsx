@@ -11,9 +11,10 @@ import { getClientMachines, addClientMachine, deleteClientMachine } from '@/lib/
 
 interface MachinesParcPanelProps {
   prospectId: string
+  entreprise?: string
 }
 
-export function MachinesParcPanel({ prospectId }: MachinesParcPanelProps) {
+export function MachinesParcPanel({ prospectId, entreprise }: MachinesParcPanelProps) {
   const [machines, setMachines] = useState<ClientMachine[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -31,8 +32,8 @@ export function MachinesParcPanel({ prospectId }: MachinesParcPanelProps) {
     try {
       const data = await getClientMachines(prospectId)
       setMachines(data)
-    } catch {
-      // ignore
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur de chargement')
     } finally {
       setLoading(false)
     }
@@ -51,6 +52,7 @@ export function MachinesParcPanel({ prospectId }: MachinesParcPanelProps) {
         quantity: formQuantity,
         notes: formNotes || undefined,
         installed_at: formDate || undefined,
+        entreprise: entreprise || undefined,
       })
       setShowForm(false)
       setFormType('screenkit')
@@ -92,6 +94,11 @@ export function MachinesParcPanel({ prospectId }: MachinesParcPanelProps) {
             </Badge>
           )}
         </CardTitle>
+        {entreprise && (
+          <p className="text-[11px] text-muted-foreground">
+            Machines installees chez {entreprise}
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         {error && (

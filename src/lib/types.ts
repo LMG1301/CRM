@@ -303,6 +303,7 @@ export const MACHINE_TYPE_LABELS: Record<MachineType, string> = {
 export interface ClientMachine {
   id: string
   prospect_id: string
+  entreprise: string | null
   machine_type: MachineType
   quantity: number
   notes: string | null
