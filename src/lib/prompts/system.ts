@@ -28,6 +28,7 @@ export interface ProspectSummary {
   date_prochaine_action: string | null
   type_prochaine_action: string
   date_premier_contact: string | null
+  deal_group: string | null
 }
 
 // ─── Build system prompt with prospect context ───
@@ -38,7 +39,8 @@ export function buildSystemPrompt(
   businessContext?: BusinessContext | null,
   knowledgeDocuments?: KnowledgeDocument[],
   allProspects?: ProspectSummary[],
-  emails?: Email[]
+  emails?: Email[],
+  dealGroupMembers?: Prospect[]
 ): string {
   let prompt = buildBasePrompt(businessContext)
 
@@ -47,7 +49,7 @@ export function buildSystemPrompt(
   }
 
   if (prospect) {
-    prompt += '\n\n' + buildProspectContext(prospect, activities || [])
+    prompt += '\n\n' + buildProspectContext(prospect, activities || [], dealGroupMembers)
   }
 
   if (emails && emails.length > 0) {
@@ -316,7 +318,8 @@ function cleanEmailBody(body: string): string {
 
 function buildProspectContext(
   prospect: Prospect,
-  activities: Activity[]
+  activities: Activity[],
+  dealGroupMembers?: Prospect[]
 ): string {
   const lines: string[] = ['## Contexte du prospect actuel']
 
@@ -329,6 +332,7 @@ function buildProspectContext(
   if (prospect.pipeline_stage) lines.push(`- **Stage pipeline** : ${prospect.pipeline_stage}`)
   if (prospect.categorie) lines.push(`- **Categorie** : ${prospect.categorie}`)
   if (prospect.statut_commercial) lines.push(`- **Statut commercial** : ${prospect.statut_commercial}`)
+  if (prospect.deal_group) lines.push(`- **Groupe de deal** : ${prospect.deal_group}`)
   if (prospect.email) lines.push(`- **Email** : ${prospect.email}`)
   if (prospect.email_pro) lines.push(`- **Email pro** : ${prospect.email_pro}`)
   if (prospect.linkedin_url) lines.push(`- **LinkedIn** : ${prospect.linkedin_url}`)
@@ -346,6 +350,20 @@ function buildProspectContext(
   if (prospect.notes) {
     lines.push(`\n### Notes`)
     lines.push(prospect.notes)
+  }
+
+  if (dealGroupMembers && dealGroupMembers.length > 0 && prospect.deal_group) {
+    lines.push(`\n### Groupe de deal "${prospect.deal_group}" — ${dealGroupMembers.length + 1} contacts`)
+    lines.push('Autres contacts lies a cette opportunite :')
+    for (const m of dealGroupMembers) {
+      const name = [m.prenom, m.nom].filter(Boolean).join(' ') || 'Sans nom'
+      const parts = [name]
+      if (m.entreprise) parts.push(m.entreprise)
+      if (m.fonction) parts.push(m.fonction)
+      parts.push(`[${m.pipeline_stage}]`)
+      if (m.date_dernier_contact) parts.push(`dernier contact: ${m.date_dernier_contact}`)
+      lines.push(`- ${parts.join(' | ')}`)
+    }
   }
 
   if (activities.length > 0) {
@@ -398,8 +416,8 @@ export function buildPipelineSummary(prospects: ProspectSummary[]): string {
 
   lines.push('### Repartition par stage')
   const stageOrder = [
-    'ciblage', 'touch_1', 'touch_2', 'touch_3', 'nurturing',
-    'repondu', 'call_decouverte', 'devis', 'client',
+    'ciblage', 'touch_1', 'repondu', 'devis',
+    'onboarding', 'client', 'a_recontacter', 'refuse',
   ]
   for (const stage of stageOrder) {
     if (byStage[stage]) {
@@ -431,6 +449,27 @@ export function buildPipelineSummary(prospects: ProspectSummary[]): string {
       const companyName = list[0].entreprise
       const stages = [...new Set(list.map(p => p.pipeline_stage))].join(', ')
       lines.push(`- **${companyName}** : ${list.length} contacts (stages: ${stages})`)
+    }
+  }
+
+  // Deal groups
+  const dealGroupMap: Record<string, ProspectSummary[]> = {}
+  for (const p of prospects) {
+    if (p.deal_group) {
+      if (!dealGroupMap[p.deal_group]) dealGroupMap[p.deal_group] = []
+      dealGroupMap[p.deal_group].push(p)
+    }
+  }
+  const activeDealGroups = Object.entries(dealGroupMap).filter(([, list]) => list.length > 1)
+  if (activeDealGroups.length > 0) {
+    lines.push('')
+    lines.push('### Groupes de deal actifs')
+    for (const [groupName, members] of activeDealGroups) {
+      const memberNames = members.map(m => {
+        const name = [m.prenom, m.nom].filter(Boolean).join(' ')
+        return `${name} (${m.entreprise || '?'}, ${m.pipeline_stage})`
+      }).join(', ')
+      lines.push(`- **${groupName}** : ${members.length} contacts — ${memberNames}`)
     }
   }
 

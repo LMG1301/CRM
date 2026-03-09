@@ -154,12 +154,7 @@ interface GmailMessage {
   internalDate: string
 }
 
-// Stage progression
-const STAGE_ORDER: Record<string, number> = {
-  ciblage: 1, touch_1: 2, repondu: 3, devis: 4, client: 5, refuse: 6,
-}
-const DEVIS_KEYWORDS = ['devis', 'proposition', 'offre commerciale', 'proposal', 'quotation', 'prix', 'tarif']
-const CLIENT_KEYWORDS = ['accord', 'signe', 'commande', 'valide', 'ok pour', 'go pour', 'on lance']
+// DISABLED — Stage auto-progression removed. pipeline_stage only changes via user action.
 
 export async function POST(req: NextRequest) {
   try {
@@ -432,7 +427,7 @@ async function processMessage(
       const emailDate = toLocalDateString(new Date(gmailDate))
       const { data: prospect } = await supabase
         .from('prospects')
-        .select('date_dernier_contact, pipeline_stage')
+        .select('date_dernier_contact')
         .eq('id', prospectId)
         .single()
 
@@ -444,34 +439,8 @@ async function processMessage(
             .eq('id', prospectId)
         }
 
-        // 6. Auto-progress stage
-        const currentStage = prospect.pipeline_stage
-        const currentOrder = STAGE_ORDER[currentStage] || 0
-        if (!['client', 'refuse'].includes(currentStage)) {
-          const emailText = [subject, bodyText].filter(Boolean).join(' ').toLowerCase()
-          let suggestedStage: string | null = null
-
-          if (direction === 'received' && currentOrder < STAGE_ORDER.repondu) {
-            suggestedStage = 'repondu'
-          }
-          if (direction === 'received' && CLIENT_KEYWORDS.some(kw => emailText.includes(kw))) {
-            suggestedStage = 'client'
-          }
-          if (direction === 'sent' && DEVIS_KEYWORDS.some(kw => emailText.includes(kw))) {
-            if (currentOrder < STAGE_ORDER.devis) suggestedStage = 'devis'
-          }
-          if (direction === 'sent' && currentOrder < STAGE_ORDER.touch_1) {
-            suggestedStage = 'touch_1'
-          }
-
-          if (suggestedStage && (STAGE_ORDER[suggestedStage] || 0) > currentOrder) {
-            await supabase
-              .from('prospects')
-              .update({ pipeline_stage: suggestedStage })
-              .eq('id', prospectId)
-            results.stage_changes++
-          }
-        }
+        // DISABLED — pipeline_stage is now ONLY changed by user action (drag & drop or stage selector)
+        // Previously auto-progressed stage based on email keywords
       }
     }
   } catch (err) {

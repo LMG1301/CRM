@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Loader2, Sparkles, X, Globe } from 'lucide-react'
+import { Loader2, Sparkles, X, Globe, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,8 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { Content, ContentType } from '@/lib/types'
-import { CONTENT_TYPES } from '@/lib/types'
+import type { Content, ContentType, FunnelLevel } from '@/lib/types'
+import { CONTENT_TYPES, FUNNEL_LEVELS } from '@/lib/types'
 
 interface AddContentDialogProps {
   open: boolean
@@ -42,6 +42,7 @@ export function AddContentDialog({
   const [contentType, setContentType] = useState<ContentType>('post_linkedin')
   const [url, setUrl] = useState('')
   const [body, setBody] = useState('')
+  const [funnelLevel, setFunnelLevel] = useState<FunnelLevel | ''>('')
   const [themes, setThemes] = useState<string[]>([])
   const [products, setProducts] = useState<string[]>([])
   const [pipelineStages, setPipelineStages] = useState<string[]>([])
@@ -51,6 +52,7 @@ export function AddContentDialog({
   const [importing, setImporting] = useState(false)
   const [tagInput, setTagInput] = useState('')
   const [importUrl, setImportUrl] = useState('')
+  const [bodyFromScrape, setBodyFromScrape] = useState(false)
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -60,19 +62,23 @@ export function AddContentDialog({
         setContentType(content.content_type)
         setUrl(content.url || '')
         setBody(content.body || '')
+        setFunnelLevel(content.funnel_level || '')
         setThemes(content.themes || [])
         setProducts(content.products || [])
         setPipelineStages(content.pipeline_stages || [])
         setTargetSectors(content.target_sectors || [])
+        setBodyFromScrape(false)
       } else {
         setTitle('')
         setContentType('post_linkedin')
         setUrl('')
         setBody('')
+        setFunnelLevel('')
         setThemes([])
         setProducts([])
         setPipelineStages([])
         setTargetSectors([])
+        setBodyFromScrape(false)
       }
       setTagInput('')
       setImportUrl('')
@@ -94,6 +100,7 @@ export function AddContentDialog({
         if (tags.products?.length) setProducts(tags.products)
         if (tags.pipeline_stages?.length) setPipelineStages(tags.pipeline_stages)
         if (tags.target_sectors?.length) setTargetSectors(tags.target_sectors)
+        if (tags.funnel_level) setFunnelLevel(tags.funnel_level)
       }
     } finally {
       setTagging(false)
@@ -112,7 +119,10 @@ export function AddContentDialog({
       if (res.ok) {
         const data = await res.json()
         if (data.title) setTitle(data.title)
-        if (data.summary) setBody(data.summary)
+        if (data.summary) {
+          setBody(data.summary)
+          setBodyFromScrape(true)
+        }
         if (data.url) setUrl(data.url)
         if (data.themes?.length) setThemes(data.themes)
         if (data.products?.length) setProducts(data.products)
@@ -135,6 +145,7 @@ export function AddContentDialog({
         products,
         pipeline_stages: pipelineStages,
         target_sectors: targetSectors,
+        funnel_level: funnelLevel || null,
       }
 
       const endpoint = isEditing ? '/api/contents' : '/api/contents'
@@ -234,13 +245,37 @@ export function AddContentDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Contenu / Description</Label>
+            <Label>Texte complet du post</Label>
             <Textarea
               value={body}
-              onChange={e => setBody(e.target.value)}
-              placeholder="Collez le texte du post LinkedIn ou un resume de l'article..."
-              rows={4}
+              onChange={e => { setBody(e.target.value); setBodyFromScrape(false) }}
+              placeholder="Collez ici le texte complet du post LinkedIn. Note : le scraping automatique ne recupere souvent qu'un extrait tronque — collez le texte manuellement pour de meilleurs resultats IA."
+              rows={8}
+              className="min-h-[180px]"
             />
+            {bodyFromScrape && body.length > 0 && body.length < 500 && (
+              <div className="flex items-start gap-2 rounded-md bg-yellow-500/10 border border-yellow-500/30 px-3 py-2 text-xs text-yellow-200">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-yellow-400" />
+                <span>
+                  Le texte importe semble tronque ({body.length} caracteres). Pour de meilleurs tags IA, collez le texte complet du post LinkedIn manuellement.
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Funnel Level */}
+          <div className="space-y-2">
+            <Label>Niveau funnel</Label>
+            <Select value={funnelLevel} onValueChange={v => setFunnelLevel(v as FunnelLevel)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selectionner un niveau..." />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(FUNNEL_LEVELS).map(([key, label]) => (
+                  <SelectItem key={key} value={key}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Auto-tag button */}

@@ -30,15 +30,12 @@ function formatDate(dateStr: string | null): string {
 const STAGE_COLORS: Record<string, string> = {
   ciblage: '#6B7280',
   touch_1: '#3B82F6',
-  touch_2: '#6366F1',
-  touch_3: '#8B5CF6',
-  nurturing: '#F59E0B',
-  repondu: '#10B981',
-  call_decouverte: '#14B8A6',
-  devis: '#F97316',
+  repondu: '#06B6D4',
+  devis: '#EC4899',
+  onboarding: '#F97316',
   client: '#22C55E',
+  a_recontacter: '#94A3B8',
   refuse: '#EF4444',
-  bounced: '#9CA3AF',
 }
 
 function CompanyRow({ company }: { company: CompanySummary }) {

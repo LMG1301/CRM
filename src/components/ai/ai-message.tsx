@@ -12,9 +12,10 @@ interface AIMessageProps {
   onSaveAsNote?: (content: string) => void
   onContentAction?: (contentId: string) => void
   onSendAsEmail?: (content: string) => void
+  dimmed?: boolean // history messages rendered slightly muted
 }
 
-export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentAction, onSendAsEmail }: AIMessageProps) {
+export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentAction, onSendAsEmail, dimmed }: AIMessageProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -27,7 +28,8 @@ export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentA
     <div
       className={cn(
         'flex gap-3',
-        role === 'user' ? 'flex-row-reverse' : 'flex-row'
+        role === 'user' ? 'flex-row-reverse' : 'flex-row',
+        dimmed && 'opacity-60'
       )}
     >
       {/* Avatar */}

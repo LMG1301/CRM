@@ -23,9 +23,10 @@ INSERT INTO pipeline_stages (name, slug, position, color, is_terminal) VALUES
   ('A répondu', 'repondu', 6, '#06B6D4', false),
   ('Call découverte', 'call_decouverte', 7, '#F97316', false),
   ('Devis envoyé', 'devis', 8, '#EC4899', false),
-  ('Client', 'client', 9, '#22C55E', true),
-  ('Refusé', 'refuse', 10, '#EF4444', true),
-  ('Bounced', 'bounced', 11, '#9CA3AF', true)
+  ('Onboarding', 'onboarding', 9, '#F97316', false),
+  ('Client', 'client', 10, '#22C55E', true),
+  ('Refusé', 'refuse', 11, '#EF4444', true),
+  ('Bounced', 'bounced', 12, '#9CA3AF', true)
 ON CONFLICT (slug) DO NOTHING;
 
 -- Prospects
@@ -171,3 +172,21 @@ CREATE INDEX IF NOT EXISTS idx_enrollments_prospect ON sequence_enrollments(pros
 
 ALTER TABLE sequence_enrollments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all on sequence_enrollments" ON sequence_enrollments FOR ALL USING (true) WITH CHECK (true);
+
+-- =============================================
+-- AI CHAT MESSAGES (persistent chat history per prospect)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS ai_chat_messages (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  prospect_id uuid REFERENCES prospects(id) ON DELETE CASCADE,
+  role text NOT NULL CHECK (role IN ('user', 'assistant')),
+  content text NOT NULL,
+  model text,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_prospect ON ai_chat_messages(prospect_id, created_at);
+
+ALTER TABLE ai_chat_messages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on ai_chat_messages" ON ai_chat_messages FOR ALL USING (true) WITH CHECK (true);

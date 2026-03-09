@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       supabase
         .from('prospects')
         .select('id, prenom, nom, entreprise, fonction, pipeline_stage, categorie, date_dernier_contact, date_prochaine_action, type_prochaine_action')
-        .not('pipeline_stage', 'in', '("refuse","bounced")')
+        .not('pipeline_stage', 'in', '("refuse")')
         .order('date_dernier_contact', { ascending: false }),
       supabase
         .from('activities')
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
     const tenDaysAgo = new Date()
     tenDaysAgo.setDate(tenDaysAgo.getDate() - 10)
     const tenDaysAgoStr = toLocalDateString(tenDaysAgo)
-    const activeStages = ['touch_1', 'touch_2', 'touch_3', 'nurturing', 'repondu', 'call_decouverte', 'devis']
+    const activeStages = ['touch_1', 'repondu', 'devis', 'onboarding', 'a_recontacter']
 
     const coolingDeals = (prospects || [])
       .filter(p =>

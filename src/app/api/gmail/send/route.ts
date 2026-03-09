@@ -92,19 +92,8 @@ export async function POST(request: Request) {
         .update({ date_dernier_contact: today })
         .eq('id', prospect_id)
 
-      // Auto-progress pipeline: if in ciblage, move to touch_1
-      const { data: prospect } = await supabase
-        .from('prospects')
-        .select('pipeline_stage')
-        .eq('id', prospect_id)
-        .single()
-
-      if (prospect && prospect.pipeline_stage === 'ciblage') {
-        await supabase
-          .from('prospects')
-          .update({ pipeline_stage: 'touch_1' })
-          .eq('id', prospect_id)
-      }
+      // DISABLED — pipeline_stage is now ONLY changed by user action (drag & drop or stage selector)
+      // Previously auto-progressed ciblage → touch_1 on email send
     }
 
     return Response.json({

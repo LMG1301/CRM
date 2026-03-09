@@ -18,18 +18,7 @@ function isMyEmail(email: string): boolean {
   return MY_EMAILS.some(me => email.toLowerCase().trim() === me.toLowerCase())
 }
 
-// Stage progression order (simplified pipeline)
-const STAGE_ORDER: Record<string, number> = {
-  ciblage: 1, touch_1: 2, repondu: 3, devis: 4, client: 5, refuse: 6,
-}
-
-const DEVIS_KEYWORDS = ['devis', 'proposition', 'offre commerciale', 'proposal', 'quotation', 'prix', 'tarif']
-const CLIENT_KEYWORDS = ['accord', 'signe', 'commande', 'valide', 'ok pour', 'go pour', 'on lance']
-
-const STAGE_NAMES: Record<string, string> = {
-  ciblage: 'Ciblage', touch_1: 'Contacte', repondu: 'Repondu',
-  devis: 'Devis envoye', client: 'Client', refuse: 'Perdu',
-}
+// DISABLED — Stage auto-progression removed. pipeline_stage only changes via user action.
 
 export async function POST(
   _request: NextRequest,
@@ -41,7 +30,7 @@ export async function POST(
     // Get prospect
     const { data: prospect, error: pErr } = await supabase
       .from('prospects')
-      .select('id, email, email_pro, pipeline_stage')
+      .select('id, email, email_pro')
       .eq('id', prospectId)
       .single()
 
@@ -129,52 +118,8 @@ export async function POST(
         .lt('date_dernier_contact', emailDate)
     }
 
-    // Auto-progress pipeline stage
-    const linkedEmails = emails
-    const currentStage = prospect.pipeline_stage
-    const currentOrder = STAGE_ORDER[currentStage] || 0
-
-    if (!['client', 'refuse'].includes(currentStage)) {
-      const sentCount = linkedEmails.filter(e => isMyEmail(e.from_email)).length
-      const hasReceived = linkedEmails.some(e => !isMyEmail(e.from_email))
-
-      let suggestedStage: string | null = null
-      let suggestedOrder = currentOrder
-
-      // Any sent email → Contacté
-      if (sentCount >= 1 && STAGE_ORDER.touch_1 > suggestedOrder) {
-        suggestedStage = 'touch_1'; suggestedOrder = STAGE_ORDER.touch_1
-      }
-
-      // Prospect responded → Répondu
-      if (hasReceived && STAGE_ORDER.repondu > suggestedOrder) {
-        suggestedStage = 'repondu'; suggestedOrder = STAGE_ORDER.repondu
-      }
-
-      for (const email of linkedEmails) {
-        const text = [email.subject, email.body_text, email.body_preview].filter(Boolean).join(' ').toLowerCase()
-        const dir = isMyEmail(email.from_email) ? 'sent' : 'received'
-
-        if (dir === 'sent' && DEVIS_KEYWORDS.some(kw => text.includes(kw)) && STAGE_ORDER.devis > suggestedOrder) {
-          suggestedStage = 'devis'; suggestedOrder = STAGE_ORDER.devis
-        }
-        if (dir === 'received' && CLIENT_KEYWORDS.some(kw => text.includes(kw)) && STAGE_ORDER.client > suggestedOrder) {
-          suggestedStage = 'client'; suggestedOrder = STAGE_ORDER.client
-        }
-      }
-
-      if (suggestedStage && suggestedOrder > currentOrder) {
-        await supabase.from('prospects').update({ pipeline_stage: suggestedStage }).eq('id', prospectId)
-        await supabase.from('activities').insert({
-          prospect_id: prospectId,
-          type: 'status_change',
-          content: `Pipeline auto (sync) : ${STAGE_NAMES[currentStage] || currentStage} → ${STAGE_NAMES[suggestedStage] || suggestedStage}`,
-          metadata: { from: currentStage, to: suggestedStage, source: 'manual_sync' },
-        })
-        results.stage_updated = true
-        results.new_stage = suggestedStage
-      }
-    }
+    // DISABLED — pipeline_stage is now ONLY changed by user action (drag & drop or stage selector)
+    // Previously auto-progressed stage based on email signals during sync
 
     return Response.json(results)
   } catch (error) {

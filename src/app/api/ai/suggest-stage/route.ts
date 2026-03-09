@@ -50,10 +50,9 @@ A partir des informations suivantes sur un prospect LinkedIn :
 - Localisation : ${localisation || 'Non renseignee'}
 
 Suggere :
-1. Le stage pipeline initial parmi : ciblage, touch_1, nurturing
+1. Le stage pipeline initial parmi : ciblage, touch_1
    - ciblage = on vient de le trouver, pas encore contacte
    - touch_1 = profil tres pertinent, on peut contacter directement
-   - nurturing = profil interessant mais pas pret a acheter, on va lui envoyer du contenu
 2. Les produits Boost pertinents parmi : boost_telemetry, boost_payment, boost_analytics, boost_connect
    - boost_telemetry = telemetrie machine, monitoring a distance
    - boost_payment = terminaux de paiement cashless

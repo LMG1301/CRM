@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Search, Sparkles, Loader2, Bot } from 'lucide-react'
-import { updateProspect } from '@/lib/actions'
+import { updateProspect, getDealGroups } from '@/lib/actions'
 import type { Prospect } from '@/lib/types'
 
 interface EditProspectDialogProps {
@@ -88,14 +88,23 @@ export function EditProspectDialog({
         initial[field.key] = val != null ? String(val) : ''
       }
     }
-    // Add categorie separately (rendered as Select, not Input)
+    // Add categorie and deal_group separately (rendered as custom controls, not Input)
     initial.categorie = prospect.categorie || ''
+    initial.deal_group = prospect.deal_group || ''
     return initial
   })
   const [saving, setSaving] = useState(false)
   const [enriching, setEnriching] = useState(false)
   const [enrichResult, setEnrichResult] = useState<string | null>(null)
   const [enrichedFields, setEnrichedFields] = useState<Set<string>>(new Set())
+  const [dealGroups, setDealGroups] = useState<string[]>([])
+  const [dealGroupOpen, setDealGroupOpen] = useState(false)
+  const dealGroupRef = useRef<HTMLDivElement>(null)
+
+  // Load existing deal groups for autocomplete
+  useEffect(() => {
+    getDealGroups().then(setDealGroups).catch(() => {})
+  }, [])
 
   const handleChange = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -282,25 +291,76 @@ export function EditProspectDialog({
                 })}
                 {/* Categorie Select — only in Commercial group */}
                 {group.title === 'Commercial' && (
-                  <div>
-                    <Label htmlFor="categorie" className="mb-1.5 text-xs">
-                      Type de relation
-                    </Label>
-                    <Select
-                      value={form.categorie || '_none'}
-                      onValueChange={(v) => handleChange('categorie', v === '_none' ? '' : v)}
-                    >
-                      <SelectTrigger id="categorie">
-                        <SelectValue placeholder="Prospect" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="_none">Prospect</SelectItem>
-                        <SelectItem value="Client">Client</SelectItem>
-                        <SelectItem value="Partenaire">Partenaire</SelectItem>
-                        <SelectItem value="Prescripteur / Reseau">Prescripteur / Reseau</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <>
+                    <div>
+                      <Label htmlFor="categorie" className="mb-1.5 text-xs">
+                        Type de relation
+                      </Label>
+                      <Select
+                        value={form.categorie || '_none'}
+                        onValueChange={(v) => handleChange('categorie', v === '_none' ? '' : v)}
+                      >
+                        <SelectTrigger id="categorie">
+                          <SelectValue placeholder="Prospect" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">Prospect</SelectItem>
+                          <SelectItem value="Client">Client</SelectItem>
+                          <SelectItem value="Partenaire">Partenaire</SelectItem>
+                          <SelectItem value="Prescripteur / Reseau">Prescripteur / Reseau</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {/* Deal Group with autocomplete */}
+                    <div className="col-span-2 relative" ref={dealGroupRef}>
+                      <Label htmlFor="deal_group" className="mb-1.5 text-xs">
+                        Groupe de deal
+                      </Label>
+                      <Input
+                        id="deal_group"
+                        placeholder="Ex: Pilote Smart Fridge Accor"
+                        value={form.deal_group || ''}
+                        onChange={(e) => {
+                          handleChange('deal_group', e.target.value)
+                          setDealGroupOpen(true)
+                        }}
+                        onFocus={() => setDealGroupOpen(true)}
+                        onBlur={() => {
+                          setTimeout(() => setDealGroupOpen(false), 200)
+                        }}
+                        autoComplete="off"
+                      />
+                      {dealGroupOpen && dealGroups.length > 0 && (() => {
+                        const filtered = dealGroups.filter(
+                          (g) =>
+                            g.toLowerCase().includes((form.deal_group || '').toLowerCase()) &&
+                            g !== form.deal_group
+                        )
+                        if (filtered.length === 0) return null
+                        return (
+                          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[140px] overflow-y-auto rounded-md border border-white/10 bg-popover shadow-md">
+                            {filtered.map((g) => (
+                              <button
+                                key={g}
+                                type="button"
+                                className="w-full px-3 py-1.5 text-left text-sm hover:bg-accent/50 transition-colors"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  handleChange('deal_group', g)
+                                  setDealGroupOpen(false)
+                                }}
+                              >
+                                {g}
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      })()}
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        Lie ce prospect a d&apos;autres contacts sur la meme opportunite
+                      </p>
+                    </div>
+                  </>
                 )}
               </div>
             </div>

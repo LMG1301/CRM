@@ -13,6 +13,7 @@ interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  fromHistory?: boolean // true if loaded from DB
 }
 
 interface AIChatProps {
@@ -40,6 +41,7 @@ export function AIChat({
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [selectedModel, setSelectedModel] = useState<AIModelId | undefined>(undefined)
+  const [historyLoaded, setHistoryLoaded] = useState(false)
   const [emailDialog, setEmailDialog] = useState<{
     open: boolean
     contentId: string | null
@@ -50,12 +52,81 @@ export function AIChat({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  // Load chat history from DB on mount
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const params = new URLSearchParams({ limit: '50' })
+        if (prospectId) params.set('prospectId', prospectId)
+        const res = await fetch(`/api/ai/chat-history?${params}`, {
+          cache: 'no-store',
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.messages && data.messages.length > 0) {
+            const loaded: Message[] = data.messages.map((m: { id: string; role: 'user' | 'assistant'; content: string }) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              fromHistory: true,
+            }))
+            setMessages(loaded)
+          }
+        } else {
+          console.error('[ai-chat] Failed to load history:', res.status, await res.text().catch(() => ''))
+        }
+      } catch (err) {
+        console.warn('[ai-chat] Error loading history:', err)
+      } finally {
+        setHistoryLoaded(true)
+      }
+    }
+    loadHistory()
+  }, [prospectId])
+
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages])
+
+  // Save a user+assistant pair to DB (with retry)
+  const saveToHistory = useCallback(
+    async (userContent: string, assistantContent: string): Promise<boolean> => {
+      const payload = {
+        prospectId: prospectId || null,
+        userMessage: userContent,
+        assistantMessage: assistantContent,
+        model: selectedModel || null,
+      }
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await fetch('/api/ai/chat-history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+
+          if (res.ok) {
+            return true
+          }
+
+          const errBody = await res.text().catch(() => '')
+          console.error(`[ai-chat] Save failed (attempt ${attempt + 1}): ${res.status}`, errBody)
+        } catch (err) {
+          console.error(`[ai-chat] Save fetch error (attempt ${attempt + 1}):`, err)
+        }
+
+        // Wait 500ms before retry
+        if (attempt === 0) await new Promise(r => setTimeout(r, 500))
+      }
+
+      return false
+    },
+    [prospectId, selectedModel],
+  )
 
   const sendMessage = useCallback(
     async (userMessage: string) => {
@@ -77,11 +148,15 @@ export function AIChat({
       setInput('')
       setIsStreaming(true)
 
-      // Build conversation history (exclude the new empty assistant message)
-      const history = [...messages, userMsg].map((m) => ({
+      // Build conversation history for the API call
+      // Send only the last 10 messages from history + current message for context (token economy)
+      const allMsgsBeforeNew = [...messages, userMsg]
+      const recentForApi = allMsgsBeforeNew.slice(-10).map((m) => ({
         role: m.role,
         content: m.content,
       }))
+
+      let finalAssistantContent = ''
 
       try {
         abortRef.current = new AbortController()
@@ -90,7 +165,7 @@ export function AIChat({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            messages: history,
+            messages: recentForApi,
             prospectId,
             model: selectedModel,
           }),
@@ -140,6 +215,7 @@ export function AIChat({
               try {
                 const parsed = JSON.parse(data)
                 if (parsed.text) {
+                  finalAssistantContent += parsed.text
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === assistantMsg.id
@@ -163,6 +239,11 @@ export function AIChat({
             }
           }
         }
+
+        // Save the completed exchange to DB
+        if (finalAssistantContent && !finalAssistantContent.startsWith('⚠️') && !finalAssistantContent.startsWith('Erreur')) {
+          await saveToHistory(userMsg.content, finalAssistantContent)
+        }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           // User cancelled
@@ -183,7 +264,7 @@ export function AIChat({
         abortRef.current = null
       }
     },
-    [messages, isStreaming, prospectId, selectedModel]
+    [messages, isStreaming, prospectId, selectedModel, saveToHistory]
   )
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -198,10 +279,21 @@ export function AIChat({
     }
   }
 
-  const clearChat = () => {
+  const clearChat = async () => {
     setMessages([])
     if (abortRef.current) {
       abortRef.current.abort()
+    }
+    // Also clear from DB
+    try {
+      const params = new URLSearchParams()
+      if (prospectId) params.set('prospectId', prospectId)
+      const res = await fetch(`/api/ai/chat-history?${params}`, { method: 'DELETE' })
+      if (!res.ok) {
+        console.error('[ai-chat] Clear history failed:', res.status, await res.text().catch(() => ''))
+      }
+    } catch (err) {
+      console.error('[ai-chat] Clear history error:', err)
     }
   }
 
@@ -240,6 +332,9 @@ export function AIChat({
     setEmailDialog({ open: true, contentId: null, bodyHtml: html, subject })
   }, [])
 
+  // Find where history ends and new conversation begins
+  const historyBoundary = messages.findIndex((m) => !m.fromHistory)
+
   return (
     <div className={`flex flex-col ${className}`}>
       {/* Messages area */}
@@ -247,7 +342,7 @@ export function AIChat({
         ref={scrollRef}
         className="flex-1 space-y-4 overflow-y-auto p-4"
       >
-        {messages.length === 0 && (
+        {messages.length === 0 && historyLoaded && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-accent/20">
               <svg className="h-7 w-7 text-brand-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -283,31 +378,41 @@ export function AIChat({
         )}
 
         {messages.map((msg, i) => (
-          <AIMessage
-            key={msg.id}
-            role={msg.role}
-            content={msg.content}
-            isStreaming={
-              isStreaming &&
-              msg.role === 'assistant' &&
-              i === messages.length - 1
-            }
-            onSaveAsNote={
-              msg.role === 'assistant' && onSaveAsNote
-                ? onSaveAsNote
-                : undefined
-            }
-            onContentAction={
-              msg.role === 'assistant' && prospectId && prospectEmail
-                ? handleContentAction
-                : undefined
-            }
-            onSendAsEmail={
-              msg.role === 'assistant' && prospectId && prospectEmail
-                ? handleSendAsEmail
-                : undefined
-            }
-          />
+          <div key={msg.id}>
+            {/* Separator between history and new conversation */}
+            {historyBoundary > 0 && i === historyBoundary && (
+              <div className="my-4 flex items-center gap-2 text-[10px] text-muted-foreground">
+                <div className="h-px flex-1 bg-white/[0.06]" />
+                <span>Nouvelle conversation</span>
+                <div className="h-px flex-1 bg-white/[0.06]" />
+              </div>
+            )}
+            <AIMessage
+              role={msg.role}
+              content={msg.content}
+              isStreaming={
+                isStreaming &&
+                msg.role === 'assistant' &&
+                i === messages.length - 1
+              }
+              onSaveAsNote={
+                msg.role === 'assistant' && onSaveAsNote
+                  ? onSaveAsNote
+                  : undefined
+              }
+              onContentAction={
+                msg.role === 'assistant' && prospectId && prospectEmail
+                  ? handleContentAction
+                  : undefined
+              }
+              onSendAsEmail={
+                msg.role === 'assistant' && prospectId && prospectEmail
+                  ? handleSendAsEmail
+                  : undefined
+              }
+              dimmed={msg.fromHistory}
+            />
+          </div>
         ))}
       </div>
 

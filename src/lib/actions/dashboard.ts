@@ -15,7 +15,7 @@ export async function getDashboardStats() {
   const total = all.length
   const clients = all.filter(p => p.pipeline_stage === 'client').length
   const discussions = all.filter(p =>
-    ['devis', 'repondu'].includes(p.pipeline_stage) ||
+    ['devis', 'repondu', 'onboarding', 'a_recontacter'].includes(p.pipeline_stage) ||
     p.categorie === 'Client / Discussion active'
   ).length
   const replied = all.filter(p =>
@@ -27,7 +27,7 @@ export async function getDashboardStats() {
   const tauxReponse = contacted > 0 ? Math.round((replied + discussions + clients) / contacted * 100) : 0
 
   const prospectsActifs = all.filter(p =>
-    !['refuse', 'bounced', 'client'].includes(p.pipeline_stage)
+    !['refuse', 'client'].includes(p.pipeline_stage)
   ).length
   const conversionRate = total > 0 ? Math.round(clients / total * 100) : 0
 

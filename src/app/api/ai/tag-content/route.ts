@@ -4,7 +4,7 @@ import { logApiUsage, enforceBudget } from '@/lib/api-usage'
 import { CONTENT_THEMES, CONTENT_PRODUCTS } from '@/lib/types'
 
 /**
- * AI Content Tagging — auto-tags a content piece with themes, products, stages, sectors.
+ * AI Content Tagging — auto-tags a content piece with themes, products, stages, sectors, funnel level.
  *
  * POST /api/ai/tag-content
  * Body: { title, body?, content_type, url? }
@@ -36,19 +36,24 @@ export async function POST(request: Request) {
 
     const validThemes = CONTENT_THEMES.join(', ')
     const validProducts = CONTENT_PRODUCTS.join(', ')
-    const validStages = 'ciblage, touch_1, touch_2, touch_3, nurturing, repondu, call_decouverte, devis'
+    const validStages = 'ciblage, touch_1, repondu, devis, onboarding, a_recontacter'
 
     const response = await anthropic.messages.create({
       model: model.apiModelId,
-      max_tokens: 300,
+      max_tokens: 400,
       system: `Tu es un assistant marketing B2B specialise dans la distribution automatique et le retail connecte. Analyse le contenu et attribue des tags pertinents.
 
 Themes valides: ${validThemes}
 Produits valides: ${validProducts}
 Stages pipeline valides (a quel moment du cycle de vente ce contenu est pertinent): ${validStages}
 
+Niveau funnel — determine a quel niveau du funnel marketing ce contenu se situe :
+- "tofu" (Top of Funnel) : contenu de sensibilisation — tendances marche, chiffres cles, actualites sectorielles, contenu educatif general
+- "mofu" (Middle of Funnel) : contenu de consideration — cas clients, comparatifs, demos produit, webinaires, guides techniques
+- "bofu" (Bottom of Funnel) : contenu de decision — ROI detaille, pricing, offres commerciales, temoignages clients specifiques, etudes de cas chiffrees
+
 Reponds UNIQUEMENT en JSON valide:
-{"themes": ["..."], "products": ["..."], "pipeline_stages": ["..."], "target_sectors": ["..."]}
+{"themes": ["..."], "products": ["..."], "pipeline_stages": ["..."], "target_sectors": ["..."], "funnel_level": "tofu|mofu|bofu"}
 
 Pour target_sectors, utilise des termes libres comme: grande_distribution, restauration, hotellerie, sante, transport, education, industrie, bureau, collectivite.`,
       messages: [
@@ -77,11 +82,16 @@ Pour target_sectors, utilise des termes libres comme: grande_distribution, resta
 
     const parsed = JSON.parse(rawText)
 
+    // Validate funnel_level
+    const validFunnelLevels = ['tofu', 'mofu', 'bofu']
+    const funnelLevel = validFunnelLevels.includes(parsed.funnel_level) ? parsed.funnel_level : null
+
     return Response.json({
       themes: parsed.themes || [],
       products: parsed.products || [],
       pipeline_stages: parsed.pipeline_stages || [],
       target_sectors: parsed.target_sectors || [],
+      funnel_level: funnelLevel,
     })
   } catch (error) {
     const parsed = parseAnthropicError(error)

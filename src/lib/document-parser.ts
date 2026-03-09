@@ -31,9 +31,11 @@ export async function extractTextFromFile(
 }
 
 async function extractPdf(buffer: Buffer): Promise<string> {
-  // pdf-parse v1.1.1 — simple function API: pdfParse(buffer) → { text, numpages, info }
+  // Import pdf-parse/lib/pdf-parse directly to bypass the debug auto-run in index.js.
+  // The index.js of pdf-parse v1.1.1 tries to read ./test/data/05-versions-space.pdf
+  // when module.parent is falsy (Vercel serverless), causing ENOENT errors.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const pdfParse = require('pdf-parse')
+  const pdfParse = require('pdf-parse/lib/pdf-parse')
   const data = await pdfParse(buffer)
   return cleanExtractedText(data.text)
 }

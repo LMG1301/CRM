@@ -21,9 +21,10 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { PipelineStage, Prospect } from '@/lib/types'
-import { updateProspect, deleteProspect } from '@/lib/actions'
+import { updateProspect, deleteProspect, getDealGroupMembers } from '@/lib/actions'
 import { Building2, GripVertical, Trash2, Search, X, Zap, CheckSquare } from 'lucide-react'
 import { EnrollSequenceDialog } from '@/components/sequences/enroll-sequence-dialog'
+import { DealGroupMoveDialog } from './deal-group-move-dialog'
 
 // ─── Business Type Filter ───
 
@@ -473,6 +474,13 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [sequenceDialogOpen, setSequenceDialogOpen] = useState(false)
+  const [pendingMove, setPendingMove] = useState<{
+    prospect: Prospect
+    members: Prospect[]
+    targetSlug: string
+    targetStageName: string
+    previousStage: string
+  } | null>(null)
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
@@ -600,6 +608,38 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
     [findColumnSlug]
   )
 
+  // Move a single prospect to a new stage (optimistic + persist)
+  const executeMoveProspect = useCallback(
+    async (prospectId: string, targetSlug: string, previousStage: string) => {
+      // Optimistic update
+      setProspects((prev) =>
+        prev.map((p) =>
+          p.id === prospectId
+            ? { ...p, pipeline_stage: targetSlug, updated_at: new Date().toISOString() }
+            : p
+        )
+      )
+
+      // Persist to database
+      try {
+        await updateProspect(prospectId, {
+          pipeline_stage: targetSlug,
+        })
+      } catch (error) {
+        // Revert on failure
+        console.error('Failed to update prospect stage:', error)
+        setProspects((prev) =>
+          prev.map((p) =>
+            p.id === prospectId
+              ? { ...p, pipeline_stage: previousStage }
+              : p
+          )
+        )
+      }
+    },
+    []
+  )
+
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       const { active, over } = event
@@ -616,35 +656,53 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
       if (!currentProspect) return
       if (currentProspect.pipeline_stage === targetColumnSlug) return
 
-      const previousStage = currentProspect.pipeline_stage
-
-      // Optimistic update
-      setProspects((prev) =>
-        prev.map((p) =>
-          p.id === prospectId
-            ? { ...p, pipeline_stage: targetColumnSlug, updated_at: new Date().toISOString() }
-            : p
-        )
-      )
-
-      // Persist to database
-      try {
-        await updateProspect(prospectId, {
-          pipeline_stage: targetColumnSlug,
-        })
-      } catch (error) {
-        // Revert on failure
-        console.error('Failed to update prospect stage:', error)
-        setProspects((prev) =>
-          prev.map((p) =>
-            p.id === prospectId
-              ? { ...p, pipeline_stage: previousStage }
-              : p
-          )
-        )
+      // Check if prospect belongs to a deal group
+      if (currentProspect.deal_group) {
+        try {
+          const members = await getDealGroupMembers(currentProspect.deal_group, currentProspect.id)
+          if (members.length > 0) {
+            const targetStage = stages.find(s => s.slug === targetColumnSlug)
+            setPendingMove({
+              prospect: currentProspect,
+              members,
+              targetSlug: targetColumnSlug,
+              targetStageName: targetStage?.name || targetColumnSlug,
+              previousStage: currentProspect.pipeline_stage,
+            })
+            return
+          }
+        } catch {
+          // If fetch fails, proceed with single move
+        }
       }
+
+      // No deal group or no members: move directly
+      executeMoveProspect(prospectId, targetColumnSlug, currentProspect.pipeline_stage)
     },
-    [prospects, findColumnSlug]
+    [prospects, findColumnSlug, stages, executeMoveProspect]
+  )
+
+  const handleDealGroupMoveConfirm = useCallback(
+    async (moveAll: boolean) => {
+      if (!pendingMove) return
+
+      const { prospect, members, targetSlug, previousStage } = pendingMove
+
+      // Always move the dragged prospect
+      executeMoveProspect(prospect.id, targetSlug, previousStage)
+
+      // If moveAll, also move all group members
+      if (moveAll) {
+        for (const member of members) {
+          if (member.pipeline_stage !== targetSlug) {
+            executeMoveProspect(member.id, targetSlug, member.pipeline_stage)
+          }
+        }
+      }
+
+      setPendingMove(null)
+    },
+    [pendingMove, executeMoveProspect]
   )
 
   const handleDeleteProspect = useCallback(async (prospectId: string) => {
@@ -846,6 +904,21 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
         prospectName={`${selectedIds.size} prospects selectionnes`}
         onEnrolled={clearSelection}
       />
+
+      {/* Deal group move dialog */}
+      {pendingMove && (
+        <DealGroupMoveDialog
+          open={!!pendingMove}
+          prospect={pendingMove.prospect}
+          members={pendingMove.members}
+          targetStageName={pendingMove.targetStageName}
+          onConfirm={handleDealGroupMoveConfirm}
+          onClose={() => {
+            // If dismissed, move only the dragged prospect
+            handleDealGroupMoveConfirm(false)
+          }}
+        />
+      )}
     </div>
   )
 }

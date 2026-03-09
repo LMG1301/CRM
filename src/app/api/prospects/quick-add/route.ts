@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create the prospect
-    const validStages = ['ciblage', 'touch_1', 'touch_2', 'touch_3', 'nurturing', 'repondu', 'call_decouverte', 'devis', 'client', 'refuse', 'bounced']
+    const validStages = ['ciblage', 'touch_1', 'repondu', 'devis', 'onboarding', 'client', 'a_recontacter', 'refuse']
     const prospect: Record<string, string> = {
       pipeline_stage: body.pipeline_stage && validStages.includes(body.pipeline_stage) ? body.pipeline_stage : 'ciblage',
     }

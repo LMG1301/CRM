@@ -252,8 +252,8 @@ export async function POST(request: NextRequest) {
             })
             .eq('id', prospectId)
 
-          // 6. Auto-progress pipeline stage based on email signals
-          await autoProgressStage(prospectId, email, direction)
+          // DISABLED — pipeline_stage is now ONLY changed by user action (drag & drop or stage selector)
+          // Previously called autoProgressStage(prospectId, email, direction)
         }
 
         results.processed++
@@ -262,11 +262,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 6. Trigger AI pipeline analysis for new prospects
-    if (results.prospects_created > 0) {
-      // Fire-and-forget: analyze new prospects in background
-      triggerPipelineAnalysis().catch(() => {})
-    }
+    // DISABLED — AI pipeline auto-analysis removed. pipeline_stage only changes via user action.
+    // Previously triggered triggerPipelineAnalysis() for new prospects
 
     return Response.json({ ...results, skipped: skipped.length })
   } catch (error) {
@@ -299,120 +296,5 @@ function parseEmailName(
   return { prenom: local, nom: '' }
 }
 
-// Stage progression order (higher = further in pipeline)
-const STAGE_ORDER: Record<string, number> = {
-  ciblage: 1,
-  touch_1: 2,
-  repondu: 3,
-  devis: 4,
-  client: 5,
-  refuse: 6,
-}
-
-// Keywords that signal a devis/proposal was sent
-const DEVIS_KEYWORDS = ['devis', 'proposition', 'offre commerciale', 'proposal', 'quotation', 'prix', 'tarif']
-// Keywords that signal a deal is won
-const CLIENT_KEYWORDS = ['accord', 'signe', 'commande', 'valide', 'ok pour', 'go pour', 'on lance']
-
-async function autoProgressStage(
-  prospectId: string,
-  currentEmail: IncomingEmail,
-  direction: 'sent' | 'received'
-) {
-  try {
-    // Get current prospect stage
-    const { data: prospect } = await supabase
-      .from('prospects')
-      .select('pipeline_stage')
-      .eq('id', prospectId)
-      .single()
-
-    if (!prospect) return
-
-    const currentStage = prospect.pipeline_stage
-    const currentOrder = STAGE_ORDER[currentStage] || 0
-
-    // Terminal stages — never auto-progress
-    if (['client', 'refuse'].includes(currentStage)) return
-
-    let suggestedStage: string | null = null
-
-    // Check email content for keyword signals
-    const emailText = [currentEmail.subject, currentEmail.body_text, currentEmail.body_preview]
-      .filter(Boolean).join(' ').toLowerCase()
-
-    if (direction === 'received') {
-      // Prospect responded — at minimum move to "repondu"
-      if (currentOrder < STAGE_ORDER.repondu) {
-        suggestedStage = 'repondu'
-      }
-
-      // Check for deal-won signals in response
-      if (CLIENT_KEYWORDS.some(kw => emailText.includes(kw))) {
-        suggestedStage = 'client'
-      }
-    }
-
-    if (direction === 'sent') {
-      // Count sent emails to this prospect
-      const { count } = await supabase
-        .from('activities')
-        .select('id', { count: 'exact', head: true })
-        .eq('prospect_id', prospectId)
-        .eq('type', 'email_sent')
-
-      const sentCount = count || 0
-
-      // Any sent email → at least "Contacté"
-      if (sentCount >= 1 && currentOrder < STAGE_ORDER.touch_1) {
-        suggestedStage = 'touch_1'
-      }
-
-      // Check for devis signals in sent email
-      if (DEVIS_KEYWORDS.some(kw => emailText.includes(kw))) {
-        if (currentOrder < STAGE_ORDER.devis) {
-          suggestedStage = 'devis'
-        }
-      }
-    }
-
-    // Only advance, never go back
-    if (suggestedStage && (STAGE_ORDER[suggestedStage] || 0) > currentOrder) {
-      await supabase
-        .from('prospects')
-        .update({ pipeline_stage: suggestedStage })
-        .eq('id', prospectId)
-
-      // Log the automatic stage change
-      const stageNames: Record<string, string> = {
-        ciblage: 'Ciblage', touch_1: 'Contacte', repondu: 'Repondu',
-        devis: 'Devis envoye', client: 'Client', refuse: 'Perdu',
-      }
-      await supabase.from('activities').insert({
-        prospect_id: prospectId,
-        type: 'status_change',
-        content: `Pipeline auto : ${stageNames[currentStage] || currentStage} → ${stageNames[suggestedStage] || suggestedStage}`,
-        metadata: { from: currentStage, to: suggestedStage, source: 'auto_progression' },
-      })
-    }
-  } catch (err) {
-    console.error('Auto-progress error:', (err as Error).message)
-  }
-}
-
-// Trigger AI analysis for prospects with recent emails
-async function triggerPipelineAnalysis() {
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : process.env.NEXT_PUBLIC_VERCEL_URL
-    ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-    : 'http://localhost:3000'
-
-  await fetch(`${baseUrl}/api/ai/analyze-pipeline`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-webhook-secret': process.env.WEBHOOK_SECRET || '',
-    },
-  })
-}
+// DISABLED — autoProgressStage and triggerPipelineAnalysis removed.
+// pipeline_stage is now ONLY changed by user action (drag & drop or stage selector).

@@ -15,38 +15,24 @@ import { toLocalDateString } from '@/lib/utils'
 // CONFIGURATION
 // ═══════════════════════════════════════════
 
-const RELANCE_RULES = {
+const RELANCE_RULES: Record<string, number> = {
   // Jours sans contact avant relance, par stage
-  contact_initial: 3,
+  touch_1: 3,
   repondu: 5,
-  call_decouverte: 7,
   devis: 5,
-  negociation: 3,
+  onboarding: 7,
+  a_recontacter: 30,
   // Stages terminaux — pas de relance
   ciblage: 14,
   client: 0,
   refuse: 0,
-  bounced: 0,
 }
 
-// Pipeline progression rules based on activity types
-const PIPELINE_RULES: Record<string, { minActivities: number; types: string[]; targetStage: string }[]> = {
-  ciblage: [
-    { minActivities: 1, types: ['email_sent'], targetStage: 'contact_initial' },
-  ],
-  contact_initial: [
-    { minActivities: 1, types: ['email_received'], targetStage: 'repondu' },
-  ],
-  repondu: [
-    { minActivities: 1, types: ['meeting', 'call'], targetStage: 'call_decouverte' },
-  ],
-  call_decouverte: [
-    { minActivities: 2, types: ['meeting', 'call', 'presentation'], targetStage: 'devis' },
-  ],
-}
+// DISABLED — Pipeline auto-progression removed. pipeline_stage is now ONLY changed by user action.
+// const PIPELINE_RULES was here — deleted.
 
-// Terminal stages — never auto-change
-const TERMINAL_STAGES = ['client', 'refuse', 'bounced']
+// Terminal stages — used to filter relance queries
+const TERMINAL_STAGES = ['client', 'refuse']
 
 export async function POST(request: NextRequest) {
   try {
@@ -123,85 +109,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ═══════════════════════════════════════════
-    // 2. PIPELINE AUTOMATIQUE
+    // 2. PIPELINE AUTOMATIQUE — DISABLED
+    // pipeline_stage is now ONLY changed by user action (drag & drop or stage selector)
     // ═══════════════════════════════════════════
-
-    const { data: prospects } = await supabase
-      .from('prospects')
-      .select('id, prenom, nom, entreprise, pipeline_stage')
-      .not('pipeline_stage', 'in', `(${TERMINAL_STAGES.join(',')})`)
-
-    if (prospects) {
-      // Get all pipeline stages for ordering
-      const { data: stages } = await supabase
-        .from('pipeline_stages')
-        .select('slug, position')
-        .order('position')
-
-      const stageOrder: Record<string, number> = {}
-      if (stages) {
-        stages.forEach((s) => { stageOrder[s.slug] = s.position })
-      }
-
-      for (const prospect of prospects) {
-        results.pipeline.checked++
-
-        const currentStage = prospect.pipeline_stage
-        const rules = PIPELINE_RULES[currentStage]
-        if (!rules) continue
-
-        // Get prospect activities
-        const { data: activities } = await supabase
-          .from('activities')
-          .select('type')
-          .eq('prospect_id', prospect.id)
-
-        if (!activities) continue
-
-        // Check each rule
-        for (const rule of rules) {
-          const matchingActivities = activities.filter((a) =>
-            rule.types.includes(a.type)
-          )
-
-          if (matchingActivities.length >= rule.minActivities) {
-            // Only advance, never go backward
-            const currentPos = stageOrder[currentStage] || 0
-            const targetPos = stageOrder[rule.targetStage] || 0
-
-            if (targetPos > currentPos) {
-              await supabase
-                .from('prospects')
-                .update({ pipeline_stage: rule.targetStage })
-                .eq('id', prospect.id)
-
-              // Log the stage change
-              await supabase.from('activities').insert({
-                prospect_id: prospect.id,
-                type: 'status_change',
-                content: `Pipeline auto: ${currentStage} → ${rule.targetStage}`,
-                metadata: {
-                  from_stage: currentStage,
-                  to_stage: rule.targetStage,
-                  reason: `${matchingActivities.length} activite(s) de type ${rule.types.join('/')}`,
-                  source: 'pipeline_auto',
-                },
-              })
-
-              results.pipeline.updated++
-              results.pipeline.details.push({
-                prospect: `${prospect.prenom} ${prospect.nom}`,
-                from: currentStage,
-                to: rule.targetStage,
-                reason: `${matchingActivities.length} ${rule.types.join('/')}`,
-              })
-
-              break // Only apply first matching rule
-            }
-          }
-        }
-      }
-    }
 
     // ═══════════════════════════════════════════
     // 3. TACHES EN RETARD
@@ -305,16 +215,16 @@ function getRelanceType(stage: string): string {
   switch (stage) {
     case 'ciblage':
       return 'Email de prospection'
-    case 'contact_initial':
+    case 'touch_1':
       return 'Relance email'
     case 'repondu':
       return 'Proposer un call'
-    case 'call_decouverte':
-      return 'Relance post-call'
     case 'devis':
       return 'Relance devis'
-    case 'negociation':
-      return 'Relance negociation'
+    case 'onboarding':
+      return 'Suivi onboarding'
+    case 'a_recontacter':
+      return 'Reprendre contact'
     default:
       return 'Relance'
   }

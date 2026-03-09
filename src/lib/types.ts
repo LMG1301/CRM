@@ -30,6 +30,7 @@ export interface Prospect {
   date_prochaine_action: string | null
   type_prochaine_action: string
   description_prochaine_action: string | null
+  deal_group: string | null
   notes: string
   created_at: string
   updated_at: string
@@ -151,6 +152,14 @@ export interface BusinessContext {
 
 export type ContentType = 'post_linkedin' | 'article' | 'case_study' | 'video' | 'infographie' | 'temoignage'
 
+export type FunnelLevel = 'tofu' | 'mofu' | 'bofu'
+
+export const FUNNEL_LEVELS: Record<FunnelLevel, string> = {
+  tofu: 'Top of Funnel',
+  mofu: 'Middle of Funnel',
+  bofu: 'Bottom of Funnel',
+}
+
 export interface Content {
   id: string
   title: string
@@ -161,6 +170,7 @@ export interface Content {
   products: string[]
   pipeline_stages: string[]
   target_sectors: string[]
+  funnel_level: FunnelLevel | null
   created_at: string
   updated_at: string
 }

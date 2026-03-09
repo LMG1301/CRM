@@ -36,7 +36,7 @@ export default async function DashboardPage() {
   // Hot prospects: those in active discussion stages, limited to 8
   const hotProspects = allProspects
     .filter((p) =>
-      ['repondu', 'call_decouverte', 'devis'].includes(p.pipeline_stage)
+      ['repondu', 'devis', 'onboarding'].includes(p.pipeline_stage)
     )
     .slice(0, 8)
 

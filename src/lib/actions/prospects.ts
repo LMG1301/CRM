@@ -124,12 +124,13 @@ export async function getProspectsSummary(): Promise<
     | 'date_prochaine_action'
     | 'type_prochaine_action'
     | 'date_premier_contact'
+    | 'deal_group'
   >[]
 > {
   const { data, error } = await supabase
     .from('prospects')
     .select(
-      'id, prenom, nom, entreprise, fonction, pipeline_stage, categorie, statut_commercial, source, date_dernier_contact, date_prochaine_action, type_prochaine_action, date_premier_contact'
+      'id, prenom, nom, entreprise, fonction, pipeline_stage, categorie, statut_commercial, source, date_dernier_contact, date_prochaine_action, type_prochaine_action, date_premier_contact, deal_group'
     )
     .not('pipeline_stage', 'in', '("refuse")')
     .order('date_dernier_contact', { ascending: false })
@@ -155,6 +156,32 @@ export async function getCompanyColleagues(
   return (data || []).filter(p =>
     p.entreprise && normalizedDistance(p.entreprise, entreprise) < 0.35
   )
+}
+
+// ─── Deal Groups ───
+
+export async function getDealGroups(): Promise<string[]> {
+  const { data } = await supabase
+    .from('prospects')
+    .select('deal_group')
+    .not('deal_group', 'is', null)
+    .neq('deal_group', '')
+  const unique = [...new Set((data || []).map(d => d.deal_group).filter(Boolean))]
+  return unique.sort()
+}
+
+export async function getDealGroupMembers(
+  dealGroup: string,
+  excludeId: string
+): Promise<Prospect[]> {
+  if (!dealGroup) return []
+  const { data } = await supabase
+    .from('prospects')
+    .select('*')
+    .eq('deal_group', dealGroup)
+    .neq('id', excludeId)
+    .order('date_dernier_contact', { ascending: false })
+  return data || []
 }
 
 // ─── Companies (aggregated from prospects) ───

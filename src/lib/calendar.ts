@@ -83,10 +83,20 @@ export async function createCalendarEvent(params: {
     event.start = { date: params.startDate }
     event.end = { date: endDate }
   } else {
+    // Use bare datetime (no Z suffix) + timeZone so Google interprets consistently
     event.start = { dateTime: params.startDate, timeZone: 'Europe/Paris' }
-    event.end = {
-      dateTime: params.endDate || new Date(new Date(params.startDate).getTime() + durationMs).toISOString(),
-      timeZone: 'Europe/Paris',
+
+    if (params.endDate) {
+      event.end = { dateTime: params.endDate, timeZone: 'Europe/Paris' }
+    } else {
+      // Compute end time by adding duration, keeping same bare-datetime format
+      const [datePart, timePart] = params.startDate.split('T')
+      const [y, mo, d] = datePart.split('-').map(Number)
+      const [h, mi] = (timePart || '10:00:00').split(':').map(Number)
+      const startMs = new Date(y, mo - 1, d, h, mi).getTime()
+      const endDt = new Date(startMs + durationMs)
+      const endStr = `${endDt.getFullYear()}-${String(endDt.getMonth() + 1).padStart(2, '0')}-${String(endDt.getDate()).padStart(2, '0')}T${String(endDt.getHours()).padStart(2, '0')}:${String(endDt.getMinutes()).padStart(2, '0')}:00`
+      event.end = { dateTime: endStr, timeZone: 'Europe/Paris' }
     }
   }
 

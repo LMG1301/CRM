@@ -166,10 +166,10 @@ function mapCategorieToPipelineStage(categorie: string): string {
   const normalized = categorie.trim()
   const map: Record<string, string> = {
     'Client': 'client',
-    'Client / Discussion active': 'call_decouverte',
+    'Client / Discussion active': 'devis',
     'A répondu': 'repondu',
-    'Sans réponse': 'nurturing',
-    'Bounced / Email invalide': 'bounced',
+    'Sans réponse': 'a_recontacter',
+    'Bounced / Email invalide': 'refuse',
     'Refusé / Hors zone': 'refuse',
     'Contact secondaire': 'ciblage',
     'Prescripteur / Réseau': 'repondu',

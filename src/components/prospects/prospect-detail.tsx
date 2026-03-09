@@ -57,6 +57,7 @@ import { EmailThread } from '@/components/emails/email-thread'
 import { EditProspectDialog } from './edit-prospect-dialog'
 import { VoiceRecorder } from './voice-recorder'
 import { CompanyContextPanel } from './company-context-panel'
+import { DealGroupPanel } from './deal-group-panel'
 import { ProspectMeetings } from './prospect-meetings'
 import { EnrollSequenceDialog } from '@/components/sequences/enroll-sequence-dialog'
 
@@ -785,6 +786,9 @@ export function ProspectDetail({
 
             {/* Company context — other contacts from same company */}
             <CompanyContextPanel prospect={prospect} />
+
+            {/* Deal group — other prospects on same opportunity */}
+            <DealGroupPanel prospect={prospect} />
 
             {/* Dates */}
             <Card>

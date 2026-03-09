@@ -135,7 +135,7 @@ function generateBimonthlyReport(data: ReportData): string {
 
   // Top prospects in discussion
   const inDiscussion = data.prospects.filter(p =>
-    ['devis', 'repondu', 'call_decouverte'].includes(p.pipeline_stage)
+    ['devis', 'repondu', 'onboarding'].includes(p.pipeline_stage)
   )
   if (inDiscussion.length > 0) {
     report += `## Deals en cours (${inDiscussion.length})\n`

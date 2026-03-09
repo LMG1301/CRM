@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { buildSystemPrompt } from '@/lib/ai-prompts'
-import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments, getProspectsSummary, getProspectEmails } from '@/lib/actions'
+import { getProspect, getActivities, getBusinessContext, getKnowledgeDocuments, getProspectsSummary, getProspectEmails, getDealGroupMembers } from '@/lib/actions'
 import type { Email } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
 import { getAnthropicClient, parseAnthropicError } from '@/lib/anthropic'
@@ -60,7 +60,17 @@ export async function POST(request: NextRequest) {
       // Continue without context
     }
 
-    const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs, allProspects, prospectEmails)
+    // Fetch deal group members if prospect has a deal_group
+    let dealGroupMembers: Prospect[] = []
+    if (prospect?.deal_group) {
+      try {
+        dealGroupMembers = await getDealGroupMembers(prospect.deal_group, prospect.id)
+      } catch {
+        // Continue without deal group context
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs, allProspects, prospectEmails, dealGroupMembers.length > 0 ? dealGroupMembers : undefined)
 
     // Enhance system prompt with knowledge context when relevant
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''

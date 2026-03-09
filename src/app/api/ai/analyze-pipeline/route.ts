@@ -16,15 +16,12 @@ const STAGE_DESCRIPTIONS = `
 Les stages du pipeline commercial (du plus froid au plus chaud) :
 - "ciblage" : Prospect identifie, pas encore contacte
 - "touch_1" : Premier message envoye (email ou LinkedIn)
-- "touch_2" : Relance envoyee, pas encore de reponse
-- "touch_3" : Derniere relance envoyee
-- "nurturing" : Pas de reponse apres 3 touches, on reste visible
 - "repondu" : Le prospect a repondu (positivement ou neutre)
-- "call_decouverte" : Un appel decouverte est planifie ou effectue
 - "devis" : Une proposition commerciale a ete envoyee
+- "onboarding" : Phase d'integration et mise en place
 - "client" : Deal signe, c'est un client
-- "refuse" : Le prospect a refuse explicitement
-- "bounced" : Email invalide ou prospect injoignable
+- "a_recontacter" : Client ou prospect a recontacter plus tard (timing pas bon, budget reporte, etc.)
+- "refuse" : Le prospect a refuse explicitement ou deal perdu
 `
 
 export async function POST(request: NextRequest) {
@@ -113,7 +110,7 @@ async function analyzeProspect(prospectId: string, requestedModel?: string) {
 
   if (!prospect) return null
 
-  if (['client', 'refuse', 'bounced'].includes(prospect.pipeline_stage)) {
+  if (['client', 'refuse', 'a_recontacter'].includes(prospect.pipeline_stage)) {
     return null
   }
 
@@ -186,32 +183,18 @@ Reponds avec ce format JSON exact :
   }
 
   const oldStage = prospect.pipeline_stage
-  const newStage = parsed.stage
+  const suggestedStage = parsed.stage
 
-  if (newStage && newStage !== oldStage) {
-    await supabase
-      .from('prospects')
-      .update({ pipeline_stage: newStage })
-      .eq('id', prospectId)
-
-    await supabase.from('activities').insert({
-      prospect_id: prospectId,
-      type: 'status_change',
-      content: `[IA] Pipeline : ${oldStage} → ${newStage} — ${parsed.reason}`,
-      metadata: {
-        from: oldStage,
-        to: newStage,
-        source: 'ai_analysis',
-        reason: parsed.reason,
-      },
-    })
-  }
+  // DISABLED — AI analysis now ONLY suggests a stage, never applies it automatically.
+  // pipeline_stage is ONLY changed by user action (drag & drop or stage selector).
+  // The suggestion is returned in the API response for the UI to present to the user.
 
   return {
     prospect_id: prospectId,
     name: `${prospect.prenom} ${prospect.nom}`,
     old_stage: oldStage,
-    new_stage: newStage,
+    new_stage: suggestedStage,
+    suggested: suggestedStage !== oldStage,
     reason: parsed.reason,
     next_action: parsed.next_action || '',
   }

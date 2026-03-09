@@ -12,14 +12,14 @@ interface HotProspectsProps {
 
 const STAGE_LABELS: Record<string, string> = {
   repondu: 'Repondu',
-  call_decouverte: 'Call decouverte',
   devis: 'Devis',
+  onboarding: 'Onboarding',
 }
 
 const STAGE_COLORS: Record<string, string> = {
   repondu: 'bg-brand-accent/10 text-brand-accent border-brand-accent/20',
-  call_decouverte: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
   devis: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  onboarding: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
 }
 
 export function HotProspects({ prospects }: HotProspectsProps) {

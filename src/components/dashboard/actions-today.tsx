@@ -12,13 +12,13 @@ interface ActionsTodayProps {
 
 const STAGE_LABELS: Record<string, string> = {
   ciblage: 'Ciblage',
-  contacte: 'Contacte',
+  touch_1: 'Contacte',
   repondu: 'Repondu',
-  call_decouverte: 'Call decouverte',
   devis: 'Devis',
+  onboarding: 'Onboarding',
   client: 'Client',
-  refuse: 'Refuse',
-  bounced: 'Bounced',
+  a_recontacter: 'A recontacter',
+  refuse: 'Perdu',
 }
 
 function daysSince(dateStr: string | null): number {
