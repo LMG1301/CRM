@@ -219,6 +219,12 @@ ${contentList}`
             model: model.apiModelId,
             max_tokens: model.maxOutputTokens,
             system: enhancedSystem,
+            tools: [
+              {
+                type: "web_search_20250305" as const,
+                name: "web_search",
+              },
+            ],
             messages: messages.map((m) => ({
               role: m.role as 'user' | 'assistant',
               content: m.content,

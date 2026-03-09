@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   DndContext,
   DragOverlay,
@@ -87,6 +87,8 @@ interface ProspectCardContentProps {
   selectionMode?: boolean
   isSelected?: boolean
   onToggleSelect?: (id: string) => void
+  stages?: PipelineStage[]
+  onStageChange?: (prospectId: string, newStage: string) => void
 }
 
 function ProspectCardContent({
@@ -101,6 +103,8 @@ function ProspectCardContent({
   selectionMode,
   isSelected,
   onToggleSelect,
+  stages,
+  onStageChange,
 }: ProspectCardContentProps) {
   const initials = (prospect.prenom?.[0] || '') + (prospect.nom?.[0] || '')
 
@@ -152,9 +156,19 @@ function ProspectCardContent({
 
         {/* Card body — name + company only */}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-white">
-            {prospect.prenom} {prospect.nom}
-          </p>
+          {isOverlay ? (
+            <p className="truncate text-sm font-medium text-white">
+              {prospect.prenom} {prospect.nom}
+            </p>
+          ) : (
+            <Link
+              href={`/prospects/${prospect.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="block truncate text-sm font-medium text-white hover:underline"
+            >
+              {prospect.prenom} {prospect.nom}
+            </Link>
+          )}
           {prospect.entreprise && (
             <div className="mt-0.5 flex items-center gap-1">
               <Building2 className="h-3 w-3 shrink-0 text-white/30" />
@@ -183,6 +197,27 @@ function ProspectCardContent({
           <GripVertical className="h-3.5 w-3.5 shrink-0 text-white/25 opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
       </div>
+
+      {/* Stage select dropdown — fallback for drag & drop */}
+      {!isOverlay && stages && onStageChange && (
+        <div className="mt-1.5 pl-1">
+          <select
+            value={prospect.pipeline_stage}
+            onChange={(e) => {
+              e.stopPropagation()
+              onStageChange(prospect.id, e.target.value)
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full cursor-pointer rounded border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-white/50 transition-colors hover:border-white/20 hover:text-white/70 focus:border-brand-accent/40 focus:outline-none focus:ring-1 focus:ring-brand-accent/20"
+          >
+            {stages.map((s) => (
+              <option key={s.slug} value={s.slug} className="bg-[#112220] text-white">
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   )
 }
@@ -199,6 +234,8 @@ function DraggableProspectCard({
   selectionMode,
   isSelected,
   onToggleSelect,
+  stages,
+  onStageChange,
 }: {
   prospect: Prospect
   stageColor: string
@@ -209,8 +246,9 @@ function DraggableProspectCard({
   selectionMode?: boolean
   isSelected?: boolean
   onToggleSelect?: (id: string) => void
+  stages?: PipelineStage[]
+  onStageChange?: (prospectId: string, newStage: string) => void
 }) {
-  const router = useRouter()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: prospect.id,
     data: {
@@ -220,14 +258,10 @@ function DraggableProspectCard({
   })
 
   const handleClick = useCallback(() => {
-    if (!isDragging) {
-      if (selectionMode && onToggleSelect) {
-        onToggleSelect(prospect.id)
-      } else {
-        router.push(`/prospects/${prospect.id}`)
-      }
+    if (!isDragging && selectionMode && onToggleSelect) {
+      onToggleSelect(prospect.id)
     }
-  }, [router, prospect.id, isDragging, selectionMode, onToggleSelect])
+  }, [prospect.id, isDragging, selectionMode, onToggleSelect])
 
   return (
     <div
@@ -235,7 +269,7 @@ function DraggableProspectCard({
       {...listeners}
       {...attributes}
       onClick={handleClick}
-      style={{ cursor: isDragging ? 'grabbing' : 'pointer' }}
+      style={{ cursor: isDragging ? 'grabbing' : selectionMode ? 'pointer' : 'default' }}
     >
       <ProspectCardContent
         prospect={prospect}
@@ -248,6 +282,8 @@ function DraggableProspectCard({
         selectionMode={selectionMode}
         isSelected={isSelected}
         onToggleSelect={onToggleSelect}
+        stages={stages}
+        onStageChange={onStageChange}
       />
     </div>
   )
@@ -266,9 +302,11 @@ interface StageColumnProps {
   selectionMode?: boolean
   selectedIds?: Set<string>
   onToggleSelect?: (id: string) => void
+  allStages?: PipelineStage[]
+  onStageChange?: (prospectId: string, newStage: string) => void
 }
 
-function StageColumn({ stage, prospects, isOver, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect }: StageColumnProps) {
+function StageColumn({ stage, prospects, isOver, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect, allStages, onStageChange }: StageColumnProps) {
   const { setNodeRef } = useDroppable({
     id: `column-${stage.slug}`,
     data: {
@@ -328,6 +366,8 @@ function StageColumn({ stage, prospects, isOver, onDelete, showDelete, matchesSe
                 selectionMode={selectionMode}
                 isSelected={selectedIds?.has(prospect.id)}
                 onToggleSelect={onToggleSelect}
+                stages={allStages}
+                onStageChange={onStageChange}
               />
             )
           })
@@ -360,9 +400,11 @@ interface MobileStageSectionProps {
   selectionMode?: boolean
   selectedIds?: Set<string>
   onToggleSelect?: (id: string) => void
+  allStages?: PipelineStage[]
+  onStageChange?: (prospectId: string, newStage: string) => void
 }
 
-function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect }: MobileStageSectionProps) {
+function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect, allStages, onStageChange }: MobileStageSectionProps) {
   const [isExpanded, setIsExpanded] = useState(
     prospects.length > 0 && prospects.length <= 10
   )
@@ -445,6 +487,8 @@ function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete, ma
                   selectionMode={selectionMode}
                   isSelected={selectedIds?.has(prospect.id)}
                   onToggleSelect={onToggleSelect}
+                  stages={allStages}
+                  onStageChange={onStageChange}
                 />
               )
             })
@@ -705,6 +749,37 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
     [pendingMove, executeMoveProspect]
   )
 
+  // Stage select dropdown handler (with deal group support)
+  const handleStageSelect = useCallback(
+    async (prospectId: string, newStage: string) => {
+      const currentProspect = prospects.find((p) => p.id === prospectId)
+      if (!currentProspect || currentProspect.pipeline_stage === newStage) return
+
+      // Check if prospect belongs to a deal group
+      if (currentProspect.deal_group) {
+        try {
+          const members = await getDealGroupMembers(currentProspect.deal_group, currentProspect.id)
+          if (members.length > 0) {
+            const targetStage = stages.find(s => s.slug === newStage)
+            setPendingMove({
+              prospect: currentProspect,
+              members,
+              targetSlug: newStage,
+              targetStageName: targetStage?.name || newStage,
+              previousStage: currentProspect.pipeline_stage,
+            })
+            return
+          }
+        } catch {
+          // If fetch fails, proceed with single move
+        }
+      }
+
+      executeMoveProspect(prospectId, newStage, currentProspect.pipeline_stage)
+    },
+    [prospects, stages, executeMoveProspect]
+  )
+
   const handleDeleteProspect = useCallback(async (prospectId: string) => {
     const prospect = prospects.find(p => p.id === prospectId)
     if (!prospect) return
@@ -836,6 +911,8 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
                 selectionMode={selectionMode}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
+                allStages={stages}
+                onStageChange={handleStageSelect}
               />
             ))}
           </div>
@@ -856,6 +933,8 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
               selectionMode={selectionMode}
               selectedIds={selectedIds}
               onToggleSelect={toggleSelect}
+              allStages={stages}
+              onStageChange={handleStageSelect}
             />
           ))}
         </div>
