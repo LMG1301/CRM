@@ -232,6 +232,134 @@ async function executeCrmQuery(input: { data_type: string; filters?: string }): 
       return { bloques: result, count: result.length }
     }
 
+    case 'calendar_this_week': {
+      try {
+        const calEvents = await getCalendarEvents(0, 7)
+        if (!calEvents || calEvents.length === 0) return { events: [], count: 0, note: 'Aucun evenement cette semaine ou calendrier non connecte.' }
+
+        const now = new Date()
+        const day = now.getDay()
+        const mondayOffset = day === 0 ? -6 : 1 - day
+        const monday = new Date(now)
+        monday.setDate(now.getDate() + mondayOffset)
+        monday.setHours(0, 0, 0, 0)
+        const sunday = new Date(monday)
+        sunday.setDate(monday.getDate() + 6)
+        sunday.setHours(23, 59, 59, 999)
+
+        const thisWeek = calEvents.filter((e: CalendarEvent) => {
+          const start = new Date(e.start.dateTime || e.start.date || '')
+          return start >= monday && start <= sunday
+        })
+
+        const result = thisWeek.map((e: CalendarEvent) => {
+          const start = new Date(e.start.dateTime || e.start.date || '')
+          const dateStr = start.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+          const timeStr = e.start.dateTime
+            ? start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+            : 'journee entiere'
+          const attendees = (e.attendees || [])
+            .filter(a => !a.email?.includes('calendar.google.com'))
+            .map(a => a.displayName || a.email)
+          return {
+            summary: e.summary,
+            date: dateStr,
+            time: timeStr,
+            attendees: attendees.length > 0 ? attendees : undefined,
+          }
+        })
+
+        return { events: result, count: result.length }
+      } catch {
+        return { events: [], count: 0, note: 'Calendrier non connecte.' }
+      }
+    }
+
+    case 'next_actions_this_week': {
+      const now = new Date()
+      const day = now.getDay()
+      const mondayOffset = day === 0 ? -6 : 1 - day
+      const monday = new Date(now)
+      monday.setDate(now.getDate() + mondayOffset)
+      const sunday = new Date(monday)
+      sunday.setDate(monday.getDate() + 6)
+      const mondayStr = monday.toISOString().split('T')[0]
+      const sundayStr = sunday.toISOString().split('T')[0]
+
+      const { data } = await supabase
+        .from('prospects')
+        .select('prenom, nom, entreprise, pipeline_stage, date_prochaine_action, type_prochaine_action, description_prochaine_action')
+        .gte('date_prochaine_action', mondayStr)
+        .lte('date_prochaine_action', sundayStr)
+        .order('date_prochaine_action', { ascending: true })
+
+      if (!data || data.length === 0) return { actions: [], count: 0 }
+
+      const result = data.map(p => ({
+        nom: `${p.prenom} ${p.nom}`,
+        entreprise: p.entreprise,
+        stage: p.pipeline_stage,
+        date: p.date_prochaine_action,
+        type: p.type_prochaine_action,
+        description: p.description_prochaine_action,
+      }))
+
+      return { actions: result, count: result.length, semaine: `${mondayStr} au ${sundayStr}` }
+    }
+
+    case 'previous_week_tasks': {
+      const now = new Date()
+      const day = now.getDay()
+      const mondayOffset = day === 0 ? -6 : 1 - day
+      const thisMonday = new Date(now)
+      thisMonday.setDate(now.getDate() + mondayOffset)
+      const lastMonday = new Date(thisMonday)
+      lastMonday.setDate(thisMonday.getDate() - 7)
+      const lastMondayStr = lastMonday.toISOString().split('T')[0]
+
+      const { data } = await supabase
+        .from('weekly_tasks')
+        .select('title, category, completed, week_start')
+        .eq('week_start', lastMondayStr)
+        .eq('completed', false)
+        .order('category', { ascending: true })
+
+      if (!data || data.length === 0) return { tasks: [], count: 0 }
+
+      return { tasks: data, count: data.length, week_start: lastMondayStr }
+    }
+
+    case 'overdue_actions': {
+      const today = new Date().toISOString().split('T')[0]
+
+      const { data } = await supabase
+        .from('prospects')
+        .select('prenom, nom, entreprise, pipeline_stage, date_prochaine_action, type_prochaine_action, description_prochaine_action, date_dernier_contact')
+        .lt('date_prochaine_action', today)
+        .not('pipeline_stage', 'in', '("client","refuse")')
+        .order('date_prochaine_action', { ascending: true })
+        .limit(20)
+
+      if (!data || data.length === 0) return { overdue: [], count: 0 }
+
+      const result = data.map(p => {
+        const dueDate = new Date(p.date_prochaine_action + 'T00:00:00')
+        const daysOverdue = Math.floor((Date.now() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
+        return {
+          nom: `${p.prenom} ${p.nom}`,
+          entreprise: p.entreprise,
+          stage: p.pipeline_stage,
+          date_prochaine_action: p.date_prochaine_action,
+          jours_retard: daysOverdue,
+          type: p.type_prochaine_action,
+          description: p.description_prochaine_action,
+          dernier_contact: p.date_dernier_contact,
+        }
+      })
+
+      return { overdue: result, count: result.length }
+    }
+
     default:
       return { error: `Type de donnees inconnu: ${data_type}` }
   }
@@ -315,14 +443,14 @@ const SAVE_WEEKLY_TASKS_TOOL = {
 
 const CRM_TOOL = {
   name: "query_crm",
-  description: "Interroge les donnees du CRM Boost. Peut lister les prospects par etape, les clients, les entreprises, les activites recentes, les emails, les machines installees. Utilise cet outil pour repondre aux questions sur le pipeline, les clients, les stats, ou pour analyser les donnees commerciales.",
+  description: "Interroge les donnees du CRM Boost et Google Calendar. Peut lister les prospects par etape, les clients, les entreprises, les activites recentes, les emails, les machines installees, les evenements calendrier de la semaine, les prochaines actions CRM, les taches non completees, et les actions en retard.",
   input_schema: {
     type: "object" as const,
     properties: {
       data_type: {
         type: "string",
-        enum: ["prospects", "clients", "entreprises", "activites_recentes", "emails_recents", "machines", "pipeline_summary", "deals_bloques"],
-        description: "Le type de donnees a recuperer",
+        enum: ["prospects", "clients", "entreprises", "activites_recentes", "emails_recents", "machines", "pipeline_summary", "deals_bloques", "calendar_this_week", "next_actions_this_week", "previous_week_tasks", "overdue_actions"],
+        description: "Le type de donnees a recuperer. Pour le Monday Check-in, utilise dans cet ordre : calendar_this_week, next_actions_this_week, previous_week_tasks, overdue_actions.",
       },
       filters: {
         type: "string",
@@ -424,14 +552,23 @@ Tu as un outil save_weekly_tasks() pour sauvegarder des taches dans la checklist
 
 ## Monday Check-in
 Quand l'utilisateur dit "check-in", "monday check-in", "prepare ma semaine", "to-do list", "priorites de la semaine" :
-1. Appelle query_crm avec data_type "prospects" (filtre: stages actifs repondu/devis/onboarding), puis "deals_bloques", puis "activites_recentes" (7 jours).
-2. Genere une to-do list structuree avec ces categories :
-   - key_priority (max 5) : follow-ups urgents, meetings planifies, onboardings
-   - follow_up : prospects en attente de reponse, relances a faire
-   - meeting : meetings de la semaine (depuis prochaines actions planifiees)
-   - onboarding : clients en phase onboarding avec actions en cours
-3. Appelle save_weekly_tasks() avec la liste generee.
-4. Affiche aussi la liste formatee dans le chat pour le Monday call.
+
+SOURCES DE DONNEES (dans cet ordre de priorite) :
+1. GOOGLE CALENDAR — Appelle query_crm(data_type: "calendar_this_week"). Les meetings planifies sont la source #1. Si c'est dans le calendrier, c'est reel.
+2. PROCHAINES ACTIONS CRM — Appelle query_crm(data_type: "next_actions_this_week"). Ce sont les actions que l'utilisateur a lui-meme planifiees dans le CRM.
+3. TACHES NON COMPLETEES — Appelle query_crm(data_type: "previous_week_tasks"). Les taches de la semaine precedente pas encore cochees.
+4. ACTIONS EN RETARD — Appelle query_crm(data_type: "overdue_actions"). Les prochaines actions dont la date est passee.
+
+CE QUE TU NE FAIS PAS :
+- Tu ne scannes PAS tous les prospects pour suggerer des follow-ups.
+- Tu ne decides PAS que l'utilisateur devrait relancer quelqu'un.
+- Tu ne generes PAS de taches a partir du pipeline.
+
+GENERATION DE LA TO-DO LIST :
+- Categorise chaque tache : meeting (depuis calendrier), follow_up (depuis actions CRM), key_priority (urgent/en retard), onboarding (si stage = onboarding), task (autre).
+- Si moins de 5 taches apres les 4 sources, tu PEUX suggerer 2-3 follow-ups CLAIREMENT separes sous le titre "Suggestions (pas dans ton agenda) :" avec le nombre de jours depuis le dernier contact.
+- Appelle save_weekly_tasks() avec UNIQUEMENT les taches des 4 sources concretes (pas les suggestions).
+- Affiche la liste formatee dans le chat pour le Monday call.
 
 ## Commande : Sales Review
 Quand l'utilisateur dit "sales review", "prepare mon sales review", "prepare mon meeting commercial", "regional review", "prepare Tuesday meeting" :
