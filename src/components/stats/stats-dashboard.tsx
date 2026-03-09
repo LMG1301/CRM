@@ -1,22 +1,9 @@
 'use client'
 
-import { useMemo } from 'react'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from 'recharts'
-import { Users, MessageSquare, Trophy, TrendingUp, UserCheck, Target } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import type { PipelineStage } from '@/lib/types'
+import { useState, useMemo } from 'react'
+import type { PipelineStage, Content, MachineType } from '@/lib/types'
+import { MACHINE_TYPE_LABELS } from '@/lib/types'
+import type { MachineStats } from '@/lib/actions/machines'
 
 // ─── Types ───
 
@@ -31,364 +18,464 @@ interface DashboardStats {
   byStage: Record<string, number>
   byCategorie: Record<string, number>
   weeklyActivity: Record<string, number>
+  blockers?: Array<{
+    name: string
+    stage: string
+    days: number
+    reason: string
+  }>
 }
 
 interface StatsDashboardProps {
   stats: DashboardStats
   stages: PipelineStage[]
+  machineStats: MachineStats
+  contents: Content[]
 }
 
-// ─── Palette professionnelle pour les camemberts ───
+// ─── Funnel stage icons ───
 
-const PIE_COLORS = [
-  '#1863DC', // brand accent blue
-  '#22c55e', // emerald
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#06b6d4', // cyan
-  '#ef4444', // red
-  '#ec4899', // pink
-  '#f97316', // orange
-  '#14b8a6', // teal
-  '#6366f1', // indigo
-  '#84cc16', // lime
-  '#a855f7', // purple
-]
+const STAGE_ICONS: Record<string, string> = {
+  ciblage: '\u{1F3AF}',
+  contacte: '\u{1F4E4}',
+  repondu: '\u{1F4AC}',
+  a_recontacter: '\u{1F504}',
+  call_planifie: '\u{1F4DE}',
+  devis: '\u{1F4C4}',
+  onboarding: '\u{1F680}',
+  client: '\u2705',
+  refuse: '\u274C',
+}
 
-// ─── Tooltip personnalise (dark) ───
+// ─── Funnel tag component ───
 
-function DarkTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean
-  payload?: Array<{ value: number; name?: string; payload?: Record<string, unknown> }>
-  label?: string
-}) {
-  if (!active || !payload?.length) return null
-
+function FunnelTag({ level }: { level: string }) {
+  const config: Record<string, { bg: string; text: string; label: string }> = {
+    tofu: { bg: 'bg-brand-accent/15', text: 'text-brand-accent', label: 'TOP' },
+    mofu: { bg: 'bg-amber-500/15', text: 'text-amber-500', label: 'MID' },
+    bofu: { bg: 'bg-emerald-500/15', text: 'text-emerald-500', label: 'BOT' },
+  }
+  const c = config[level] || { bg: 'bg-white/5', text: 'text-white/40', label: '\u2014' }
   return (
-    <div className="rounded-lg border border-white/10 bg-brand px-4 py-3 shadow-xl">
-      {label && (
-        <p className="mb-1 text-sm font-medium text-white/70">{label}</p>
-      )}
-      {payload.map((entry, i) => (
-        <p key={i} className="text-sm text-white">
-          {entry.name ? `${entry.name}: ` : ''}
-          <span className="font-semibold">{entry.value}</span>
-        </p>
-      ))}
-    </div>
+    <span className={`rounded px-2.5 py-0.5 text-[10px] font-bold tracking-wider ${c.bg} ${c.text}`}>
+      {c.label}
+    </span>
   )
 }
 
-function PieTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean
-  payload?: Array<{ name: string; value: number; payload?: { percent?: number } }>
-}) {
-  if (!active || !payload?.length) return null
+// ─── Main component ───
 
-  const entry = payload[0]
-  const percent = entry.payload?.percent
-    ? `${(entry.payload.percent * 100).toFixed(1)}%`
-    : ''
+export function StatsDashboard({ stats, stages, machineStats, contents }: StatsDashboardProps) {
+  const [view, setView] = useState<'pilotage' | 'reporting'>('reporting')
+  const [funnelFilter, setFunnelFilter] = useState<'all' | 'tofu' | 'mofu' | 'bofu'>('all')
+  const isReporting = view === 'reporting'
 
-  return (
-    <div className="rounded-lg border border-white/10 bg-brand px-4 py-3 shadow-xl">
-      <p className="text-sm text-white/70">{entry.name}</p>
-      <p className="text-sm font-semibold text-white">
-        {entry.value} {percent && <span className="text-white/50">({percent})</span>}
-      </p>
-    </div>
-  )
-}
-
-// ─── Legende personnalisee ───
-
-function DarkLegend({
-  payload,
-}: {
-  payload?: Array<{ value: string; color: string }>
-}) {
-  if (!payload?.length) return null
-
-  return (
-    <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-2">
-      {payload.map((entry, i) => (
-        <div key={i} className="flex items-center gap-1.5">
-          <div
-            className="h-2.5 w-2.5 rounded-full"
-            style={{ backgroundColor: entry.color }}
-          />
-          <span className="text-xs text-white/50">{entry.value}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ─── Composant principal ───
-
-export function StatsDashboard({ stats, stages }: StatsDashboardProps) {
-  // Construire les donnees du funnel a partir des stages (ordonnees par position)
+  // Build funnel data from stages
   const funnelData = useMemo(() => {
     return stages
+      .filter(s => !s.is_terminal || s.slug === 'client')
       .sort((a, b) => a.position - b.position)
-      .map((stage) => ({
+      .map(stage => ({
+        slug: stage.slug,
         name: stage.name,
         count: stats.byStage[stage.slug] || 0,
         color: stage.color || '#3b82f6',
+        icon: STAGE_ICONS[stage.slug] || '\u{1F4CA}',
       }))
   }, [stages, stats.byStage])
 
-  // Donnees pour le camembert des categories
-  const categorieData = useMemo(() => {
-    return Object.entries(stats.byCategorie)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-  }, [stats.byCategorie])
+  const maxCount = Math.max(...funnelData.map(f => f.count), 1)
 
-  // Weekly activity data
-  const activityData = useMemo(() => {
-    const entries = Object.entries(stats.weeklyActivity || {}).sort(
-      ([a], [b]) => a.localeCompare(b)
-    )
-    return entries.map(([date, count]) => {
-      const d = new Date(date)
-      const label = `${d.getDate()}/${d.getMonth() + 1}`
-      return { name: `Sem. ${label}`, count }
-    })
-  }, [stats.weeklyActivity])
+  // Compute contact-based conversion
+  const totalContacted = useMemo(() => {
+    return funnelData.reduce((s, f) => f.slug !== 'ciblage' ? s + f.count : s, 0)
+  }, [funnelData])
 
-  // KPIs
+  const clientCount = stats.byStage['client'] || 0
+  const convGlobal = totalContacted > 0 ? ((clientCount / totalContacted) * 100).toFixed(1) : '0'
+
+  // Response rate
+  const contactedCount = stats.byStage['contacte'] || 0
+  const postContactStages = funnelData
+    .filter(f => !['ciblage', 'contacte'].includes(f.slug))
+    .reduce((s, f) => s + f.count, 0)
+  const responseRate = (contactedCount + postContactStages) > 0
+    ? Math.round(postContactStages / (contactedCount + postContactStages) * 100)
+    : 0
+
+  // Group blockers by stage
+  const blockersByStage = useMemo(() => {
+    const map: Record<string, typeof stats.blockers> = {}
+    for (const b of stats.blockers || []) {
+      if (!map[b.stage]) map[b.stage] = []
+      map[b.stage]!.push(b)
+    }
+    return map
+  }, [stats.blockers])
+  const totalBlockers = (stats.blockers || []).length
+
+  // Quick stats insights
+  const quickStats = useMemo(() => {
+    const items: Array<{ label: string; value: string; color: string; icon: string }> = []
+
+    // Worst conversion step
+    let worstDrop = 0
+    let worstLabel = ''
+    for (let i = 1; i < funnelData.length; i++) {
+      const prev = funnelData[i - 1].count
+      const curr = funnelData[i].count
+      if (prev > 0) {
+        const drop = ((prev - curr) / prev) * 100
+        if (drop > worstDrop) {
+          worstDrop = drop
+          worstLabel = `${funnelData[i - 1].name} \u2192 ${funnelData[i].name} (${drop.toFixed(0)}% de perte)`
+        }
+      }
+    }
+    if (worstLabel) {
+      items.push({ label: 'Point de friction', value: worstLabel, color: 'text-red-400', icon: '\u{1F534}' })
+    }
+
+    // Best conversion step
+    let bestConv = 0
+    let bestLabel = ''
+    for (let i = 1; i < funnelData.length; i++) {
+      const prev = funnelData[i - 1].count
+      const curr = funnelData[i].count
+      if (prev > 0) {
+        const conv = (curr / prev) * 100
+        if (conv > bestConv && conv < 100) {
+          bestConv = conv
+          bestLabel = `${funnelData[i - 1].name} \u2192 ${funnelData[i].name} (${conv.toFixed(0)}%)`
+        }
+      }
+    }
+    if (bestLabel) {
+      items.push({ label: 'Meilleure conversion', value: bestLabel, color: 'text-emerald-400', icon: '\u{1F7E2}' })
+    }
+
+    items.push({ label: 'Pipeline actif', value: `${totalContacted} prospects en discussion`, color: 'text-amber-400', icon: '\u{1F525}' })
+
+    return items
+  }, [funnelData, totalContacted])
+
+  // Filter contents by funnel level
+  const filteredContents = useMemo(() => {
+    if (funnelFilter === 'all') return contents
+    return contents.filter(c => c.funnel_level === funnelFilter)
+  }, [contents, funnelFilter])
+
+  // KPI cards
   const kpis = [
-    {
-      label: 'Total prospects',
-      value: stats.total,
-      icon: Users,
-      color: 'text-brand-accent',
-      bgColor: 'bg-brand-accent/10',
-      display: String(stats.total),
-    },
-    {
-      label: 'Prospects actifs',
-      value: stats.prospectsActifs,
-      icon: UserCheck,
-      color: 'text-cyan-500',
-      bgColor: 'bg-cyan-500/10',
-      display: String(stats.prospectsActifs),
-    },
-    {
-      label: 'Clients',
-      value: stats.clients,
-      icon: Trophy,
-      color: 'text-emerald-500',
-      bgColor: 'bg-emerald-500/10',
-      display: String(stats.clients),
-    },
-    {
-      label: 'Taux conversion',
-      value: stats.conversionRate,
-      icon: Target,
-      color: 'text-amber-500',
-      bgColor: 'bg-amber-500/10',
-      display: `${stats.conversionRate}%`,
-    },
-    {
-      label: 'Discussions actives',
-      value: stats.discussions,
-      icon: MessageSquare,
-      color: 'text-violet-500',
-      bgColor: 'bg-violet-500/10',
-      display: String(stats.discussions),
-    },
-    {
-      label: 'Taux de reponse',
-      value: stats.tauxReponse,
-      icon: TrendingUp,
-      color: 'text-rose-500',
-      bgColor: 'bg-rose-500/10',
-      display: `${stats.tauxReponse}%`,
-    },
+    { label: 'Contactes', value: String(totalContacted), sub: 'total pipeline', color: '#1863DC', icon: '\u{1F4E4}' },
+    { label: 'Taux de reponse', value: `${responseRate}%`, sub: `${postContactStages} / ${contactedCount + postContactStages}`, color: '#fbbf24', icon: '\u{1F4AC}' },
+    { label: 'Conversion globale', value: `${convGlobal}%`, sub: 'Contactes \u2192 Client', color: '#22c55e', icon: '\u{1F4C8}' },
+    { label: 'Machines signees', value: String(machineStats.totalMachines), sub: `${machineStats.clients.length} client${machineStats.clients.length > 1 ? 's' : ''}`, color: '#10b981', icon: '\u2705' },
+    ...(isReporting ? [{
+      label: 'Deals bloques', value: String(totalBlockers), sub: `prospects en stagnation`, color: '#ef4444', icon: '\u26A0\uFE0F',
+    }] : []),
   ]
 
   return (
     <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Statistiques</h1>
+          <p className="mt-1 text-sm text-white/40">Analyse de votre pipeline commercial</p>
+        </div>
+        <div className="flex gap-1 rounded-lg bg-white/5 p-1">
+          {([['pilotage', 'Mon pilotage'], ['reporting', 'Reporting']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              className={`rounded-md px-4 py-1.5 text-xs font-semibold transition-all ${
+                view === key
+                  ? 'bg-brand-accent text-white'
+                  : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon
-          return (
-            <Card key={kpi.label} className="py-5">
-              <CardContent className="flex items-center gap-4">
-                <div
-                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg ${kpi.bgColor}`}
-                >
-                  <Icon className={`h-6 w-6 ${kpi.color}`} />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-muted-foreground">
-                    {kpi.label}
-                  </p>
-                  <p className="text-2xl font-bold tracking-tight">
-                    {kpi.display}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
-
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Funnel de conversion */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Funnel de conversion</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[400px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={funnelData}
-                  margin={{ top: 8, right: 24, left: 0, bottom: 48 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#1a332f"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: '#8fa8a2', fontSize: 12 }}
-                    tickLine={false}
-                    axisLine={{ stroke: '#1a332f' }}
-                    angle={-35}
-                    textAnchor="end"
-                    height={60}
-                  />
-                  <YAxis
-                    tick={{ fill: '#8fa8a2', fontSize: 12 }}
-                    tickLine={false}
-                    axisLine={{ stroke: '#1a332f' }}
-                    allowDecimals={false}
-                  />
-                  <Tooltip
-                    content={<DarkTooltip />}
-                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                  />
-                  <Bar dataKey="count" name="Prospects" radius={[6, 6, 0, 0]}>
-                    {funnelData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+      <div className={`grid gap-3 ${isReporting ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-4'}`}>
+        {kpis.map(k => (
+          <div
+            key={k.label}
+            className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"
+            style={{ borderLeftColor: k.color, borderLeftWidth: 3 }}
+          >
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <span className="text-sm">{k.icon}</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-white/40">
+                {k.label}
+              </span>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Activite recente (4 semaines) */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Activite recente</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {activityData.length === 0 ? (
-              <div className="flex h-[320px] items-center justify-center">
-                <p className="text-sm text-muted-foreground">
-                  Aucune activite sur les 4 dernieres semaines
-                </p>
-              </div>
-            ) : (
-              <div className="h-[320px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={activityData}
-                    margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="#1a332f"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fill: '#8fa8a2', fontSize: 12 }}
-                      tickLine={false}
-                      axisLine={{ stroke: '#1a332f' }}
-                    />
-                    <YAxis
-                      tick={{ fill: '#8fa8a2', fontSize: 12 }}
-                      tickLine={false}
-                      axisLine={{ stroke: '#1a332f' }}
-                      allowDecimals={false}
-                    />
-                    <Tooltip
-                      content={<DarkTooltip />}
-                      cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                    />
-                    <Bar
-                      dataKey="count"
-                      name="Activites"
-                      fill="#1863DC"
-                      radius={[6, 6, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Repartition par categorie */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Repartition par categorie</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {categorieData.length === 0 ? (
-              <div className="flex h-[320px] items-center justify-center">
-                <p className="text-sm text-muted-foreground">
-                  Aucune donnee disponible
-                </p>
-              </div>
-            ) : (
-              <div className="h-[320px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={categorieData}
-                      cx="50%"
-                      cy="45%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={3}
-                      dataKey="value"
-                      nameKey="name"
-                      strokeWidth={0}
-                    >
-                      {categorieData.map((_entry, index) => (
-                        <Cell
-                          key={`cat-${index}`}
-                          fill={PIE_COLORS[(index + 4) % PIE_COLORS.length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<PieTooltip />} />
-                    <Legend content={<DarkLegend />} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            <div className="text-2xl font-bold">{k.value}</div>
+            <div className="mt-0.5 text-[11px] text-white/30">{k.sub}</div>
+          </div>
+        ))}
       </div>
+
+      {/* Main grid: Funnel (left) + Right column */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* Funnel */}
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-white/40">
+              Entonnoir de conversion
+            </h3>
+            {isReporting && totalBlockers > 0 && (
+              <span className="text-[11px] font-semibold text-amber-400">
+                \u26A0 {totalBlockers} blocage{totalBlockers > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            {funnelData.map((f, i) => {
+              const pct = (f.count / maxCount) * 100
+              const prevCount = i > 0 ? funnelData[i - 1].count : 0
+              const drop = i > 0 && prevCount > 0 ? ((prevCount - f.count) / prevCount * 100).toFixed(0) : null
+              const dropNum = drop ? parseFloat(drop) : 0
+              const dropColor = dropNum > 60 ? 'text-red-400' : dropNum > 40 ? 'text-amber-400' : 'text-emerald-400'
+              const stageBlockers = blockersByStage[f.slug] || []
+
+              return (
+                <div key={f.slug} className={stageBlockers.length > 0 && isReporting ? 'mb-2' : ''}>
+                  {/* Drop indicator */}
+                  {i > 0 && (
+                    <div className="ml-[42px] mb-1 flex items-center gap-2">
+                      <div className="h-4 w-px bg-white/10" />
+                      {drop && (
+                        <span className={`text-[11px] font-semibold ${dropColor}`}>
+                          \u2193 -{drop}%
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Stage bar */}
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-base"
+                      style={{ backgroundColor: f.color + '20' }}
+                    >
+                      {f.icon}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="text-[13px] font-semibold">{f.name}</span>
+                        <span className="text-sm font-bold">{f.count}</span>
+                      </div>
+                      <div className="h-6 w-full overflow-hidden rounded-md bg-white/5">
+                        <div
+                          className="h-full rounded-md transition-all duration-700"
+                          style={{
+                            width: `${Math.max(pct, 3)}%`,
+                            background: `linear-gradient(90deg, ${f.color}99, ${f.color})`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Blockers (reporting mode only) */}
+                  {isReporting && stageBlockers.length > 0 && (
+                    <div className="ml-[42px] mt-2 space-y-1.5">
+                      {stageBlockers.map(b => (
+                        <div
+                          key={b.name}
+                          className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2.5"
+                        >
+                          <div className="mb-1 flex items-center justify-between">
+                            <span className="text-xs font-semibold">{b.name}</span>
+                            <span
+                              className={`rounded px-2 py-0.5 text-[10px] font-bold ${
+                                b.days > 30
+                                  ? 'bg-red-500/20 text-red-400'
+                                  : 'bg-amber-400/20 text-amber-400'
+                              }`}
+                            >
+                              {b.days}j
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-white/50">{b.reason}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Global conversion footer */}
+          <div className="mt-4 flex items-center justify-between rounded-lg border border-emerald-500/15 bg-emerald-500/[0.06] px-4 py-3">
+            <span className="text-xs font-semibold text-emerald-400">Conversion globale</span>
+            <span className="text-lg font-bold text-emerald-400">{convGlobal}%</span>
+          </div>
+        </div>
+
+        {/* Right column */}
+        <div className="flex flex-col gap-5">
+          {/* Quick stats / Points cles */}
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
+            <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-white/40">
+              Points cles
+            </h3>
+            <div className="space-y-3">
+              {quickStats.map(s => (
+                <div key={s.label} className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] p-3">
+                  <span className="shrink-0 text-sm">{s.icon}</span>
+                  <div>
+                    <div className="mb-0.5 text-[11px] font-semibold text-white/40">{s.label}</div>
+                    <div className={`text-[13px] font-medium ${s.color}`}>{s.value}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Machines signees */}
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
+            <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-white/40">
+              Machines signees
+            </h3>
+
+            {machineStats.clients.length === 0 ? (
+              <p className="py-4 text-center text-xs text-white/30">
+                Aucune machine enregistree
+              </p>
+            ) : (
+              <div className="space-y-0">
+                {machineStats.clients.map(client => {
+                  const machinesList = client.machines
+                    .map(m => `${MACHINE_TYPE_LABELS[m.machine_type as MachineType] || m.machine_type} x${m.quantity}`)
+                    .join(', ')
+                  const dateStr = client.machines[0]?.installed_at
+                    ? new Date(client.machines[0].installed_at).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
+                    : null
+
+                  return (
+                    <div
+                      key={client.prospect_id}
+                      className="flex items-center justify-between border-b border-white/[0.06] py-2.5 last:border-0"
+                    >
+                      <div>
+                        <div className="text-[13px] font-semibold">
+                          {client.entreprise || `${client.prenom} ${client.nom}`}
+                        </div>
+                        <div className="text-[11px] text-white/40">
+                          {machinesList}{dateStr ? ` \u2014 ${dateStr}` : ''}
+                        </div>
+                      </div>
+                      <div className="text-[13px] font-bold text-emerald-400">
+                        {client.totalQuantity} machine{client.totalQuantity > 1 ? 's' : ''}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {/* Total */}
+                <div className="mt-3 flex items-center justify-between rounded-lg bg-emerald-500/[0.06] px-3 py-2">
+                  <span className="text-xs font-semibold text-emerald-400">Total</span>
+                  <span className="text-sm font-bold text-emerald-400">
+                    {machineStats.totalMachines} machine{machineStats.totalMachines > 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                {/* By type breakdown */}
+                {Object.keys(machineStats.byType).length > 1 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {Object.entries(machineStats.byType).map(([type, count]) => (
+                      <span key={type} className="rounded-md bg-white/5 px-2 py-1 text-[10px] text-white/50">
+                        {MACHINE_TYPE_LABELS[type as MachineType] || type}: {count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Contents by funnel level */}
+      {contents.length > 0 && (
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-white/40">
+              Contenus par niveau funnel
+            </h3>
+            <div className="flex gap-1">
+              {([
+                { key: 'all' as const, label: 'Tous' },
+                { key: 'tofu' as const, label: 'Top' },
+                { key: 'mofu' as const, label: 'Middle' },
+                { key: 'bofu' as const, label: 'Bottom' },
+              ]).map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setFunnelFilter(f.key)}
+                  className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-all ${
+                    funnelFilter === f.key
+                      ? f.key === 'all'
+                        ? 'border-brand-accent bg-brand-accent/20 text-white'
+                        : 'border-white/20 bg-white/10 text-white'
+                      : 'border-white/[0.08] text-white/40 hover:text-white/60'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {filteredContents.length === 0 ? (
+            <p className="py-4 text-center text-xs text-white/30">
+              Aucun contenu pour ce filtre
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {filteredContents.map(c => (
+                <div
+                  key={c.id}
+                  className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3.5 py-2.5"
+                >
+                  <FunnelTag level={c.funnel_level || ''} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium">{c.title}</div>
+                    <div className="text-[10px] text-white/40">
+                      {c.content_type === 'post_linkedin' ? 'Post LinkedIn' :
+                       c.content_type === 'case_study' ? 'Cas client' :
+                       c.content_type === 'article' ? 'Article' :
+                       c.content_type === 'video' ? 'Video' :
+                       c.content_type === 'infographie' ? 'Infographie' :
+                       c.content_type === 'temoignage' ? 'Temoignage' :
+                       c.content_type}
+                    </div>
+                  </div>
+                  {c.url && (
+                    <a
+                      href={c.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 text-[10px] text-brand-accent hover:underline"
+                    >
+                      Voir
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

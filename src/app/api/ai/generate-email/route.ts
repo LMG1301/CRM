@@ -111,7 +111,10 @@ export async function POST(request: Request) {
     const response = await anthropic.messages.create({
       model: model.apiModelId,
       max_tokens: 600,
-      system: `Tu es Louis Matar, Business Development chez ${bizContext?.company_name || 'Boost Inc.'}, specialise dans la distribution automatique et le retail connecte. Tu rediges des emails de nurturing en francais.
+      system: [
+        {
+          type: 'text' as const,
+          text: `Tu es Louis Matar, Business Development chez ${bizContext?.company_name || 'Boost Inc.'}, specialise dans la distribution automatique et le retail connecte. Tu rediges des emails de nurturing en francais.
 
 Regles strictes:
 - Email court et percutant (max 150 mots, 3 paragraphes max)
@@ -131,6 +134,9 @@ Boost Inc.
 
 Reponds UNIQUEMENT en JSON valide:
 {"subject": "Objet de l'email", "body_html": "<p>Corps HTML avec signature</p>", "body_text": "Version texte brut avec signature"}`,
+          cache_control: { type: 'ephemeral' as const },
+        },
+      ],
       messages: [
         {
           role: 'user',

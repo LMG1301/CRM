@@ -117,10 +117,16 @@ export async function POST(request: NextRequest) {
       const fallbackResponse = await anthropic.messages.create({
         model: model.apiModelId,
         max_tokens: 1024,
-        system: `Tu es un assistant de recherche commercial. Complete la fiche contact avec tes connaissances.
+        system: [
+          {
+            type: 'text' as const,
+            text: `Tu es un assistant de recherche commercial. Complete la fiche contact avec tes connaissances.
 Reponds UNIQUEMENT en JSON valide, sans texte avant ou apres. Pas de markdown.
 Pour les champs sans information fiable, mets null.
 Ne devine PAS les emails.`,
+            cache_control: { type: 'ephemeral' as const },
+          },
+        ],
         messages: [
           {
             role: 'user',

@@ -218,7 +218,13 @@ ${contentList}`
           const stream = anthropic.messages.stream({
             model: model.apiModelId,
             max_tokens: model.maxOutputTokens,
-            system: enhancedSystem,
+            system: [
+              {
+                type: "text" as const,
+                text: enhancedSystem,
+                cache_control: { type: "ephemeral" as const },
+              },
+            ],
             tools: [
               {
                 type: "web_search_20250305" as const,

@@ -58,6 +58,7 @@ import { EditProspectDialog } from './edit-prospect-dialog'
 import { VoiceRecorder } from './voice-recorder'
 import { CompanyContextPanel } from './company-context-panel'
 import { DealGroupPanel } from './deal-group-panel'
+import { MachinesParcPanel } from './machines-parc-panel'
 import { ProspectMeetings } from './prospect-meetings'
 import { EnrollSequenceDialog } from '@/components/sequences/enroll-sequence-dialog'
 
@@ -789,6 +790,11 @@ export function ProspectDetail({
 
             {/* Deal group — other prospects on same opportunity */}
             <DealGroupPanel prospect={prospect} />
+
+            {/* Parc machines — only for onboarding/client stages */}
+            {['onboarding', 'client'].includes(prospect.pipeline_stage) && (
+              <MachinesParcPanel prospectId={prospect.id} />
+            )}
 
             {/* Dates */}
             <Card>

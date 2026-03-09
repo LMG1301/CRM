@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { storeGmailRefreshToken } from '@/lib/gmail'
 
 /**
  * Step 2: Google redirects here with an authorization code.
- * We exchange it for access + refresh tokens, store refresh_token in a cookie,
+ * We exchange it for access + refresh tokens, store refresh_token in a cookie
+ * AND in the integrations table (for server-side/cron access),
  * then redirect to /import.
  */
 export async function GET(req: NextRequest) {
@@ -67,6 +69,9 @@ export async function GET(req: NextRequest) {
         path: '/',
         maxAge: 365 * 24 * 60 * 60, // 1 year
       })
+
+      // Also store in DB so server-side code (cron, process-step) can access it
+      await storeGmailRefreshToken(tokenData.refresh_token)
     }
 
     // Also store current access token (short-lived, 1 hour)

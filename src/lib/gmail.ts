@@ -1,22 +1,13 @@
 import { cookies } from 'next/headers'
+import { supabase } from '@/lib/supabase'
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
 /**
- * Get a valid Gmail access token from cookies, refreshing if needed.
- * Returns null if no token available.
+ * Refresh an access token using a refresh token.
+ * Returns the new access token or null.
  */
-export async function getGmailAccessToken(): Promise<string | null> {
-  const cookieStore = await cookies()
-
-  // 1. Check cached access token
-  const cachedToken = cookieStore.get('gmail_access_token')?.value
-  if (cachedToken) return cachedToken
-
-  // 2. Try refresh token
-  const refreshToken = cookieStore.get('gmail_refresh_token')?.value
-  if (!refreshToken) return null
-
+async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   const clientId = process.env.GOOGLE_CLIENT_ID
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET
   if (!clientId || !clientSecret) return null
@@ -38,6 +29,76 @@ export async function getGmailAccessToken(): Promise<string | null> {
     // Refresh failed
   }
   return null
+}
+
+/**
+ * Get a valid Gmail access token. Tries cookies first (browser context),
+ * then falls back to the integrations table (server/cron context).
+ * Returns null if no token available.
+ */
+export async function getGmailAccessToken(): Promise<string | null> {
+  // 1. Try cookies (works when called from a browser request)
+  try {
+    const cookieStore = await cookies()
+
+    const cachedToken = cookieStore.get('gmail_access_token')?.value
+    if (cachedToken) return cachedToken
+
+    const cookieRefresh = cookieStore.get('gmail_refresh_token')?.value
+    if (cookieRefresh) {
+      const token = await refreshAccessToken(cookieRefresh)
+      if (token) return token
+    }
+  } catch {
+    // cookies() throws in non-request contexts (cron, server-to-server)
+  }
+
+  // 2. Fallback: read refresh_token from integrations table (works everywhere)
+  try {
+    const { data } = await supabase
+      .from('integrations')
+      .select('config')
+      .eq('service', 'gmail')
+      .single()
+
+    const refreshToken = (data?.config as Record<string, unknown>)?.refresh_token as string | undefined
+    if (refreshToken) {
+      const token = await refreshAccessToken(refreshToken)
+      if (token) return token
+    }
+  } catch {
+    // DB not available
+  }
+
+  return null
+}
+
+/**
+ * Store Gmail refresh token in the integrations table for server-side access.
+ */
+export async function storeGmailRefreshToken(refreshToken: string): Promise<void> {
+  try {
+    // Get current config to preserve other fields
+    const { data: existing } = await supabase
+      .from('integrations')
+      .select('config')
+      .eq('service', 'gmail')
+      .single()
+
+    const currentConfig = (existing?.config as Record<string, unknown>) || {}
+
+    await supabase
+      .from('integrations')
+      .update({
+        config: { ...currentConfig, refresh_token: refreshToken },
+        status: 'connected',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('service', 'gmail')
+  } catch {
+    // Best-effort — don't break the OAuth flow
+    console.error('Failed to store Gmail refresh token in DB')
+  }
 }
 
 /**

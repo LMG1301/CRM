@@ -1,27 +1,25 @@
-import { getDashboardStats, getStages } from '@/lib/actions'
+import { getDashboardStats, getStages, getContents, getMachineStats } from '@/lib/actions'
 import { StatsDashboard } from '@/components/stats/stats-dashboard'
 
 export const dynamic = 'force-dynamic'
 
 export default async function StatsPage() {
-  const [stats, stages] = await Promise.all([
+  const [stats, stages, machineStats, contents] = await Promise.all([
     getDashboardStats(),
     getStages(),
+    getMachineStats(),
+    getContents(),
   ])
 
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight">Statistiques</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Analyse detaillee de votre pipeline commercial
-          </p>
-        </div>
-
-        {/* Dashboard */}
-        <StatsDashboard stats={stats} stages={stages} />
+        <StatsDashboard
+          stats={stats}
+          stages={stages}
+          machineStats={machineStats}
+          contents={contents}
+        />
       </div>
     </div>
   )

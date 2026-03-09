@@ -59,10 +59,41 @@ export async function getDashboardStats() {
     weeklyActivity[key] = (weeklyActivity[key] || 0) + 1
   }
 
+  // Detect blockers — prospects stuck in non-terminal stages for too long
+  const blockers: Array<{
+    name: string
+    stage: string
+    days: number
+    reason: string
+  }> = []
+
+  const { data: stuckProspects } = await supabase
+    .from('prospects')
+    .select('id, prenom, nom, entreprise, pipeline_stage, date_dernier_contact, updated_at')
+    .not('pipeline_stage', 'in', '("ciblage","client","refuse")')
+    .order('updated_at', { ascending: true })
+    .limit(50)
+
+  for (const p of stuckProspects || []) {
+    const lastDate = p.date_dernier_contact || p.updated_at
+    if (!lastDate) continue
+    const days = Math.floor((Date.now() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24))
+    if (days >= 14) {
+      const name = [p.entreprise, [p.prenom, p.nom].filter(Boolean).join(' ')].filter(Boolean).join(' / ')
+      blockers.push({
+        name,
+        stage: p.pipeline_stage,
+        days,
+        reason: days > 30 ? 'Aucune activite depuis plus d\'un mois' : 'Inactif depuis ' + days + ' jours',
+      })
+    }
+  }
+
   return {
     total, clients, discussions, replied, tauxReponse,
     prospectsActifs, conversionRate,
     byStage, byCategorie, weeklyActivity,
+    blockers: blockers.sort((a, b) => b.days - a.days).slice(0, 10),
   }
 }
 

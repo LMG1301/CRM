@@ -288,6 +288,28 @@ export interface SequenceEnrollment {
   prospect?: Prospect
 }
 
+// ─── Client Machines (parc installe) ───
+
+export type MachineType = 'screenkit' | 'smart_fridge' | 'smart_freezer' | 'boostbar' | 'autre'
+
+export const MACHINE_TYPE_LABELS: Record<MachineType, string> = {
+  screenkit: 'ScreenKit',
+  smart_fridge: 'Smart Fridge',
+  smart_freezer: 'Smart Freezer',
+  boostbar: 'BoostBar',
+  autre: 'Autre',
+}
+
+export interface ClientMachine {
+  id: string
+  prospect_id: string
+  machine_type: MachineType
+  quantity: number
+  notes: string | null
+  installed_at: string | null
+  created_at: string
+}
+
 // ─── Source colors for activity feed ───
 
 export const SOURCE_COLORS: Record<string, string> = {

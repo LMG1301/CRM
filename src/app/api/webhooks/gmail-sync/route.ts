@@ -252,6 +252,43 @@ export async function POST(request: NextRequest) {
             })
             .eq('id', prospectId)
 
+          // 6. AUTO-STOP SEQUENCES: If prospect replied, stop any active sequences
+          if (direction === 'received') {
+            try {
+              const { data: activeEnrollments } = await supabase
+                .from('sequence_enrollments')
+                .select('id')
+                .eq('prospect_id', prospectId)
+                .eq('status', 'active')
+
+              if (activeEnrollments && activeEnrollments.length > 0) {
+                for (const enrollment of activeEnrollments) {
+                  await supabase
+                    .from('sequence_enrollments')
+                    .update({
+                      status: 'stopped_reply',
+                      stopped_at: new Date().toISOString(),
+                      stopped_reason: 'Prospect a repondu par email',
+                      pending_email: null,
+                    })
+                    .eq('id', enrollment.id)
+
+                  // Log activity for the auto-stop
+                  await supabase
+                    .from('activities')
+                    .insert({
+                      prospect_id: prospectId,
+                      type: 'status_change',
+                      content: `Sequence arretee automatiquement : le prospect a repondu par email`,
+                      metadata: { source: 'gmail_sync', reason: 'reply_detected', enrollment_id: enrollment.id },
+                    })
+                }
+              }
+            } catch {
+              // Best-effort — don't break email sync if sequence stop fails
+            }
+          }
+
           // DISABLED — pipeline_stage is now ONLY changed by user action (drag & drop or stage selector)
           // Previously called autoProgressStage(prospectId, email, direction)
         }

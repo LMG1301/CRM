@@ -60,22 +60,34 @@ export type AIEndpoint =
   | 'knowledge-summary'
 
 export const DEFAULT_MODEL_ROUTING: Record<AIEndpoint, AIModelId> = {
-  chat: 'claude-sonnet',
+  chat: 'claude-haiku',
   'analyze-pipeline': 'claude-sonnet',
   'enrich-prospect': 'claude-haiku',
   summarize: 'claude-haiku',
   'transcribe-structure': 'claude-haiku',
   'tag-content': 'claude-haiku',
   'match-content': 'claude-haiku',
-  'generate-email': 'claude-sonnet',
+  'generate-email': 'claude-haiku',
   'generate-report': 'claude-sonnet',
   'summarize-url': 'claude-haiku',
   'suggest-stage': 'claude-haiku',
   'parse-signature': 'claude-haiku',
   'personalize-template': 'claude-haiku',
-  'generate-sequence-email': 'claude-sonnet',
+  'generate-sequence-email': 'claude-haiku',
   'knowledge-summary': 'claude-haiku',
 }
+
+// Background/automated routes that ALWAYS use Haiku regardless of user selection
+export const FORCE_HAIKU_ENDPOINTS: Set<AIEndpoint> = new Set([
+  'suggest-stage',
+  'tag-content',
+  'parse-signature',
+  'summarize',
+  'summarize-url',
+  'match-content',
+  'knowledge-summary',
+  'transcribe-structure',
+])
 
 export const BUDGET_CONFIG = {
   warningThresholdUsd: 8.0,
@@ -125,6 +137,11 @@ export function resolveModel(
   endpoint: AIEndpoint,
   requestedModel?: string,
 ): AIModelConfig {
+  // Background/automated endpoints always use Haiku regardless of user selection
+  if (FORCE_HAIKU_ENDPOINTS.has(endpoint)) {
+    return AI_MODELS['claude-haiku']
+  }
+
   const modelId =
     requestedModel && requestedModel in AI_MODELS
       ? (requestedModel as AIModelId)

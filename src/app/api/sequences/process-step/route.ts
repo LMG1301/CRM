@@ -170,7 +170,13 @@ Reponds UNIQUEMENT en JSON valide:
     const response = await anthropic.messages.create({
       model: model.apiModelId,
       max_tokens: 600,
-      system: systemPrompt,
+      system: [
+        {
+          type: 'text' as const,
+          text: systemPrompt,
+          cache_control: { type: 'ephemeral' as const },
+        },
+      ],
       messages: [{ role: 'user', content: userMessage }],
     })
 
