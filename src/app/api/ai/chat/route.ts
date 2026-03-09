@@ -377,16 +377,34 @@ async function executeSaveWeeklyTasks(input: { tasks: Array<{ title: string; cat
   monday.setHours(0, 0, 0, 0)
   const weekStart = monday.toISOString().split('T')[0]
 
-  // Check existing tasks for this week
-  const { data: existing } = await supabase
+  // Fetch ALL uncompleted tasks (current week + carried over from previous weeks)
+  // to avoid creating duplicates
+  const { data: existingTasks } = await supabase
     .from('weekly_tasks')
-    .select('id')
-    .eq('week_start', weekStart)
+    .select('title, completed, week_start')
+    .eq('completed', false)
+    .lte('week_start', weekStart)
 
-  const existingCount = existing?.length || 0
+  const existingTitles = new Set(
+    (existingTasks || []).map(t => t.title.trim().toLowerCase())
+  )
 
-  // Insert all tasks
-  const rows = input.tasks.map(t => ({
+  // Filter out tasks that already exist (dedup by normalized title)
+  const newTasks = input.tasks.filter(
+    t => !existingTitles.has(t.title.trim().toLowerCase())
+  )
+  const skippedCount = input.tasks.length - newTasks.length
+
+  if (newTasks.length === 0) {
+    const weekNum = getISOWeekNumber(monday)
+    return {
+      success: true,
+      message: `Aucune nouvelle tache ajoutee — les ${input.tasks.length} taches existent deja dans la checklist S${weekNum}.`,
+    }
+  }
+
+  // Insert only new tasks
+  const rows = newTasks.map(t => ({
     week_start: weekStart,
     category: t.category,
     title: t.title,
@@ -398,10 +416,13 @@ async function executeSaveWeeklyTasks(input: { tasks: Array<{ title: string; cat
 
   const weekNum = getISOWeekNumber(monday)
 
-  if (existingCount > 0) {
-    return { success: true, message: `${input.tasks.length} taches ajoutees a la checklist de la semaine S${weekNum} (${existingCount} taches existantes conservees).` }
+  if (skippedCount > 0) {
+    return {
+      success: true,
+      message: `${newTasks.length} taches ajoutees a la checklist S${weekNum} (${skippedCount} deja existantes ignorees).`,
+    }
   }
-  return { success: true, message: `${input.tasks.length} taches ajoutees a la checklist de la semaine S${weekNum}.` }
+  return { success: true, message: `${newTasks.length} taches ajoutees a la checklist S${weekNum}.` }
 }
 
 function getISOWeekNumber(date: Date): number {

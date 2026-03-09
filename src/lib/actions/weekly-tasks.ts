@@ -6,15 +6,29 @@ import type { WeeklyTask } from '../types'
 // ─── Weekly Tasks CRUD ───
 
 export async function getWeeklyTasks(weekStart: string): Promise<WeeklyTask[]> {
-  const { data, error } = await supabase
+  // 1. Current week tasks (all — completed and not)
+  const { data: currentWeek, error: err1 } = await supabase
     .from('weekly_tasks')
     .select('*, prospect:prospects(prenom, nom, entreprise)')
     .eq('week_start', weekStart)
     .order('category')
     .order('completed')
     .order('created_at')
-  if (error) throw new Error(error.message)
-  return data || []
+
+  // 2. Uncompleted tasks from ALL previous weeks (auto carry-over)
+  const { data: carriedOver, error: err2 } = await supabase
+    .from('weekly_tasks')
+    .select('*, prospect:prospects(prenom, nom, entreprise)')
+    .lt('week_start', weekStart)
+    .eq('completed', false)
+    .order('week_start', { ascending: true })
+    .order('category')
+
+  if (err1) throw new Error(err1.message)
+  if (err2) throw new Error(err2.message)
+
+  // Merge: carried-over first (oldest first), then current week
+  return [...(carriedOver || []), ...(currentWeek || [])]
 }
 
 export async function addWeeklyTask(task: {
@@ -53,27 +67,3 @@ export async function deleteWeeklyTask(taskId: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
-export async function carryOverTasks(fromWeek: string, toWeek: string): Promise<number> {
-  // Get incomplete tasks from the previous week
-  const { data: incomplete } = await supabase
-    .from('weekly_tasks')
-    .select('category, title, prospect_id')
-    .eq('week_start', fromWeek)
-    .eq('completed', false)
-
-  if (!incomplete || incomplete.length === 0) return 0
-
-  // Insert them into the new week
-  const { error } = await supabase
-    .from('weekly_tasks')
-    .insert(
-      incomplete.map((t) => ({
-        week_start: toWeek,
-        category: t.category,
-        title: t.title,
-        prospect_id: t.prospect_id,
-      }))
-    )
-  if (error) throw new Error(error.message)
-  return incomplete.length
-}

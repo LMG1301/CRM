@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Copy,
   Check,
-  ArrowDownToLine,
   Building2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,7 +21,6 @@ import {
   addWeeklyTask,
   toggleWeeklyTask,
   deleteWeeklyTask,
-  carryOverTasks,
 } from '@/lib/actions'
 
 // ─── Helpers ───
@@ -47,6 +45,22 @@ function formatWeekLabel(date: Date): string {
   return `${date.toLocaleDateString('fr-FR', opts)} - ${end.toLocaleDateString('fr-FR', opts)}`
 }
 
+function getISOWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const dayNum = d.getUTCDay() || 7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+}
+
+/** Returns how many weeks a task has been carried over (0 = current week) */
+function getCarryOverWeeks(taskWeekStart: string, displayedWeekStart: string): number {
+  const taskDate = new Date(taskWeekStart + 'T00:00:00')
+  const displayDate = new Date(displayedWeekStart + 'T00:00:00')
+  const diffMs = displayDate.getTime() - taskDate.getTime()
+  return Math.round(diffMs / (7 * 24 * 60 * 60 * 1000))
+}
+
 const CATEGORIES: WeeklyTaskCategory[] = ['key_priority', 'follow_up', 'meeting', 'onboarding', 'task']
 
 // ─── Component ───
@@ -67,10 +81,6 @@ export function WeeklyChecklist() {
 
   // Copy feedback
   const [copied, setCopied] = useState(false)
-
-  // Carry-over
-  const [carryingOver, setCarryingOver] = useState(false)
-  const [carriedCount, setCarriedCount] = useState<number | null>(null)
 
   const weekStart = formatWeekStart(currentMonday)
   const isCurrentWeek = formatWeekStart(getMonday(new Date())) === weekStart
@@ -97,19 +107,16 @@ export function WeeklyChecklist() {
     const prev = new Date(currentMonday)
     prev.setDate(prev.getDate() - 7)
     setCurrentMonday(prev)
-    setCarriedCount(null)
   }
 
   const goToNextWeek = () => {
     const next = new Date(currentMonday)
     next.setDate(next.getDate() + 7)
     setCurrentMonday(next)
-    setCarriedCount(null)
   }
 
   const goToCurrentWeek = () => {
     setCurrentMonday(getMonday(new Date()))
-    setCarriedCount(null)
   }
 
   // CRUD
@@ -160,24 +167,6 @@ export function WeeklyChecklist() {
     }
   }
 
-  // Carry-over from previous week
-  const handleCarryOver = async () => {
-    setCarryingOver(true)
-    setError(null)
-    try {
-      const prevMonday = new Date(currentMonday)
-      prevMonday.setDate(prevMonday.getDate() - 7)
-      const prevWeekStart = formatWeekStart(prevMonday)
-      const count = await carryOverTasks(prevWeekStart, weekStart)
-      setCarriedCount(count)
-      if (count > 0) await loadTasks()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur carry-over')
-    } finally {
-      setCarryingOver(false)
-    }
-  }
-
   // Copy for Monday call
   const handleCopy = () => {
     const lines: string[] = []
@@ -191,7 +180,13 @@ export function WeeklyChecklist() {
       for (const t of catTasks) {
         const check = t.completed ? '[x]' : '[ ]'
         const prospect = t.prospect ? ` (${t.prospect.prenom} ${t.prospect.nom})` : ''
-        lines.push(`  ${check} ${t.title}${prospect}`)
+        const weeks = getCarryOverWeeks(t.week_start, weekStart)
+        const carryTag = weeks >= 2
+          ? ` [EN RETARD S${getISOWeekNumber(new Date(t.week_start + 'T00:00:00'))}]`
+          : weeks === 1
+            ? ' [Reporte]'
+            : ''
+        lines.push(`  ${check} ${t.title}${prospect}${carryTag}`)
       }
       lines.push('')
     }
@@ -199,6 +194,28 @@ export function WeeklyChecklist() {
     navigator.clipboard.writeText(lines.join('\n'))
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Carry-over badge for a task
+  const renderCarryOverBadge = (task: WeeklyTask) => {
+    const weeks = getCarryOverWeeks(task.week_start, weekStart)
+    if (weeks <= 0) return null
+
+    const origWeekNum = getISOWeekNumber(new Date(task.week_start + 'T00:00:00'))
+
+    if (weeks >= 2) {
+      return (
+        <span className="ml-1.5 inline-flex shrink-0 items-center rounded px-1 py-0.5 text-[9px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30">
+          En retard S{origWeekNum}
+        </span>
+      )
+    }
+
+    return (
+      <span className="ml-1.5 inline-flex shrink-0 items-center rounded px-1 py-0.5 text-[9px] font-semibold bg-orange-500/20 text-orange-400 border border-orange-500/30">
+        Reporte
+      </span>
+    )
   }
 
   // Group tasks by category
@@ -270,29 +287,6 @@ export function WeeklyChecklist() {
           </div>
         ) : (
           <>
-            {/* Carry-over button (show when week is empty and is current week) */}
-            {tasks.length === 0 && isCurrentWeek && carriedCount === null && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full mb-3 text-xs"
-                onClick={handleCarryOver}
-                disabled={carryingOver}
-              >
-                {carryingOver ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <ArrowDownToLine className="size-3" />
-                )}
-                Reprendre les taches non faites de la semaine derniere
-              </Button>
-            )}
-            {carriedCount !== null && carriedCount === 0 && tasks.length === 0 && (
-              <p className="mb-3 text-center text-xs text-muted-foreground">
-                Aucune tache a reprendre
-              </p>
-            )}
-
             {/* Task groups */}
             {tasksByCategory.length > 0 ? (
               <div className="space-y-4">
@@ -330,7 +324,7 @@ export function WeeklyChecklist() {
                             ) : null}
                           </button>
 
-                          {/* Title + prospect */}
+                          {/* Title + prospect + carry-over badge */}
                           <div className="min-w-0 flex-1">
                             <span
                               className={`text-sm ${
@@ -339,6 +333,7 @@ export function WeeklyChecklist() {
                             >
                               {task.title}
                             </span>
+                            {renderCarryOverBadge(task)}
                             {task.prospect && (
                               <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
                                 <Building2 className="size-2.5" />
