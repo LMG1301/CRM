@@ -11,9 +11,12 @@ import type { SequenceStep } from '@/lib/types'
  */
 export async function POST(request: Request) {
   try {
+    console.log('=== APPROVE START ===')
     const { enrollment_id, edited_subject, edited_body_html } = await request.json()
+    console.log('Enrollment ID:', enrollment_id)
 
     if (!enrollment_id) {
+      console.log('ERROR: enrollment_id manquant')
       return Response.json({ error: 'enrollment_id requis' }, { status: 400 })
     }
 
@@ -25,7 +28,11 @@ export async function POST(request: Request) {
       .eq('status', 'active')
       .single()
 
+    console.log('Enrollment loaded:', enrollment ? 'OK' : 'NOT FOUND', 'Error:', enrErr?.message || 'none')
+    console.log('Has pending_email:', !!enrollment?.pending_email)
+
     if (enrErr || !enrollment || !enrollment.pending_email) {
+      console.log('ERROR: Enrollment sans email en attente — enrErr:', enrErr?.message, 'enrollment:', !!enrollment, 'pending:', !!enrollment?.pending_email)
       return Response.json({ error: 'Enrollment sans email en attente' }, { status: 404 })
     }
 
@@ -47,8 +54,12 @@ export async function POST(request: Request) {
     const body_text = body_html.replace(/<[^>]*>/g, '')
 
     // Get Gmail access token
+    console.log('Getting Gmail access token...')
     const accessToken = await getGmailAccessToken()
+    console.log('Access token:', accessToken ? `OK (${accessToken.slice(0, 20)}...)` : 'NULL')
     if (!accessToken) {
+      console.log('ERROR: Gmail non connecte — pas de token')
+      console.log('=== APPROVE END (no token) ===')
       return Response.json({
         error: 'Gmail non connecte',
         need_oauth: true,
@@ -56,16 +67,21 @@ export async function POST(request: Request) {
     }
 
     const prospectEmail = prospect.email || prospect.email_pro
+    console.log('Prospect email:', prospectEmail || 'MISSING')
     if (!prospectEmail) {
+      console.log('ERROR: Prospect sans adresse email')
+      console.log('=== APPROVE END (no email) ===')
       return Response.json({ error: 'Prospect sans adresse email' }, { status: 400 })
     }
 
     // Get sender profile
+    console.log('Fetching Gmail profile...')
     const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
     const profile = await profileRes.json()
     const fromEmail = profile.emailAddress || 'noreply@boostinc.com'
+    console.log('Gmail profile status:', profileRes.status, 'From:', fromEmail)
 
     // Load signature
     const { data: bizCtx } = await supabase
@@ -75,6 +91,8 @@ export async function POST(request: Request) {
       .single()
 
     // Build and send
+    console.log('Building MIME message...')
+    console.log('To:', prospectEmail, 'Subject:', subject)
     const mime = buildMimeMessage({
       from: fromEmail,
       to: prospectEmail,
@@ -82,8 +100,11 @@ export async function POST(request: Request) {
       htmlBody: body_html,
       signature: bizCtx?.email_signature || undefined,
     })
+    console.log('MIME built, length:', mime.length)
 
+    console.log('Sending email via Gmail API...')
     const result = await sendGmailMessage(accessToken, mime)
+    console.log('Gmail send result:', JSON.stringify(result))
 
     // Store email
     await supabase.from('emails').insert({
@@ -154,8 +175,14 @@ export async function POST(request: Request) {
         .eq('id', enrollment_id)
     }
 
+    console.log('=== APPROVE SUCCESS — step', pendingEmail.step_position, '===')
     return Response.json({ sent: true, step: pendingEmail.step_position })
   } catch (error) {
+    console.log('=== APPROVE ERROR ===')
+    console.log('Error type:', (error as Error).constructor.name)
+    console.log('Error message:', (error as Error).message)
+    console.log('Error stack:', (error as Error).stack)
+    console.log('=== APPROVE END (error) ===')
     return Response.json({ error: (error as Error).message }, { status: 500 })
   }
 }

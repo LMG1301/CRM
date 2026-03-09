@@ -17,6 +17,7 @@ export function PendingSequenceEmails({ initialPending }: PendingSequenceEmailsP
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const handleApprove = async (enrollmentId: string) => {
+    console.log('[APPROVE] Starting...', enrollmentId)
     setActioning(enrollmentId)
     try {
       const res = await fetch('/api/sequences/approve', {
@@ -24,10 +25,20 @@ export function PendingSequenceEmails({ initialPending }: PendingSequenceEmailsP
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enrollment_id: enrollmentId }),
       })
+      console.log('[APPROVE] Response status:', res.status)
+      const data = await res.json()
+      console.log('[APPROVE] Response body:', data)
       if (res.ok) {
+        console.log('[APPROVE] Success — removing from list')
         setPending(prev => prev.filter(p => p.id !== enrollmentId))
+      } else {
+        console.error('[APPROVE] API error:', data.error)
+        alert(`Erreur: ${data.error || 'Erreur inconnue'}`)
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('[APPROVE] Network error:', err)
+      alert(`Erreur reseau: ${(err as Error).message}`)
+    }
     setActioning(null)
   }
 

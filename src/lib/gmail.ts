@@ -42,34 +42,58 @@ export async function getGmailAccessToken(): Promise<string | null> {
     const cookieStore = await cookies()
 
     const cachedToken = cookieStore.get('gmail_access_token')?.value
-    if (cachedToken) return cachedToken
+    if (cachedToken) {
+      console.log('[Gmail] Access token found in cookie')
+      return cachedToken
+    }
 
     const cookieRefresh = cookieStore.get('gmail_refresh_token')?.value
     if (cookieRefresh) {
+      console.log('[Gmail] Refresh token found in cookie, refreshing...')
       const token = await refreshAccessToken(cookieRefresh)
-      if (token) return token
+      if (token) {
+        console.log('[Gmail] Token refreshed from cookie refresh_token')
+        return token
+      }
+      console.log('[Gmail] Cookie refresh_token failed to refresh')
+    } else {
+      console.log('[Gmail] No cookies found (access_token nor refresh_token)')
     }
   } catch {
-    // cookies() throws in non-request contexts (cron, server-to-server)
+    console.log('[Gmail] cookies() not available (server/cron context)')
   }
 
   // 2. Fallback: read refresh_token from integrations table (works everywhere)
   try {
-    const { data } = await supabase
+    const { data, error: dbErr } = await supabase
       .from('integrations')
       .select('config')
       .eq('service', 'gmail')
       .single()
 
-    const refreshToken = (data?.config as Record<string, unknown>)?.refresh_token as string | undefined
+    if (dbErr) {
+      console.log('[Gmail] DB read error:', dbErr.message)
+    }
+
+    const config = data?.config as Record<string, unknown> | null
+    console.log('[Gmail] DB config keys:', config ? Object.keys(config) : 'null')
+    const refreshToken = config?.refresh_token as string | undefined
     if (refreshToken) {
+      console.log('[Gmail] Refresh token found in DB, refreshing...')
       const token = await refreshAccessToken(refreshToken)
-      if (token) return token
+      if (token) {
+        console.log('[Gmail] Token refreshed from DB refresh_token')
+        return token
+      }
+      console.log('[Gmail] DB refresh_token failed to refresh')
+    } else {
+      console.log('[Gmail] No refresh_token in DB config')
     }
   } catch {
-    // DB not available
+    console.log('[Gmail] DB fallback exception')
   }
 
+  console.log('[Gmail] No token available — returning null')
   return null
 }
 
@@ -78,16 +102,22 @@ export async function getGmailAccessToken(): Promise<string | null> {
  */
 export async function storeGmailRefreshToken(refreshToken: string): Promise<void> {
   try {
+    console.log('[Gmail] Storing refresh token in DB...')
+
     // Get current config to preserve other fields
-    const { data: existing } = await supabase
+    const { data: existing, error: readErr } = await supabase
       .from('integrations')
       .select('config')
       .eq('service', 'gmail')
       .single()
 
+    if (readErr) {
+      console.error('[Gmail] Failed to read integrations row:', readErr.message)
+    }
+
     const currentConfig = (existing?.config as Record<string, unknown>) || {}
 
-    await supabase
+    const { error: updateErr } = await supabase
       .from('integrations')
       .update({
         config: { ...currentConfig, refresh_token: refreshToken },
@@ -95,9 +125,29 @@ export async function storeGmailRefreshToken(refreshToken: string): Promise<void
         updated_at: new Date().toISOString(),
       })
       .eq('service', 'gmail')
-  } catch {
-    // Best-effort — don't break the OAuth flow
-    console.error('Failed to store Gmail refresh token in DB')
+
+    if (updateErr) {
+      console.error('[Gmail] Failed to update integrations row:', updateErr.message)
+      // Fallback: try upsert instead (in case RLS blocks update but allows insert)
+      const { error: upsertErr } = await supabase
+        .from('integrations')
+        .upsert({
+          service: 'gmail',
+          config: { refresh_token: refreshToken },
+          status: 'connected',
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'service' })
+
+      if (upsertErr) {
+        console.error('[Gmail] Upsert fallback also failed:', upsertErr.message)
+      } else {
+        console.log('[Gmail] Refresh token stored via upsert fallback')
+      }
+    } else {
+      console.log('[Gmail] Refresh token stored successfully')
+    }
+  } catch (err) {
+    console.error('[Gmail] Exception storing refresh token:', (err as Error).message)
   }
 }
 
