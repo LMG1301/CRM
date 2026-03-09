@@ -94,15 +94,8 @@ function buildBasePrompt(ctx?: BusinessContext | null): string {
     sections.push(ctx.tone_and_style)
   }
 
-  if (ctx.email_templates) {
-    sections.push(`\n## Templates email (pour t'inspirer)`)
-    sections.push(ctx.email_templates)
-  }
-
-  if (ctx.linkedin_templates) {
-    sections.push(`\n## Templates LinkedIn (pour t'inspirer)`)
-    sections.push(ctx.linkedin_templates)
-  }
+  // NOTE: email_templates and linkedin_templates removed from system prompt to save tokens.
+  // The quick action buttons already provide these templates when needed.
 
   if (ctx.additional_context) {
     sections.push(`\n## Contexte additionnel`)
@@ -117,53 +110,21 @@ function buildBasePrompt(ctx?: BusinessContext | null): string {
 // ─── Capabilities (always included) ───
 
 const CAPABILITIES_BLOCK = `
-## Ce que tu peux faire
-
-1. **Rediger des emails/messages** : Touch 1, relances, follow-ups, messages LinkedIn, adaptes au prospect et a son stade dans le pipeline.
-2. **Suggerer la prochaine action** : Analyser le prospect et recommander quoi faire (relancer, appeler, envoyer un devis, etc.)
-3. **Resumer les echanges** : Faire une synthese de l'historique d'activites.
-4. **Conseiller sur la strategie** : Aider a prioriser les actions et optimiser le process commercial.
-5. **Rediger des messages LinkedIn** : Demandes de connexion, InMails, commentaires strategiques.
-
 ## Format de reponse
-
-- Pour les emails : commence directement par "Objet :" puis le corps du mail.
-- Pour les messages LinkedIn : commence directement par le message.
-- Pour les suggestions : liste claire et actionnable.
-- Pour les resumes : bullet points concis.
-- Utilise le markdown pour la mise en forme.
-- Langue : Francais sauf indication contraire.
-- Signature : Ne pas inclure de signature, l'utilisateur l'ajoutera lui-meme.`
+- Emails : commence par "Objet :" puis le corps. Pas de signature.
+- LinkedIn : commence directement par le message.
+- Langue : Francais. Markdown pour la mise en forme.`
 
 // ─── Fallback prompt (if no business context configured) ───
 
 const FALLBACK_SYSTEM_PROMPT = `Tu es l'assistant commercial IA de Louis chez Boost Inc.
+Boost Inc. = distribution automatique innovante en France. Produit phare : ScreenKit (ecran interactif pour DA).
 
-## A propos de Boost Inc.
-Boost Inc. est une entreprise specialisee dans la distribution automatique et les solutions de vending innovantes en France. Le produit phare est le ScreenKit — un ecran interactif pour machines de distribution automatique. Louis gere la prospection B2B sur le marche francais.
+## Methode
+Touch 1 (J0) → Touch 2 (J+3-5, valeur ajoutee) → Touch 3 (J+10, proposer call) → Nurturing → Call decouverte → Devis → Client.
 
-## Methode commerciale
-
-Le process de prospection suit ces etapes :
-
-1. **Ciblage** : Identification du prospect (entreprise, decision maker)
-2. **Touch 1 (J0)** : Premier message de prise de contact (LinkedIn ou email). Court, personnalise, avec accroche sur le business du prospect.
-3. **Touch 2 (J+3 a J+5)** : Relance si pas de reponse. Apporter de la valeur (cas client, stat, insight).
-4. **Touch 3 (J+10)** : Dernier message. Direct, proposer un call ou donner une raison de repondre.
-5. **Nurturing** : Si pas de reponse apres 3 touches → newsletter, contenu, rester visible.
-6. **Repondu** : Le prospect a repondu → engager la conversation.
-7. **Call decouverte** : Planifier et effectuer un appel pour comprendre les besoins.
-8. **Devis** : Envoyer une proposition commerciale adaptee.
-9. **Client** : Deal signe !
-
-## Regles de redaction
-
-- **Ton** : Professionnel mais humain. Pas de jargon commercial lourd.
-- **Longueur** : Messages courts et percutants (5-8 lignes max pour un email).
-- **Personnalisation** : Toujours mentionner l'entreprise du prospect et un element specifique a son activite.
-- **CTA clair** : Chaque message doit avoir un appel a l'action simple (repondre, prendre un call, etc.)
-- **Langue** : Francais sauf indication contraire.
-- **Signature** : Ne pas inclure de signature, Louis l'ajoutera lui-meme.
+## Regles
+Ton pro mais humain. Messages courts (5-8 lignes). Personnalise au prospect. CTA clair.
 ${CAPABILITIES_BLOCK}`
 
 // ─── Build knowledge base context (INDEX MODE — lightweight) ───
@@ -178,7 +139,11 @@ export function buildKnowledgeContext(documents: KnowledgeDocument[]): string {
 
   for (const doc of documents) {
     const typeLabel = getDocTypeLabel(doc.mime_type)
-    const summary = doc.summary || doc.content?.substring(0, 150)?.replace(/\n/g, ' ') || ''
+    let summary = doc.summary || doc.content?.substring(0, 80)?.replace(/\n/g, ' ') || ''
+    // Truncate summary to 80 chars to keep prompt compact
+    if (summary.length > 80) {
+      summary = summary.substring(0, 80).trimEnd() + '...'
+    }
     lines.push(`- **${doc.name}** [${typeLabel}]: ${summary}`)
   }
 
