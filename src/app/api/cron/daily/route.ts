@@ -172,7 +172,9 @@ export async function POST(request: NextRequest) {
       .lte('next_step_date', todaySeq)
 
     if (dueEnrollments) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL
+        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+        || 'http://localhost:3000'
       for (const enrollment of dueEnrollments) {
         results.sequences.checked++
         try {
