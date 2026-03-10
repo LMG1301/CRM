@@ -73,10 +73,10 @@ export async function POST(request: NextRequest) {
 
         if (maxDays === 0) continue // Terminal stage
 
-        const lastContact = prospect.date_dernier_contact
-          ? new Date(prospect.date_dernier_contact)
-          : new Date(0) // Never contacted
+        // Skip prospects never contacted — no relance for cold prospects
+        if (!prospect.date_dernier_contact) continue
 
+        const lastContact = new Date(prospect.date_dernier_contact)
         const daysSinceContact = Math.floor(
           (today.getTime() - lastContact.getTime()) / (1000 * 60 * 60 * 24)
         )
