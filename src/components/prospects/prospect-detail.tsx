@@ -27,6 +27,8 @@ import {
   Loader2,
   MoreHorizontal,
   Mic,
+  Trash2,
+  ChevronUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -153,6 +155,8 @@ export function ProspectDetail({
   const [enrollments, setEnrollments] = useState<SequenceEnrollment[]>([])
   const [enrollmentsLoading, setEnrollmentsLoading] = useState(true)
   const [unenrolling, setUnenrolling] = useState<string | null>(null)
+  const [showSeqHistory, setShowSeqHistory] = useState(false)
+  const [deletingEnrollment, setDeletingEnrollment] = useState<string | null>(null)
 
   // Load tasks for this prospect
   useEffect(() => {
@@ -186,6 +190,19 @@ export function ProspectDetail({
       loadEnrollments()
     } catch { /* ignore */ }
     setUnenrolling(null)
+  }
+
+  const handleDeleteEnrollment = async (enrollmentId: string, isActive: boolean) => {
+    if (isActive) {
+      const ok = window.confirm('Arreter et supprimer cette sequence ?')
+      if (!ok) return
+    }
+    setDeletingEnrollment(enrollmentId)
+    try {
+      await fetch(`/api/sequences/enrollment/${enrollmentId}`, { method: 'DELETE' })
+      loadEnrollments()
+    } catch { /* ignore */ }
+    setDeletingEnrollment(null)
   }
 
   const handleTaskAction = async (taskId: string, status: 'done' | 'skipped') => {
@@ -641,8 +658,10 @@ export function ProspectDetail({
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Zap className="size-4" />
                   Sequences
-                  {enrollments.length > 0 && (
-                    <Badge variant="secondary" className="text-xs">{enrollments.length}</Badge>
+                  {enrollments.filter(e => e.status === 'active').length > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {enrollments.filter(e => e.status === 'active').length} active{enrollments.filter(e => e.status === 'active').length > 1 ? 's' : ''}
+                    </Badge>
                   )}
                 </CardTitle>
               </CardHeader>
@@ -651,122 +670,168 @@ export function ProspectDetail({
                   <div className="flex items-center justify-center py-4">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                   </div>
-                ) : enrollments.length > 0 ? (
-                  <div className="space-y-3">
-                    {enrollments.map(enrollment => {
-                      const seq = enrollment.sequence
-                      const totalSteps = seq?.steps?.length || 0
-                      const currentStep = Math.min(enrollment.current_step, totalSteps)
-                      const isActive = enrollment.status === 'active'
-                      const isCompleted = enrollment.status === 'completed'
-                      const isStopped = enrollment.status?.startsWith('stopped')
-                      const pendingEmail = enrollment.pending_email as { subject?: string; body_text?: string; step_position?: number } | null
+                ) : (() => {
+                  const activeEnrollments = enrollments.filter(e => e.status === 'active')
+                  const pastEnrollments = enrollments.filter(e => e.status !== 'active')
 
-                      const statusLabel = isCompleted ? 'Terminee' :
-                        enrollment.status === 'stopped_reply' ? 'Reponse recue' :
-                        enrollment.status === 'stopped_manual' ? 'Arretee' :
-                        isActive ? 'Active' : enrollment.status
+                  return (
+                    <div className="space-y-3">
+                      {/* Active sequences */}
+                      {activeEnrollments.length > 0 ? (
+                        activeEnrollments.map(enrollment => {
+                          const seq = enrollment.sequence
+                          const totalSteps = seq?.steps?.length || 0
+                          const currentStep = Math.min(enrollment.current_step, totalSteps)
+                          const pendingEmail = enrollment.pending_email as { subject?: string; body_text?: string; step_position?: number } | null
 
-                      const statusColor = isCompleted ? 'text-green-400 bg-green-400/10' :
-                        enrollment.status === 'stopped_reply' ? 'text-blue-400 bg-blue-400/10' :
-                        isStopped ? 'text-muted-foreground bg-white/[0.06]' :
-                        'text-brand-accent bg-brand-accent/10'
-
-                      return (
-                        <div key={enrollment.id} className={cn(
-                          'rounded-lg border p-3',
-                          isActive ? 'border-brand-accent/20 bg-brand-accent/5' : 'border-white/[0.08] bg-white/[0.02]',
-                          !isActive && 'opacity-70'
-                        )}>
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium truncate">{seq?.name || 'Sequence'}</p>
-                                <Badge variant="secondary" className={cn('text-[10px] shrink-0 border-0', statusColor)}>
-                                  {statusLabel}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                Etape {isCompleted ? totalSteps : currentStep + 1}/{totalSteps}
-                                {enrollment.send_mode === 'auto' && ' — Auto'}
-                              </p>
-                            </div>
-                            {isActive && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 gap-1 px-2 text-xs text-red-400 hover:text-red-300 shrink-0"
-                                onClick={() => handleUnenroll(enrollment.id)}
-                                disabled={unenrolling === enrollment.id}
-                              >
-                                {unenrolling === enrollment.id ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : (
-                                  <Square className="size-3" />
-                                )}
-                                Retirer
-                              </Button>
-                            )}
-                          </div>
-
-                          {/* Step progress bar */}
-                          {totalSteps > 0 && (
-                            <div className="mt-2 flex gap-1">
-                              {Array.from({ length: totalSteps }).map((_, i) => {
-                                const done = isCompleted || i < currentStep
-                                const current = isActive && i === currentStep
-                                return (
-                                  <div
-                                    key={i}
-                                    className={cn(
-                                      'h-1.5 flex-1 rounded-full transition-colors',
-                                      done ? 'bg-green-500' :
-                                      current ? 'bg-amber-400' :
-                                      'bg-white/[0.08]'
+                          return (
+                            <div key={enrollment.id} className="rounded-lg border border-brand-accent/20 bg-brand-accent/5 p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium truncate">{seq?.name || 'Sequence'}</p>
+                                    <Badge variant="secondary" className="text-[10px] shrink-0 border-0 text-brand-accent bg-brand-accent/10">
+                                      Active
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    Etape {currentStep + 1}/{totalSteps}
+                                    {enrollment.send_mode === 'auto' && ' — Auto'}
+                                    {enrollment.next_step_date && (
+                                      <> — Prochain envoi : {new Date(enrollment.next_step_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</>
                                     )}
-                                    title={`Etape ${i + 1}${done ? ' — Envoyee' : current ? ' — En cours' : ''}`}
-                                  />
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1 px-2 text-xs text-red-400 hover:text-red-300 shrink-0"
+                                  onClick={() => handleUnenroll(enrollment.id)}
+                                  disabled={unenrolling === enrollment.id}
+                                >
+                                  {unenrolling === enrollment.id ? (
+                                    <Loader2 className="size-3 animate-spin" />
+                                  ) : (
+                                    <Square className="size-3" />
+                                  )}
+                                  Retirer
+                                </Button>
+                              </div>
+
+                              {/* Step progress bar */}
+                              {totalSteps > 0 && (
+                                <div className="mt-2 flex gap-1">
+                                  {Array.from({ length: totalSteps }).map((_, i) => {
+                                    const done = i < currentStep
+                                    const current = i === currentStep
+                                    return (
+                                      <div
+                                        key={i}
+                                        className={cn(
+                                          'h-1.5 flex-1 rounded-full transition-colors',
+                                          done ? 'bg-green-500' :
+                                          current ? 'bg-amber-400' :
+                                          'bg-white/[0.08]'
+                                        )}
+                                        title={`Etape ${i + 1}${done ? ' — Envoyee' : current ? ' — En cours' : ''}`}
+                                      />
+                                    )
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Pending email preview */}
+                              {pendingEmail && (
+                                <div className="mt-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-2.5 py-2">
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <Mail className="size-3 text-amber-400" />
+                                    <span className="text-[10px] font-medium text-amber-400 uppercase tracking-wide">
+                                      Email en attente
+                                    </span>
+                                  </div>
+                                  <p className="text-xs font-medium text-foreground truncate">
+                                    {pendingEmail.subject || '(Sans objet)'}
+                                  </p>
+                                  {pendingEmail.body_text && (
+                                    <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">
+                                      {pendingEmail.body_text.slice(0, 150)}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })
+                      ) : (
+                        <div className="text-center py-3">
+                          <p className="text-xs text-muted-foreground">Aucune sequence active</p>
+                        </div>
+                      )}
+
+                      {/* History toggle */}
+                      {pastEnrollments.length > 0 && (
+                        <>
+                          <button
+                            className="flex w-full items-center justify-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors py-1"
+                            onClick={() => setShowSeqHistory(!showSeqHistory)}
+                          >
+                            {showSeqHistory ? (
+                              <ChevronUp className="size-3" />
+                            ) : (
+                              <ChevronDown className="size-3" />
+                            )}
+                            {showSeqHistory ? 'Masquer l\'historique' : `Voir l'historique (${pastEnrollments.length} terminee${pastEnrollments.length > 1 ? 's' : ''})`}
+                          </button>
+
+                          {showSeqHistory && (
+                            <div className="space-y-2">
+                              {pastEnrollments.map(enrollment => {
+                                const seq = enrollment.sequence
+                                const isCompleted = enrollment.status === 'completed'
+                                const statusLabel = isCompleted ? 'Terminee' :
+                                  enrollment.status === 'stopped_reply' ? 'Repondu' :
+                                  'Arretee'
+                                const statusColor = isCompleted ? 'text-green-400 bg-green-400/10' :
+                                  enrollment.status === 'stopped_reply' ? 'text-blue-400 bg-blue-400/10' :
+                                  'text-muted-foreground bg-white/[0.06]'
+                                const dateStr = enrollment.completed_at || enrollment.stopped_at || enrollment.updated_at
+
+                                return (
+                                  <div key={enrollment.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                                    <div className="min-w-0 flex items-center gap-2">
+                                      <p className="text-xs text-muted-foreground truncate">{seq?.name || 'Sequence'}</p>
+                                      <Badge variant="secondary" className={cn('text-[10px] shrink-0 border-0', statusColor)}>
+                                        {statusLabel}
+                                      </Badge>
+                                      {dateStr && (
+                                        <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                                          {new Date(dateStr).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-red-400/50 hover:text-red-400 shrink-0"
+                                      onClick={() => handleDeleteEnrollment(enrollment.id, false)}
+                                      disabled={deletingEnrollment === enrollment.id}
+                                    >
+                                      {deletingEnrollment === enrollment.id ? (
+                                        <Loader2 className="size-3 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="size-3" />
+                                      )}
+                                    </Button>
+                                  </div>
                                 )
                               })}
                             </div>
                           )}
-
-                          {/* Pending email preview */}
-                          {isActive && pendingEmail && (
-                            <div className="mt-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-2.5 py-2">
-                              <div className="flex items-center gap-1.5 mb-1">
-                                <Mail className="size-3 text-amber-400" />
-                                <span className="text-[10px] font-medium text-amber-400 uppercase tracking-wide">
-                                  Email en attente
-                                </span>
-                              </div>
-                              <p className="text-xs font-medium text-foreground truncate">
-                                {pendingEmail.subject || '(Sans objet)'}
-                              </p>
-                              {pendingEmail.body_text && (
-                                <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">
-                                  {pendingEmail.body_text.slice(0, 150)}
-                                </p>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Enrollment date */}
-                          <p className="text-[10px] text-muted-foreground/60 mt-2">
-                            Inscrit le {new Date(enrollment.enrolled_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            {isCompleted && enrollment.completed_at && (
-                              <> — Terminee le {new Date(enrollment.completed_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}</>
-                            )}
-                          </p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-3">
-                    <p className="text-xs text-muted-foreground mb-3">Aucune sequence</p>
-                  </div>
-                )}
+                        </>
+                      )}
+                    </div>
+                  )
+                })()}
                 <Button
                   variant="outline"
                   size="sm"
