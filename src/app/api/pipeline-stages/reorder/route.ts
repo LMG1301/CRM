@@ -1,16 +1,23 @@
 import { supabase } from '@/lib/supabase'
 
 export async function PUT(request: Request) {
-  const { stages } = await request.json()
-  if (!Array.isArray(stages)) {
-    return Response.json({ error: 'stages array required' }, { status: 400 })
+  const { positions } = await request.json()
+  if (!Array.isArray(positions)) {
+    return Response.json({ error: 'positions array required' }, { status: 400 })
   }
 
-  for (const { id, position } of stages) {
-    await supabase
-      .from('pipeline_stages')
-      .update({ position })
-      .eq('id', id)
+  const results = await Promise.all(
+    positions.map(({ id, position }: { id: string; position: number }) =>
+      supabase
+        .from('pipeline_stages')
+        .update({ position })
+        .eq('id', id)
+    )
+  )
+
+  const error = results.find((r) => r.error)
+  if (error?.error) {
+    return Response.json({ error: error.error.message }, { status: 500 })
   }
 
   return Response.json({ ok: true })

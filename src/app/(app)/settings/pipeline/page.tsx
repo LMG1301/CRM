@@ -244,6 +244,7 @@ export default function PipelineSettingsPage() {
   )
   const [moveToSlug, setMoveToSlug] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
   // DnD sensors
   const pointerSensor = useSensor(PointerSensor, {
@@ -290,7 +291,7 @@ export default function PipelineSettingsPage() {
 
       try {
         setSaving(true)
-        await fetch('/api/pipeline-stages/reorder', {
+        const res = await fetch('/api/pipeline-stages/reorder', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -300,6 +301,9 @@ export default function PipelineSettingsPage() {
             })),
           }),
         })
+        if (!res.ok) throw new Error('Failed to reorder stages')
+        setSaveMessage('Ordre sauvegarde')
+        setTimeout(() => setSaveMessage(null), 2000)
       } catch (err) {
         console.error('Error reordering stages:', err)
         await loadStages()
@@ -459,6 +463,14 @@ export default function PipelineSettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* Save confirmation */}
+          {saveMessage && (
+            <div className="flex items-center gap-2 rounded-md bg-green-500/10 px-3 py-2 text-sm text-green-600">
+              <Check className="size-4" />
+              {saveMessage}
+            </div>
+          )}
+
           {/* Sortable stage list */}
           <DndContext
             sensors={sensors}

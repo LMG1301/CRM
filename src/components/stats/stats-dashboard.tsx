@@ -1,40 +1,106 @@
 'use client'
 
-import { useMemo } from 'react'
-import type { PipelineStage, MachineType } from '@/lib/types'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Loader2, Calendar, ArrowRightLeft, Mail, Phone, Users, Clock, TrendingUp } from 'lucide-react'
+import type { MachineType } from '@/lib/types'
 import { MACHINE_TYPE_LABELS } from '@/lib/types'
 import type { MachineStats } from '@/lib/actions/machines'
 import { ForecastStats } from './forecast-stats'
 
 // ─── Types ───
 
-interface DashboardStats {
-  total: number
-  clients: number
-  discussions: number
-  replied: number
-  tauxReponse: number
-  prospectsActifs: number
+interface StageInfo {
+  slug: string
+  name: string
+  color: string
+  position: number
+  is_terminal: boolean
+  is_default: boolean
+}
+
+interface StatsData {
+  contacted: number
+  responded: number
+  responseRate: number
+  closed: number
   conversionRate: number
-  byStage: Record<string, number>
-  byCategorie: Record<string, number>
-  weeklyActivity: Record<string, number>
-  blockers?: Array<{
-    name: string
-    stage: string
-    days: number
-    reason: string
-  }>
+  machinesSigned: number
+  currentStock: Record<string, number>
+  periodFlow: Record<string, number>
+  emailsSent: number
+  callsMade: number
+  meetingsHeld: number
+  avgConversionDays: number | null
+  dealsMovedThisWeek: number
+  blockers: Array<{ name: string; stage: string; days: number; reason: string }>
+  stages: StageInfo[]
 }
 
-interface StatsDashboardProps {
-  stats: DashboardStats
-  stages: PipelineStage[]
-  machineStats: MachineStats
-  contents?: unknown[]
+type PeriodKey = 'week' | 'month' | 'quarter' | 'year'
+
+interface Period {
+  key: PeriodKey
+  label: string
+  getRange: () => { start: string; end: string }
 }
 
-// ─── Funnel stage icons ───
+// ─── Period helpers ───
+
+function getMonday(): Date {
+  const d = new Date()
+  const day = d.getDay()
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+  d.setDate(diff)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+const PERIODS: Period[] = [
+  {
+    key: 'week',
+    label: 'Semaine',
+    getRange: () => {
+      const start = getMonday()
+      const end = new Date(start)
+      end.setDate(end.getDate() + 6)
+      end.setHours(23, 59, 59, 999)
+      return { start: start.toISOString(), end: end.toISOString() }
+    },
+  },
+  {
+    key: 'month',
+    label: 'Mois',
+    getRange: () => {
+      const now = new Date()
+      const start = new Date(now.getFullYear(), now.getMonth(), 1)
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+      return { start: start.toISOString(), end: end.toISOString() }
+    },
+  },
+  {
+    key: 'quarter',
+    label: 'Trimestre',
+    getRange: () => {
+      const now = new Date()
+      const qStart = Math.floor(now.getMonth() / 3) * 3
+      const start = new Date(now.getFullYear(), qStart, 1)
+      const end = new Date(now.getFullYear(), qStart + 3, 0, 23, 59, 59, 999)
+      return { start: start.toISOString(), end: end.toISOString() }
+    },
+  },
+  {
+    key: 'year',
+    label: 'Annee',
+    getRange: () => {
+      const now = new Date()
+      const start = new Date(now.getFullYear(), 0, 1)
+      const end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
+      return { start: start.toISOString(), end: end.toISOString() }
+    },
+  },
+]
+
+// ─── Stage icons ───
 
 const STAGE_ICONS: Record<string, string> = {
   ciblage: '\u{1F3AF}',
@@ -48,105 +114,147 @@ const STAGE_ICONS: Record<string, string> = {
   refuse: '\u274C',
 }
 
+// ─── Props ───
+
+interface StatsDashboardProps {
+  machineStats: MachineStats
+  // Legacy props kept for compatibility but not used
+  stats?: unknown
+  stages?: unknown
+  contents?: unknown
+}
+
 // ─── Main component ───
 
-export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardProps) {
-  // Build funnel data from stages
-  const funnelData = useMemo(() => {
-    return stages
+export function StatsDashboard({ machineStats }: StatsDashboardProps) {
+  const [period, setPeriod] = useState<PeriodKey>('month')
+  const [data, setData] = useState<StatsData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [funnelMode, setFunnelMode] = useState<'stock' | 'flow'>('stock')
+
+  const fetchStats = useCallback(async (periodKey: PeriodKey) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const p = PERIODS.find(x => x.key === periodKey)!
+      const { start, end } = p.getRange()
+      const res = await fetch(`/api/stats?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error || `Erreur ${res.status}`)
+        return
+      }
+      setData(json)
+    } catch (err) {
+      console.error('Error fetching stats:', err)
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchStats(period)
+  }, [period, fetchStats])
+
+  // Build funnel data
+  const funnelStages = useMemo(() => {
+    if (!data) return []
+    return data.stages
       .filter(s => !s.is_terminal || s.slug === 'client')
       .sort((a, b) => a.position - b.position)
-      .map(stage => ({
-        slug: stage.slug,
-        name: stage.name,
-        count: stats.byStage[stage.slug] || 0,
-        color: stage.color || '#3b82f6',
-        icon: STAGE_ICONS[stage.slug] || '\u{1F4CA}',
+  }, [data])
+
+  const stockData = useMemo(() => {
+    if (!data) return []
+    return funnelStages.map(s => ({
+      ...s,
+      count: data.currentStock[s.slug] || 0,
+      icon: STAGE_ICONS[s.slug] || '\u{1F4CA}',
+    }))
+  }, [data, funnelStages])
+
+  const flowData = useMemo(() => {
+    if (!data) return []
+    return funnelStages
+      .filter(s => !s.is_default)
+      .map(s => ({
+        ...s,
+        count: data.periodFlow[s.slug] || 0,
+        icon: STAGE_ICONS[s.slug] || '\u{1F4CA}',
       }))
-  }, [stages, stats.byStage])
+  }, [data, funnelStages])
 
-  const maxCount = Math.max(...funnelData.map(f => f.count), 1)
+  const activeFunnel = funnelMode === 'stock' ? stockData : flowData
+  const maxCount = Math.max(...activeFunnel.map(f => f.count), 1)
 
-  // Compute contact-based conversion
-  const totalContacted = useMemo(() => {
-    return funnelData.reduce((s, f) => {
-      const stageInfo = stages.find(st => st.slug === f.slug)
-      return (!stageInfo?.is_default) ? s + f.count : s
-    }, 0)
-  }, [funnelData, stages])
+  // KPIs
+  const kpis = data ? [
+    { label: 'Contactes', value: String(data.contacted), sub: 'sur la periode', color: '#1863DC', icon: '\u{1F4E4}' },
+    { label: 'Taux de reponse', value: `${data.responseRate}%`, sub: `${data.responded} / ${data.contacted}`, color: '#fbbf24', icon: '\u{1F4AC}' },
+    { label: 'Conversion globale', value: `${data.conversionRate}%`, sub: `${data.closed} client${data.closed > 1 ? 's' : ''} signes`, color: '#22c55e', icon: '\u{1F4C8}' },
+    { label: 'Machines signees', value: String(data.machinesSigned), sub: 'sur la periode', color: '#10b981', icon: '\u2705' },
+  ] : []
 
-  const clientCount = stats.byStage['client'] || 0
-  const convGlobal = totalContacted > 0 ? ((clientCount / totalContacted) * 100).toFixed(1) : '0'
+  if (loading && !data) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="size-6 animate-spin text-white/30" />
+      </div>
+    )
+  }
 
-  // Response rate
-  const contactedCount = stats.byStage['contacte'] || 0
-  const postContactStages = funnelData
-    .filter(f => !['ciblage', 'contacte'].includes(f.slug))
-    .reduce((s, f) => s + f.count, 0)
-  const responseRate = (contactedCount + postContactStages) > 0
-    ? Math.round(postContactStages / (contactedCount + postContactStages) * 100)
-    : 0
+  if (error) {
+    return (
+      <div className="py-20 text-center">
+        <p className="text-sm text-red-400">Erreur : {error}</p>
+        <button
+          onClick={() => fetchStats(period)}
+          className="mt-3 rounded-md bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
+        >
+          Reessayer
+        </button>
+      </div>
+    )
+  }
 
-  // Quick stats insights
-  const quickStats = useMemo(() => {
-    const items: Array<{ label: string; value: string; color: string; icon: string }> = []
-
-    // Worst conversion step
-    let worstDrop = 0
-    let worstLabel = ''
-    for (let i = 1; i < funnelData.length; i++) {
-      const prev = funnelData[i - 1].count
-      const curr = funnelData[i].count
-      if (prev > 0) {
-        const drop = ((prev - curr) / prev) * 100
-        if (drop > worstDrop) {
-          worstDrop = drop
-          worstLabel = `${funnelData[i - 1].name} \u2192 ${funnelData[i].name} (${drop.toFixed(0)}% de perte)`
-        }
-      }
-    }
-    if (worstLabel) {
-      items.push({ label: 'Point de friction', value: worstLabel, color: 'text-red-400', icon: '\u{1F534}' })
-    }
-
-    // Best conversion step
-    let bestConv = 0
-    let bestLabel = ''
-    for (let i = 1; i < funnelData.length; i++) {
-      const prev = funnelData[i - 1].count
-      const curr = funnelData[i].count
-      if (prev > 0) {
-        const conv = (curr / prev) * 100
-        if (conv > bestConv && conv < 100) {
-          bestConv = conv
-          bestLabel = `${funnelData[i - 1].name} \u2192 ${funnelData[i].name} (${conv.toFixed(0)}%)`
-        }
-      }
-    }
-    if (bestLabel) {
-      items.push({ label: 'Meilleure conversion', value: bestLabel, color: 'text-emerald-400', icon: '\u{1F7E2}' })
-    }
-
-    items.push({ label: 'Pipeline actif', value: `${totalContacted} prospects en discussion`, color: 'text-amber-400', icon: '\u{1F525}' })
-
-    return items
-  }, [funnelData, totalContacted])
-
-  // KPI cards (4 only)
-  const kpis = [
-    { label: 'Contactes', value: String(totalContacted), sub: 'total pipeline', color: '#1863DC', icon: '\u{1F4E4}' },
-    { label: 'Taux de reponse', value: `${responseRate}%`, sub: `${postContactStages} / ${contactedCount + postContactStages}`, color: '#fbbf24', icon: '\u{1F4AC}' },
-    { label: 'Conversion globale', value: `${convGlobal}%`, sub: 'Contactes \u2192 Client', color: '#22c55e', icon: '\u{1F4C8}' },
-    { label: 'Machines signees', value: String(machineStats.totalMachines), sub: `${machineStats.clients.length} client${machineStats.clients.length > 1 ? 's' : ''}`, color: '#10b981', icon: '\u2705' },
-  ]
+  if (!data) return null
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Statistiques</h1>
-        <p className="mt-1 text-sm text-white/40">Analyse de votre pipeline commercial</p>
+      {/* Header + Period selector */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Statistiques</h1>
+          <p className="mt-1 text-sm text-white/40">Analyse de votre pipeline commercial</p>
+        </div>
+
+        <div className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] p-1">
+          {PERIODS.map(p => (
+            <button
+              key={p.key}
+              onClick={() => setPeriod(p.key)}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                period === p.key
+                  ? 'bg-white/10 text-white'
+                  : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              {p.key === period && <Calendar className="size-3" />}
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {/* Loading overlay */}
+      {loading && (
+        <div className="flex items-center gap-2 text-xs text-white/40">
+          <Loader2 className="size-3 animate-spin" />
+          Chargement...
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
@@ -168,31 +276,57 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
         ))}
       </div>
 
-      {/* Main grid: Funnel (left) + Right column */}
+      {/* Main grid: Funnel + Right column */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Funnel */}
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
-          <h3 className="mb-5 text-sm font-bold uppercase tracking-wider text-white/40">
-            Entonnoir de conversion
-          </h3>
+          <div className="mb-5 flex items-center justify-between">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-white/40">
+              Entonnoir de conversion
+            </h3>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setFunnelMode('stock')}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  funnelMode === 'stock'
+                    ? 'bg-white/10 text-white'
+                    : 'text-white/40 hover:text-white/60'
+                }`}
+              >
+                Stock actuel
+              </button>
+              <button
+                onClick={() => setFunnelMode('flow')}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  funnelMode === 'flow'
+                    ? 'bg-white/10 text-white'
+                    : 'text-white/40 hover:text-white/60'
+                }`}
+              >
+                Flux periode
+              </button>
+            </div>
+          </div>
 
           <div className="space-y-1">
-            {funnelData.map((f, i) => {
+            {activeFunnel.map((f, i) => {
               const pct = (f.count / maxCount) * 100
-              const prevCount = i > 0 ? funnelData[i - 1].count : 0
-              const drop = i > 0 && prevCount > 0 ? ((prevCount - f.count) / prevCount * 100).toFixed(0) : null
-              const dropNum = drop ? parseFloat(drop) : 0
-              const dropColor = dropNum > 60 ? 'text-red-400' : dropNum > 40 ? 'text-amber-400' : 'text-emerald-400'
+              const prevCount = i > 0 ? activeFunnel[i - 1].count : 0
+              const convRate = funnelMode === 'flow' && i > 0 && prevCount > 0
+                ? Math.round(f.count / prevCount * 100)
+                : null
 
               return (
                 <div key={f.slug}>
-                  {/* Drop indicator */}
-                  {i > 0 && (
+                  {/* Conversion between steps (only in flow mode) */}
+                  {funnelMode === 'flow' && i > 0 && (
                     <div className="ml-[42px] mb-1 flex items-center gap-2">
                       <div className="h-4 w-px bg-white/10" />
-                      {drop && dropNum > 0 && (
-                        <span className={`text-[11px] font-semibold ${dropColor}`}>
-                          -{drop}%
+                      {convRate !== null && (
+                        <span className={`text-[11px] font-semibold ${
+                          convRate >= 60 ? 'text-emerald-400' : convRate >= 40 ? 'text-amber-400' : 'text-red-400'
+                        }`}>
+                          {convRate}%
                         </span>
                       )}
                     </div>
@@ -229,28 +363,80 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
 
           {/* Global conversion footer */}
           <div className="mt-4 flex items-center justify-between rounded-lg border border-emerald-500/15 bg-emerald-500/[0.06] px-4 py-3">
-            <span className="text-xs font-semibold text-emerald-400">Conversion globale</span>
-            <span className="text-lg font-bold text-emerald-400">{convGlobal}%</span>
+            <span className="text-xs font-semibold text-emerald-400">
+              {funnelMode === 'stock' ? 'Total pipeline' : 'Conversion globale'}
+            </span>
+            <span className="text-lg font-bold text-emerald-400">
+              {funnelMode === 'stock'
+                ? `${activeFunnel.reduce((s, f) => s + f.count, 0)} prospects`
+                : `${data.conversionRate}%`}
+            </span>
           </div>
         </div>
 
         {/* Right column */}
         <div className="flex flex-col gap-5">
+          {/* Activite sur la periode */}
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
+            <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-white/40">
+              Activite sur la periode
+            </h3>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-lg bg-white/[0.03] p-3 text-center">
+                <Mail className="mx-auto mb-1.5 size-5 text-blue-400" />
+                <div className="text-xl font-bold">{data.emailsSent}</div>
+                <div className="text-[11px] text-white/40">Emails envoyes</div>
+              </div>
+              <div className="rounded-lg bg-white/[0.03] p-3 text-center">
+                <Phone className="mx-auto mb-1.5 size-5 text-green-400" />
+                <div className="text-xl font-bold">{data.callsMade}</div>
+                <div className="text-[11px] text-white/40">Calls</div>
+              </div>
+              <div className="rounded-lg bg-white/[0.03] p-3 text-center">
+                <Users className="mx-auto mb-1.5 size-5 text-purple-400" />
+                <div className="text-xl font-bold">{data.meetingsHeld}</div>
+                <div className="text-[11px] text-white/40">Meetings</div>
+              </div>
+            </div>
+          </div>
+
           {/* Points cles */}
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
             <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-white/40">
               Points cles
             </h3>
             <div className="space-y-3">
-              {quickStats.map(s => (
-                <div key={s.label} className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] p-3">
-                  <span className="shrink-0 text-sm">{s.icon}</span>
-                  <div>
-                    <div className="mb-0.5 text-[11px] font-semibold text-white/40">{s.label}</div>
-                    <div className={`text-[13px] font-medium ${s.color}`}>{s.value}</div>
+              <div className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] p-3">
+                <TrendingUp className="mt-0.5 size-4 shrink-0 text-amber-400" />
+                <div>
+                  <div className="mb-0.5 text-[11px] font-semibold text-white/40">Taux de reponse reel</div>
+                  <div className="text-[13px] font-medium text-amber-400">
+                    {data.responseRate}% des prospects contactes ce mois ont repondu
                   </div>
                 </div>
-              ))}
+              </div>
+
+              {data.avgConversionDays !== null && (
+                <div className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] p-3">
+                  <Clock className="mt-0.5 size-4 shrink-0 text-blue-400" />
+                  <div>
+                    <div className="mb-0.5 text-[11px] font-semibold text-white/40">Temps moyen de conversion</div>
+                    <div className="text-[13px] font-medium text-blue-400">
+                      {data.avgConversionDays} jours entre contacte et client
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] p-3">
+                <ArrowRightLeft className="mt-0.5 size-4 shrink-0 text-emerald-400" />
+                <div>
+                  <div className="mb-0.5 text-[11px] font-semibold text-white/40">Deals en mouvement</div>
+                  <div className="text-[13px] font-medium text-emerald-400">
+                    {data.dealsMovedThisWeek} prospect{data.dealsMovedThisWeek > 1 ? 's' : ''} ont change d&apos;etape cette semaine
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -294,7 +480,6 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
                   )
                 })}
 
-                {/* Total */}
                 <div className="mt-3 flex items-center justify-between rounded-lg bg-emerald-500/[0.06] px-3 py-2">
                   <span className="text-xs font-semibold text-emerald-400">Total</span>
                   <span className="text-sm font-bold text-emerald-400">
@@ -302,7 +487,6 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
                   </span>
                 </div>
 
-                {/* By type breakdown */}
                 {Object.keys(machineStats.byType).length > 1 && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {Object.entries(machineStats.byType).map(([type, count]) => (
@@ -317,6 +501,28 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
           </div>
         </div>
       </div>
+
+      {/* Blockers */}
+      {data.blockers.length > 0 && (
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
+          <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-white/40">
+            Prospects bloques
+          </h3>
+          <div className="space-y-2">
+            {data.blockers.map((b, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg bg-white/[0.02] px-3 py-2">
+                <div>
+                  <span className="text-[13px] font-medium">{b.name}</span>
+                  <span className="ml-2 text-[11px] text-white/40">{b.stage}</span>
+                </div>
+                <span className={`text-[12px] font-semibold ${b.days > 30 ? 'text-red-400' : 'text-amber-400'}`}>
+                  {b.days}j
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Forecast */}
       <ForecastStats />
