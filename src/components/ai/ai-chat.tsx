@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Send, Loader2, Trash2 } from 'lucide-react'
+import { Send, Loader2, Trash2, MessageSquarePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { AIMessage } from './ai-message'
@@ -42,6 +42,7 @@ export function AIChat({
   const [isStreaming, setIsStreaming] = useState(false)
   const [selectedModel, setSelectedModel] = useState<AIModelId | undefined>(undefined)
   const [historyLoaded, setHistoryLoaded] = useState(false)
+  const [contextStartIndex, setContextStartIndex] = useState<number | null>(null)
   const [emailDialog, setEmailDialog] = useState<{
     open: boolean
     contentId: string | null
@@ -149,9 +150,12 @@ export function AIChat({
       setIsStreaming(true)
 
       // Build conversation history for the API call
-      // Send only the last 10 messages from history + current message for context (token economy)
+      // Only include messages from current conversation context (after "Nouvelle conversation" break)
       const allMsgsBeforeNew = [...messages, userMsg]
-      const recentForApi = allMsgsBeforeNew.slice(-10).map((m) => ({
+      const contextMessages = contextStartIndex !== null
+        ? allMsgsBeforeNew.slice(contextStartIndex)
+        : allMsgsBeforeNew
+      const recentForApi = contextMessages.slice(-10).map((m) => ({
         role: m.role,
         content: m.content,
       }))
@@ -264,7 +268,7 @@ export function AIChat({
         abortRef.current = null
       }
     },
-    [messages, isStreaming, prospectId, selectedModel, saveToHistory]
+    [messages, isStreaming, prospectId, selectedModel, saveToHistory, contextStartIndex]
   )
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -279,8 +283,16 @@ export function AIChat({
     }
   }
 
+  const startNewConversation = useCallback(() => {
+    if (messages.length === 0) return
+    setContextStartIndex(messages.length)
+    // Dim all existing messages (treated as history visually)
+    setMessages(prev => prev.map(m => ({ ...m, fromHistory: true })))
+  }, [messages.length])
+
   const clearChat = async () => {
     setMessages([])
+    setContextStartIndex(null)
     if (abortRef.current) {
       abortRef.current.abort()
     }
@@ -426,15 +438,26 @@ export function AIChat({
             compact
           />
           {messages.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={clearChat}
-              className="h-6 gap-1 px-2 text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              <Trash2 className="h-3 w-3" />
-              Effacer
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={startNewConversation}
+                className="h-6 gap-1 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                <MessageSquarePlus className="h-3 w-3" />
+                Nouveau fil
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearChat}
+                className="h-6 gap-1 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                <Trash2 className="h-3 w-3" />
+                Effacer
+              </Button>
+            </div>
           )}
         </div>
         <form onSubmit={handleSubmit} className="flex gap-2">
