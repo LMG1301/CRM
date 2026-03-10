@@ -1,6 +1,6 @@
 // Boost CRM — Chrome Extension Popup
 
-const DEFAULT_CRM_URL = 'http://localhost:3000'
+const DEFAULT_CRM_URL = 'https://boost-crm-six.vercel.app'
 
 // DOM refs
 const extractSection = document.getElementById('extract-section')

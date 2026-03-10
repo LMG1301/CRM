@@ -1,6 +1,6 @@
 // Boost CRM — Side Panel for Gmail
 
-const DEFAULT_CRM_URL = 'http://localhost:3000'
+const DEFAULT_CRM_URL = 'https://boost-crm-six.vercel.app'
 
 // Views
 const loadingView = document.getElementById('loading-view')

@@ -95,7 +95,8 @@ function renderMarkdown(text: string) {
 }
 
 function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (id: string) => void }) {
-  const isLong = activity.content.length > COLLAPSE_THRESHOLD
+  const content = activity.content || ''
+  const isLong = content.length > COLLAPSE_THRESHOLD
   const [expanded, setExpanded] = useState(!isLong)  // Collapsed by default if long
   const [confirmDelete, setConfirmDelete] = useState(false)
   const icon = ACTIVITY_ICONS[activity.type] || '📌'
@@ -115,8 +116,8 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
 
   const displayContent =
     !expanded && isLong
-      ? activity.content.slice(0, CONTENT_PREVIEW_LENGTH) + '...'
-      : activity.content
+      ? content.slice(0, CONTENT_PREVIEW_LENGTH) + '...'
+      : content
 
   // Show match reason badge for Genspark notes
   const matchReason = activity.metadata?.match_reason as string | undefined
@@ -205,7 +206,7 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
           </div>
         )}
 
-        {activity.content && (
+        {content && (
           <div className="mt-1">
             <div className="text-sm text-muted-foreground whitespace-pre-wrap">
               {renderMarkdown(displayContent)}
@@ -270,7 +271,7 @@ function ActivityEntry({ activity, onDelete }: { activity: Activity; onDelete: (
         ) : null}
 
         {/* Subject shown as badge for emails without body in content */}
-        {isEmail && activity.metadata?.subject && !activity.content.startsWith('Objet') ? (
+        {isEmail && activity.metadata?.subject && !content.startsWith('Objet') ? (
           <p className="mt-1 text-xs text-muted-foreground">
             Objet : {String(activity.metadata.subject)}
           </p>
