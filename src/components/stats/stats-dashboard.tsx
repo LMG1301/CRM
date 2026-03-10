@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Loader2, Calendar, ArrowRightLeft, Mail, Phone, Users, Clock, TrendingUp } from 'lucide-react'
+import { Loader2, Calendar, ArrowRightLeft, Mail, Inbox, Users, Clock, TrendingUp } from 'lucide-react'
 import type { MachineType } from '@/lib/types'
 import { MACHINE_TYPE_LABELS } from '@/lib/types'
 import type { MachineStats } from '@/lib/actions/machines'
@@ -28,11 +28,11 @@ interface StatsData {
   currentStock: Record<string, number>
   periodFlow: Record<string, number>
   emailsSent: number
-  callsMade: number
+  emailsReceived: number
   meetingsHeld: number
+  emailResponseRate: number
   avgConversionDays: number | null
   dealsMovedThisWeek: number
-  blockers: Array<{ name: string; stage: string; days: number; reason: string }>
   stages: StageInfo[]
 }
 
@@ -192,7 +192,7 @@ export function StatsDashboard({ machineStats }: StatsDashboardProps) {
   // KPIs
   const kpis = data ? [
     { label: 'Contactes', value: String(data.contacted), sub: 'sur la periode', color: '#1863DC', icon: '\u{1F4E4}' },
-    { label: 'Taux de reponse', value: `${data.responseRate}%`, sub: `${data.responded} / ${data.contacted}`, color: '#fbbf24', icon: '\u{1F4AC}' },
+    { label: 'Taux de reponse', value: `${data.emailResponseRate}%`, sub: `${data.emailsReceived} recus / ${data.emailsSent} envoyes`, color: '#fbbf24', icon: '\u{1F4AC}' },
     { label: 'Conversion globale', value: `${data.conversionRate}%`, sub: `${data.closed} client${data.closed > 1 ? 's' : ''} signes`, color: '#22c55e', icon: '\u{1F4C8}' },
     { label: 'Machines signees', value: String(data.machinesSigned), sub: 'sur la periode', color: '#10b981', icon: '\u2705' },
   ] : []
@@ -381,23 +381,39 @@ export function StatsDashboard({ machineStats }: StatsDashboardProps) {
             <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-white/40">
               Activite sur la periode
             </h3>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-lg bg-white/[0.03] p-3 text-center">
-                <Mail className="mx-auto mb-1.5 size-5 text-blue-400" />
-                <div className="text-xl font-bold">{data.emailsSent}</div>
-                <div className="text-[11px] text-white/40">Emails envoyes</div>
-              </div>
-              <div className="rounded-lg bg-white/[0.03] p-3 text-center">
-                <Phone className="mx-auto mb-1.5 size-5 text-green-400" />
-                <div className="text-xl font-bold">{data.callsMade}</div>
-                <div className="text-[11px] text-white/40">Calls</div>
-              </div>
-              <div className="rounded-lg bg-white/[0.03] p-3 text-center">
-                <Users className="mx-auto mb-1.5 size-5 text-purple-400" />
-                <div className="text-xl font-bold">{data.meetingsHeld}</div>
-                <div className="text-[11px] text-white/40">Meetings</div>
-              </div>
-            </div>
+            {(() => {
+              const activityBars = [
+                { label: 'Emails envoyes', value: data.emailsSent, icon: <Mail className="size-4 text-blue-400" />, color: '#3b82f6' },
+                { label: 'Emails recus', value: data.emailsReceived, icon: <Inbox className="size-4 text-amber-400" />, color: '#f59e0b' },
+                { label: 'Meetings', value: data.meetingsHeld, icon: <Users className="size-4 text-purple-400" />, color: '#a855f7' },
+              ]
+              const maxActivity = Math.max(...activityBars.map(b => b.value), 1)
+              return (
+                <div className="space-y-3">
+                  {activityBars.map(bar => (
+                    <div key={bar.label} className="flex items-center gap-3">
+                      <div className="flex w-[110px] shrink-0 items-center gap-2">
+                        {bar.icon}
+                        <span className="text-[12px] text-white/50">{bar.label}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="h-6 w-full overflow-hidden rounded-md bg-white/5">
+                          <div
+                            className="h-full rounded-md transition-all duration-700"
+                            style={{
+                              width: `${Math.max((bar.value / maxActivity) * 100, 3)}%`,
+                              backgroundColor: bar.color,
+                              opacity: 0.7,
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <span className="w-8 shrink-0 text-right text-sm font-bold">{bar.value}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
           </div>
 
           {/* Points cles */}
@@ -411,7 +427,7 @@ export function StatsDashboard({ machineStats }: StatsDashboardProps) {
                 <div>
                   <div className="mb-0.5 text-[11px] font-semibold text-white/40">Taux de reponse reel</div>
                   <div className="text-[13px] font-medium text-amber-400">
-                    {data.responseRate}% des prospects contactes ce mois ont repondu
+                    {data.emailResponseRate}% — {data.emailsReceived} emails recus / {data.emailsSent} envoyes
                   </div>
                 </div>
               </div>
@@ -501,28 +517,6 @@ export function StatsDashboard({ machineStats }: StatsDashboardProps) {
           </div>
         </div>
       </div>
-
-      {/* Blockers */}
-      {data.blockers.length > 0 && (
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
-          <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-white/40">
-            Prospects bloques
-          </h3>
-          <div className="space-y-2">
-            {data.blockers.map((b, i) => (
-              <div key={i} className="flex items-center justify-between rounded-lg bg-white/[0.02] px-3 py-2">
-                <div>
-                  <span className="text-[13px] font-medium">{b.name}</span>
-                  <span className="ml-2 text-[11px] text-white/40">{b.stage}</span>
-                </div>
-                <span className={`text-[12px] font-semibold ${b.days > 30 ? 'text-red-400' : 'text-amber-400'}`}>
-                  {b.days}j
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Forecast */}
       <ForecastStats />

@@ -59,20 +59,39 @@ export async function GET(request: Request) {
   }
 
   // ─── 4. Activity counts in period ───
-  const { data: periodActivities } = await supabase
+
+  // Emails sent: from emails table
+  const { count: emailsSentCount } = await supabase
+    .from('emails')
+    .select('*', { count: 'exact', head: true })
+    .gte('gmail_date', startDate)
+    .lte('gmail_date', endDate)
+    .or('direction.eq.sent,from_email.ilike.%boostinc.com%')
+
+  const emailsSent = emailsSentCount || 0
+
+  // Emails received: from emails table
+  const { count: emailsReceivedCount } = await supabase
+    .from('emails')
+    .select('*', { count: 'exact', head: true })
+    .gte('gmail_date', startDate)
+    .lte('gmail_date', endDate)
+    .or('direction.eq.received,to_email.ilike.%boostinc.com%')
+
+  const emailsReceived = emailsReceivedCount || 0
+
+  // Meetings: from activities or calendar
+  const { count: meetingsCount } = await supabase
     .from('activities')
-    .select('type')
+    .select('*', { count: 'exact', head: true })
+    .eq('type', 'meeting')
     .gte('created_at', startDate)
     .lte('created_at', endDate)
 
-  let emailsSent = 0
-  let callsMade = 0
-  let meetingsHeld = 0
-  for (const a of periodActivities || []) {
-    if (a.type === 'email_sent') emailsSent++
-    else if (a.type === 'call') callsMade++
-    else if (a.type === 'meeting') meetingsHeld++
-  }
+  const meetingsHeld = meetingsCount || 0
+
+  // Response rate from emails: received / sent
+  const emailResponseRate = emailsSent > 0 ? Math.round(emailsReceived / emailsSent * 100) : 0
 
   // ─── 5. Deals moved this week ───
   const weekStart = getWeekStart()
@@ -102,33 +121,6 @@ export async function GET(request: Request) {
     // Table may not exist
   }
 
-  // ─── 8. Blockers (stuck prospects) ───
-  const excludedSlugs = [...defaultSlugs, ...terminalSlugs]
-  const { data: stuckProspects } = await supabase
-    .from('prospects')
-    .select('id, prenom, nom, entreprise, pipeline_stage, date_dernier_contact, updated_at')
-    .not('pipeline_stage', 'in', excludedSlugs.length > 0
-      ? `(${excludedSlugs.map(s => `"${s}"`).join(',')})`
-      : '("__none__")')
-    .order('updated_at', { ascending: true })
-    .limit(50)
-
-  const blockers: Array<{ name: string; stage: string; days: number; reason: string }> = []
-  for (const p of stuckProspects || []) {
-    const lastDate = p.date_dernier_contact || p.updated_at
-    if (!lastDate) continue
-    const days = Math.floor((Date.now() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24))
-    if (days >= 14) {
-      const name = [p.entreprise, [p.prenom, p.nom].filter(Boolean).join(' ')].filter(Boolean).join(' / ')
-      blockers.push({
-        name,
-        stage: p.pipeline_stage,
-        days,
-        reason: days > 30 ? 'Aucune activite depuis plus d\'un mois' : `Inactif depuis ${days} jours`,
-      })
-    }
-  }
-
   return Response.json({
     // KPIs
     contacted,
@@ -142,12 +134,12 @@ export async function GET(request: Request) {
     periodFlow,
     // Activity
     emailsSent,
-    callsMade,
+    emailsReceived,
     meetingsHeld,
+    emailResponseRate,
     // Insights
     avgConversionDays,
     dealsMovedThisWeek,
-    blockers: blockers.sort((a, b) => b.days - a.days).slice(0, 10),
     // Metadata
     stages: stages.map(s => ({
       slug: s.slug,
