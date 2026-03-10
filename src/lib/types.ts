@@ -313,6 +313,40 @@ export interface ClientMachine {
   created_at: string
 }
 
+// ─── Forecast ───
+
+export type ForecastProductType = 'screenkit' | 'smart_fridge' | 'smart_freezer' | 'autre'
+
+export const FORECAST_PRODUCT_LABELS: Record<ForecastProductType, string> = {
+  screenkit: 'ScreenKit',
+  smart_fridge: 'Smart Fridge',
+  smart_freezer: 'Smart Freezer',
+  autre: 'Autre',
+}
+
+export const FORECAST_PROBABILITY_OPTIONS = [
+  { value: 25, label: 'Froid', color: '#3b82f6', emoji: '🔵' },
+  { value: 50, label: 'Tiede', color: '#eab308', emoji: '🟡' },
+  { value: 75, label: 'Chaud', color: '#f97316', emoji: '🟠' },
+  { value: 90, label: 'Tres chaud', color: '#ef4444', emoji: '🔴' },
+  { value: 100, label: 'Signe', color: '#22c55e', emoji: '🟢' },
+] as const
+
+export interface ProspectForecast {
+  id: string
+  prospect_id: string
+  product_type: ForecastProductType
+  unit_price: number
+  quantity: number
+  total_amount: number
+  probability: number
+  expected_month: string
+  notes: string | null
+  created_at: string
+  updated_at: string
+  prospect?: { prenom: string; nom: string; entreprise: string }
+}
+
 // ─── Weekly Tasks (checklist hebdo) ───
 
 export type WeeklyTaskCategory = 'key_priority' | 'follow_up' | 'meeting' | 'onboarding' | 'task'

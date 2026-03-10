@@ -376,6 +376,40 @@ async function executeCrmQuery(input: { data_type: string; filters?: string }): 
       return { overdue: result, count: result.length }
     }
 
+    case 'forecast': {
+      const { data } = await supabase
+        .from('prospect_forecasts')
+        .select('*, prospect:prospects(prenom, nom, entreprise, pipeline_stage)')
+        .order('expected_month')
+        .order('probability', { ascending: false })
+
+      if (!data || data.length === 0) return { forecast: [], count: 0, total_brut: 0, total_pondere: 0 }
+
+      const result = data.map(f => ({
+        prospect: `${f.prospect?.prenom || ''} ${f.prospect?.nom || ''}`.trim(),
+        entreprise: f.prospect?.entreprise || '',
+        stage: f.prospect?.pipeline_stage || '',
+        produit: f.product_type,
+        quantite: f.quantity,
+        prix_unitaire: f.unit_price,
+        total: f.total_amount,
+        probabilite: f.probability,
+        mois_prevu: f.expected_month,
+        pondere: Math.round(f.total_amount * f.probability / 100),
+        notes: f.notes,
+      }))
+
+      const totalBrut = result.reduce((s, f) => s + f.total, 0)
+      const totalPondere = result.reduce((s, f) => s + f.pondere, 0)
+
+      return {
+        forecast: result,
+        count: result.length,
+        total_brut: totalBrut,
+        total_pondere: totalPondere,
+      }
+    }
+
     default:
       return { error: `Type de donnees inconnu: ${data_type}` }
   }
@@ -486,8 +520,8 @@ const CRM_TOOL = {
     properties: {
       data_type: {
         type: "string",
-        enum: ["prospects", "clients", "entreprises", "activites_recentes", "emails_recents", "machines", "pipeline_summary", "deals_bloques", "calendar_this_week", "next_actions_this_week", "previous_week_tasks", "overdue_actions"],
-        description: "Le type de donnees a recuperer. Pour le Monday Check-in, utilise dans cet ordre : calendar_this_week, next_actions_this_week, previous_week_tasks, overdue_actions.",
+        enum: ["prospects", "clients", "entreprises", "activites_recentes", "emails_recents", "machines", "pipeline_summary", "deals_bloques", "calendar_this_week", "next_actions_this_week", "previous_week_tasks", "overdue_actions", "forecast"],
+        description: "Le type de donnees a recuperer. Pour le Monday Check-in, utilise dans cet ordre : calendar_this_week, next_actions_this_week, previous_week_tasks, overdue_actions. Pour le Sales Review, utilise aussi forecast pour le pipeline previsionnel.",
       },
       filters: {
         type: "string",
@@ -641,7 +675,7 @@ Batch 3 — Projets & Blocages :
 - Autre chose a mentionner ?
 
 PHASE 2 — SCAN DES DONNEES
-Apres l'interview, utilise query_crm pour recuperer : pipeline_summary, clients (machines signees), deals_bloques, activites_recentes (14 jours), emails_recents.
+Apres l'interview, utilise query_crm pour recuperer : pipeline_summary, forecast, clients (machines signees), deals_bloques, activites_recentes (14 jours), emails_recents.
 Croise ces donnees avec les reponses de l'interview. Si tu trouves des infos non mentionnees, signale-les.
 
 PHASE 3 — GENERER LE RAPPORT
@@ -657,10 +691,14 @@ SW Sales: [montant] | Margin: [% ou TBC]
 - [Client] — [type licence] — [montant MRR]
 
 FORECAST (Next 2-3 Months)
-Hot (>70%): [Client] — [produit] — [montant] — [date]
-Warm (30-70%): [Client] — [produit] — [montant]
-Cold (<30%): [Client] — [produit] — [montant]
-Pipeline Total: [somme] | Weighted: [somme ponderee]
+Hot (>70%):
+- [prospect] — [product] x[qty] — [total] EUR — [month]
+Warm (30-70%):
+- [prospect] — [product] x[qty] — [total] EUR — [month]
+Cold (<30%):
+- [prospect] — [product] x[qty] — [total] EUR — [month]
+Pipeline Total: [total_brut] EUR
+Weighted Pipeline: [total_pondere] EUR
 
 KEY PROJECTS & DEVELOPMENTS
 Progress: [Client/Projet] — [avancement]

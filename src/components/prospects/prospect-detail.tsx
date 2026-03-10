@@ -61,6 +61,7 @@ import { VoiceRecorder } from './voice-recorder'
 import { CompanyContextPanel } from './company-context-panel'
 import { DealGroupPanel } from './deal-group-panel'
 import { MachinesParcPanel } from './machines-parc-panel'
+import { ForecastPanel } from './forecast-panel'
 import { ProspectMeetings } from './prospect-meetings'
 import { EnrollSequenceDialog } from '@/components/sequences/enroll-sequence-dialog'
 import { EditSequenceEmailDialog } from '@/components/sequences/edit-sequence-email-dialog'
@@ -902,6 +903,11 @@ export function ProspectDetail({
 
             {/* Deal group — other prospects on same opportunity */}
             <DealGroupPanel prospect={prospect} />
+
+            {/* Forecast — visible for advanced pipeline stages */}
+            {['devis', 'closing', 'onboarding', 'client'].includes(prospect.pipeline_stage) && (
+              <ForecastPanel prospectId={prospect.id} />
+            )}
 
             {/* Parc machines — only for onboarding/client stages */}
             {['onboarding', 'client'].includes(prospect.pipeline_stage) && (

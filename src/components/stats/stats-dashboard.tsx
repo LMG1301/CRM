@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import type { PipelineStage, MachineType } from '@/lib/types'
 import { MACHINE_TYPE_LABELS } from '@/lib/types'
 import type { MachineStats } from '@/lib/actions/machines'
+import { ForecastStats } from './forecast-stats'
 
 // ─── Types ───
 
@@ -316,6 +317,9 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
           </div>
         </div>
       </div>
+
+      {/* Forecast */}
+      <ForecastStats />
     </div>
   )
 }
