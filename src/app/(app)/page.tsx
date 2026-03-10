@@ -58,33 +58,38 @@ export default async function DashboardPage() {
 
         {/* Main content: 2-column layout */}
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
-          {/* Left column - Actions, Tasks, Hot prospects */}
+          {/* Left column - Actions, Sequences pending, Tasks, Hot prospects */}
           <div className="space-y-8 lg:col-span-3">
+            {/* ===== SECTION OBLIGATOIRE 1/5 : Actions du jour ===== */}
             <section>
               <ActionsToday prospects={actionsDuJour} />
             </section>
 
-            {/* IMPORTANT: Ne pas supprimer — affiche les emails de sequence
-                en attente d'approbation (semi-auto). La section est masquee
-                quand il n'y a aucun email en attente (pending_email IS NOT NULL). */}
-            {pendingSequenceEmails.length > 0 && (
+            {/* ===== SECTION OBLIGATOIRE 2/5 : Sequences en attente (NE PAS SUPPRIMER) =====
+                Affiche les emails de sequence en attente d'approbation (semi-auto).
+                La section est masquee quand il n'y a aucun email en attente
+                (enrollments actives avec pending_email IS NOT NULL).
+                getPendingReviewEmails() est appele dans le Promise.all ci-dessus. */}
+            {pendingSequenceEmails && pendingSequenceEmails.length > 0 && (
               <section>
                 <PendingSequenceEmails initialPending={pendingSequenceEmails} />
               </section>
             )}
 
+            {/* ===== SECTION OBLIGATOIRE 3/5 : Taches du jour ===== */}
             {tasksDuJour.length > 0 && (
               <section>
                 <TasksToday initialTasks={tasksDuJour} />
               </section>
             )}
 
+            {/* ===== SECTION OBLIGATOIRE 4/5 : Prospects chauds ===== */}
             <section>
               <HotProspects prospects={hotProspects} />
             </section>
           </div>
 
-          {/* Right column - Weekly checklist */}
+          {/* ===== SECTION OBLIGATOIRE 5/5 : Checklist semaine ===== */}
           <div className="space-y-8 lg:col-span-2">
             <section>
               <WeeklyChecklist />
