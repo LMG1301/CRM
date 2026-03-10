@@ -97,7 +97,7 @@ export async function POST(request: Request) {
         .limit(5),
       supabase
         .from('business_context')
-        .select('company_name, tone_and_style, email_signature')
+        .select('company_name, tone_and_style, email_signature, email_templates')
         .limit(1)
         .single(),
     ])
@@ -131,22 +131,26 @@ export async function POST(request: Request) {
     const systemPrompt = `Tu es ${bizContext?.company_name ? `Louis Matar, Business Development chez ${bizContext.company_name}` : 'un commercial B2B'}.
 Tu rediges l'email etape ${stepPosition}/${totalSteps} d'une sequence de prospection en francais.
 
+## Templates de reference
+Utilise ces modeles comme base de structure et de ton, puis personnalise pour le prospect :
+${bizContext?.email_templates || 'Pas de templates definis.'}
+
 ## Contexte de la sequence
 - Nom: ${sequence.name}
 - Description: ${sequence.description || 'Sequence de prospection'}
-- Etape actuelle: ${stepPosition} sur ${totalSteps}
-- Instruction pour cette etape: ${step.prompt_hint}
+- Etape: ${stepPosition}/${totalSteps}
+- Instruction: ${step.prompt_hint}
 ${step.subject_hint ? `- Indication objet: ${step.subject_hint}` : ''}
 
 ## Etapes precedentes envoyees
 ${previousStepsContext}
 
-## Regles strictes
-- Email court et percutant (max 150 mots, 3 paragraphes max)
-- Personnalise en fonction du profil du prospect ET de l'historique
-- ${stepPosition === 1 ? 'Premier contact, pas de reference a un echange precedent' : 'Relance, fais reference au(x) message(s) precedent(s) sans copier le contenu'}
-- CTA clair adapte a l'etape
-- ${bizContext?.tone_and_style || 'Ton professionnel mais humain'}
+## Regles
+- Email COURT et percutant (120 mots max, 3 paragraphes max)
+- Personnalise avec le contexte du prospect (entreprise, fonction, secteur)
+- ${stepPosition === 1 ? 'Premier contact — pas de reference a un echange precedent' : 'Relance — reference subtile au(x) message(s) precedent(s)'}
+- CTA clair et precis adapte a l'etape
+- ${bizContext?.tone_and_style || 'Ton professionnel mais humain, direct'}
 
 ## Anti-patterns (INTERDIT)
 - "J'espere que vous allez bien", "Suite a notre dernier echange", "Je me permets de"
@@ -165,11 +169,24 @@ Reponds UNIQUEMENT en JSON valide:
       activityHistory ? `\nDernieres activites:\n${activityHistory}` : '',
       '',
       `Genere l'email pour l'etape ${stepPosition}: "${step.prompt_hint}"`,
+      stepPosition === 1 && prospect.entreprise
+        ? `\nSi tu as un outil de recherche web, utilise-le pour trouver un fait recent ou une actualite sur l'entreprise "${prospect.entreprise}" qui pourrait servir d'accroche personnalisee.`
+        : '',
     ].filter(Boolean).join('\n')
+
+    // Web search tool for step 1 only — find company news for personalized opener
+    const useWebSearch = stepPosition === 1 && !!prospect.entreprise
+    const tools = useWebSearch ? [
+      {
+        type: 'web_search_20250305' as const,
+        name: 'web_search' as const,
+        max_uses: 1,
+      },
+    ] : undefined
 
     const response = await anthropic.messages.create({
       model: model.apiModelId,
-      max_tokens: 600,
+      max_tokens: 1024,
       system: [
         {
           type: 'text' as const,
@@ -178,6 +195,7 @@ Reponds UNIQUEMENT en JSON valide:
         },
       ],
       messages: [{ role: 'user', content: userMessage }],
+      ...(tools ? { tools } : {}),
     })
 
     logApiUsage({
@@ -189,7 +207,7 @@ Reponds UNIQUEMENT en JSON valide:
 
     let rawText = response.content
       .filter(b => b.type === 'text')
-      .map(b => b.text)
+      .map(b => (b as { type: 'text'; text: string }).text)
       .join('')
       .trim()
 

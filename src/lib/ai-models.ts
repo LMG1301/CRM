@@ -73,7 +73,7 @@ export const DEFAULT_MODEL_ROUTING: Record<AIEndpoint, AIModelId> = {
   'suggest-stage': 'claude-haiku',
   'parse-signature': 'claude-haiku',
   'personalize-template': 'claude-haiku',
-  'generate-sequence-email': 'claude-haiku',
+  'generate-sequence-email': 'claude-sonnet',
   'knowledge-summary': 'claude-haiku',
 }
 

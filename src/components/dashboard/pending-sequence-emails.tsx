@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Loader2, Mail, RotateCcw, SkipForward, Square, Zap } from 'lucide-react'
+import { Check, Loader2, Mail, Pencil, RotateCcw, SkipForward, Square, Zap } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { EditSequenceEmailDialog } from '@/components/sequences/edit-sequence-email-dialog'
 import type { SequenceEnrollment } from '@/lib/types'
 
 interface PendingSequenceEmailsProps {
@@ -15,6 +16,7 @@ export function PendingSequenceEmails({ initialPending }: PendingSequenceEmailsP
   const [pending, setPending] = useState(initialPending)
   const [actioning, setActioning] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [editingEnrollment, setEditingEnrollment] = useState<SequenceEnrollment | null>(null)
 
   const handleApprove = async (enrollmentId: string) => {
     console.log('[APPROVE] Starting...', enrollmentId)
@@ -187,6 +189,16 @@ export function PendingSequenceEmails({ initialPending }: PendingSequenceEmailsP
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 px-2 text-xs"
+                  onClick={() => setEditingEnrollment(enrollment)}
+                  disabled={isActioning}
+                >
+                  <Pencil className="size-3" />
+                  Modifier
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2 text-xs"
                   onClick={() => handleRegenerate(enrollment.id)}
                   disabled={isActioning}
                 >
@@ -218,6 +230,21 @@ export function PendingSequenceEmails({ initialPending }: PendingSequenceEmailsP
           )
         })}
       </CardContent>
+
+      {/* Edit email dialog */}
+      {editingEnrollment && (
+        <EditSequenceEmailDialog
+          open={!!editingEnrollment}
+          onOpenChange={(open) => { if (!open) setEditingEnrollment(null) }}
+          enrollment={editingEnrollment}
+          onSaved={(action) => {
+            if (action === 'sent') {
+              setPending(prev => prev.filter(p => p.id !== editingEnrollment.id))
+            }
+            setEditingEnrollment(null)
+          }}
+        />
+      )}
     </Card>
   )
 }

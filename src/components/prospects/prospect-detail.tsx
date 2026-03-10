@@ -63,6 +63,7 @@ import { DealGroupPanel } from './deal-group-panel'
 import { MachinesParcPanel } from './machines-parc-panel'
 import { ProspectMeetings } from './prospect-meetings'
 import { EnrollSequenceDialog } from '@/components/sequences/enroll-sequence-dialog'
+import { EditSequenceEmailDialog } from '@/components/sequences/edit-sequence-email-dialog'
 
 interface ProspectDetailProps {
   prospect: Prospect
@@ -157,6 +158,8 @@ export function ProspectDetail({
   const [unenrolling, setUnenrolling] = useState<string | null>(null)
   const [showSeqHistory, setShowSeqHistory] = useState(false)
   const [deletingEnrollment, setDeletingEnrollment] = useState<string | null>(null)
+  const [editingSeqEnrollment, setEditingSeqEnrollment] = useState<SequenceEnrollment | null>(null)
+  const [approvingSeq, setApprovingSeq] = useState<string | null>(null)
 
   // Load tasks for this prospect
   useEffect(() => {
@@ -203,6 +206,26 @@ export function ProspectDetail({
       loadEnrollments()
     } catch { /* ignore */ }
     setDeletingEnrollment(null)
+  }
+
+  const handleApproveSequenceEmail = async (enrollmentId: string) => {
+    setApprovingSeq(enrollmentId)
+    try {
+      const res = await fetch('/api/sequences/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enrollment_id: enrollmentId }),
+      })
+      if (res.ok) {
+        loadEnrollments()
+      } else {
+        const data = await res.json()
+        alert(`Erreur: ${data.error || 'Erreur inconnue'}`)
+      }
+    } catch (err) {
+      alert(`Erreur reseau: ${(err as Error).message}`)
+    }
+    setApprovingSeq(null)
   }
 
   const handleTaskAction = async (taskId: string, status: 'done' | 'skipped') => {
@@ -740,7 +763,7 @@ export function ProspectDetail({
                                 </div>
                               )}
 
-                              {/* Pending email preview */}
+                              {/* Pending email preview + actions */}
                               {pendingEmail && (
                                 <div className="mt-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-2.5 py-2">
                                   <div className="flex items-center gap-1.5 mb-1">
@@ -757,6 +780,30 @@ export function ProspectDetail({
                                       {pendingEmail.body_text.slice(0, 150)}
                                     </p>
                                   )}
+                                  <div className="mt-2 flex items-center gap-1.5">
+                                    <Button
+                                      size="sm"
+                                      className="h-6 gap-1 bg-emerald-600 px-2 text-[11px] hover:bg-emerald-500"
+                                      onClick={() => handleApproveSequenceEmail(enrollment.id)}
+                                      disabled={approvingSeq === enrollment.id}
+                                    >
+                                      {approvingSeq === enrollment.id ? (
+                                        <Loader2 className="size-3 animate-spin" />
+                                      ) : (
+                                        <Check className="size-3" />
+                                      )}
+                                      Approuver
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 gap-1 px-2 text-[11px]"
+                                      onClick={() => setEditingSeqEnrollment(enrollment)}
+                                    >
+                                      <Pencil className="size-3" />
+                                      Modifier
+                                    </Button>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -961,6 +1008,19 @@ export function ProspectDetail({
         prospectName={fullName}
         onEnrolled={loadEnrollments}
       />
+
+      {/* Edit sequence email dialog */}
+      {editingSeqEnrollment && (
+        <EditSequenceEmailDialog
+          open={!!editingSeqEnrollment}
+          onOpenChange={(open) => { if (!open) setEditingSeqEnrollment(null) }}
+          enrollment={editingSeqEnrollment}
+          onSaved={() => {
+            setEditingSeqEnrollment(null)
+            loadEnrollments()
+          }}
+        />
+      )}
 
     </div>
   )
