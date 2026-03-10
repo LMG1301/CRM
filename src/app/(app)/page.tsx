@@ -64,6 +64,9 @@ export default async function DashboardPage() {
               <ActionsToday prospects={actionsDuJour} />
             </section>
 
+            {/* IMPORTANT: Ne pas supprimer — affiche les emails de sequence
+                en attente d'approbation (semi-auto). La section est masquee
+                quand il n'y a aucun email en attente (pending_email IS NOT NULL). */}
             {pendingSequenceEmails.length > 0 && (
               <section>
                 <PendingSequenceEmails initialPending={pendingSequenceEmails} />
