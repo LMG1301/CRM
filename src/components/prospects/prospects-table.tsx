@@ -8,6 +8,7 @@ import {
   ArrowUp,
   ArrowDown,
   Download,
+  Upload,
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
@@ -353,6 +354,12 @@ export function ProspectsTable({ prospects, stages }: ProspectsTableProps) {
           <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="size-4" />
             Exporter CSV
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/import">
+              <Upload className="size-4" />
+              Importer CSV
+            </Link>
           </Button>
           <Button size="sm" onClick={() => setAddDialogOpen(true)}>
             <Plus className="size-4" />

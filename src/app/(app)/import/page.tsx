@@ -37,6 +37,8 @@ import {
 import { bulkImportProspects } from '@/lib/actions'
 import type { Prospect } from '@/lib/types'
 
+// Note: Gmail sync section removed — Gmail connection is now managed in Settings > Connexions
+
 // ─── CSV Parser ───
 
 function parseCSV(text: string): string[][] {
@@ -373,20 +375,11 @@ export default function ImportPage() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold tracking-tight">
-            Importer
+            Import CSV
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Importez vos prospects ou synchronisez vos emails Gmail
+            Importez vos prospects depuis un fichier CSV
           </p>
-        </div>
-
-        {/* Gmail Import Section */}
-        <GmailImportSection />
-
-        <div className="my-8 flex items-center gap-4">
-          <div className="flex-1 border-t border-border/50" />
-          <span className="text-xs text-muted-foreground">ou importez un CSV</span>
-          <div className="flex-1 border-t border-border/50" />
         </div>
 
         {/* Step indicator */}
@@ -763,221 +756,6 @@ export default function ImportPage() {
         )}
       </div>
     </div>
-  )
-}
-
-// ─── Gmail Import Section ───
-
-function GmailImportSection() {
-  const [afterDate, setAfterDate] = useState('2023/01/01')
-  const [beforeDate, setBeforeDate] = useState('')
-  const [maxResults, setMaxResults] = useState('500')
-  const [importing, setImporting] = useState(false)
-  const [gmailResult, setGmailResult] = useState<Record<string, unknown> | null>(null)
-  const [gmailError, setGmailError] = useState('')
-  const [needOAuth, setNeedOAuth] = useState(false)
-  const [showManual, setShowManual] = useState(false)
-  const [manualToken, setManualToken] = useState('')
-
-  const handleGmailImport = async (manualAccessToken?: string) => {
-    setImporting(true)
-    setGmailResult(null)
-    setGmailError('')
-    setNeedOAuth(false)
-
-    try {
-      const body: Record<string, unknown> = {
-        after: afterDate || undefined,
-        before: beforeDate || undefined,
-        max_results: parseInt(maxResults) || 500,
-      }
-      if (manualAccessToken) {
-        body.access_token = manualAccessToken
-      }
-
-      const res = await fetch('/api/gmail/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-
-      const data = await res.json()
-      if (!res.ok) {
-        if (data.need_oauth) {
-          setNeedOAuth(true)
-          setGmailError('Gmail non connecte. Cliquez sur "Connecter Gmail" ou collez un token manuellement.')
-        } else {
-          setGmailError(data.error + (data.hint ? `\n${data.hint}` : ''))
-        }
-        return
-      }
-
-      setGmailResult(data)
-    } catch (err) {
-      setGmailError((err as Error).message)
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          Synchroniser les emails Gmail
-        </CardTitle>
-        <CardDescription>
-          Importez vos emails directement depuis Gmail. Ils seront automatiquement lies aux prospects existants.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Date filters */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Emails depuis</label>
-            <input
-              type="text"
-              value={afterDate}
-              onChange={(e) => setAfterDate(e.target.value)}
-              placeholder="2023/01/01"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Jusqu&apos;au (optionnel)</label>
-            <input
-              type="text"
-              value={beforeDate}
-              onChange={(e) => setBeforeDate(e.target.value)}
-              placeholder="2025/12/31"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Nombre max</label>
-            <Select value={maxResults} onValueChange={setMaxResults}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="100">100</SelectItem>
-                <SelectItem value="250">250</SelectItem>
-                <SelectItem value="500">500</SelectItem>
-                <SelectItem value="1000">1 000</SelectItem>
-                <SelectItem value="2000">2 000</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Main action buttons */}
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button
-            onClick={() => handleGmailImport()}
-            disabled={importing}
-            className="flex-1 gap-2"
-          >
-            {importing ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Import en cours... (quelques minutes)
-              </>
-            ) : (
-              <>
-                <Upload className="h-4 w-4" />
-                Lancer la synchronisation
-              </>
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => window.location.href = '/api/gmail/oauth/authorize'}
-            className="gap-2"
-          >
-            Connecter Gmail
-          </Button>
-        </div>
-
-        {/* Manual token fallback */}
-        {(needOAuth || showManual) && (
-          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-blue-400">Token manuel (si OAuth non configure)</p>
-              {!needOAuth && (
-                <button onClick={() => setShowManual(false)} className="text-xs text-muted-foreground hover:text-foreground">
-                  Fermer
-                </button>
-              )}
-            </div>
-            <ol className="list-decimal list-inside space-y-1 text-muted-foreground text-xs">
-              <li>Allez sur <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">OAuth Playground</a></li>
-              <li>Selectionnez <strong>Gmail API v1</strong> → <code className="bg-muted px-1 rounded text-[11px]">gmail.readonly</code></li>
-              <li>Authorize → Exchange → Copiez le <strong>Access token</strong></li>
-            </ol>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={manualToken}
-                onChange={(e) => setManualToken(e.target.value)}
-                placeholder="ya29.a0AfH6SM..."
-                className="flex h-9 flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-              <Button
-                size="sm"
-                onClick={() => handleGmailImport(manualToken.trim())}
-                disabled={importing || !manualToken.trim()}
-              >
-                Importer
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {!showManual && !needOAuth && (
-          <button
-            onClick={() => setShowManual(true)}
-            className="text-xs text-muted-foreground hover:text-foreground underline"
-          >
-            Utiliser un token manuel
-          </button>
-        )}
-
-        {/* Error */}
-        {gmailError && !needOAuth && (
-          <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <p className="whitespace-pre-wrap">{gmailError}</p>
-          </div>
-        )}
-
-        {/* Results */}
-        {gmailResult && (
-          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-              <p className="text-sm font-medium text-emerald-300">
-                {String(gmailResult.message || 'Import termine')}
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs text-emerald-400/80 sm:grid-cols-4">
-              <div>Emails trouves: <strong>{String(gmailResult.total_fetched || 0)}</strong></div>
-              <div>Stockes: <strong>{String(gmailResult.emails_stored || 0)}</strong></div>
-              <div>Lies a prospects: <strong>{String(gmailResult.emails_linked || 0)}</strong></div>
-              <div>Deja importes: <strong>{String(gmailResult.already_exists || 0)}</strong></div>
-              <div>Prospects crees: <strong>{String(gmailResult.prospects_created || 0)}</strong></div>
-              <div>Activites creees: <strong>{String(gmailResult.activities_created || 0)}</strong></div>
-              <div>Stages changes: <strong>{String(gmailResult.stage_changes || 0)}</strong></div>
-              <div>Ignores: <strong>{String(gmailResult.skipped || 0)}</strong></div>
-            </div>
-            {Array.isArray(gmailResult.errors) && (gmailResult.errors as string[]).length > 0 && (
-              <div className="mt-2 text-xs text-amber-400">
-                {(gmailResult.errors as string[]).length} erreur(s) — {(gmailResult.errors as string[]).slice(0, 5).join(', ')}
-              </div>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
   )
 }
 

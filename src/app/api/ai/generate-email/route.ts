@@ -126,6 +126,7 @@ ${contentUrlRule}
 Anti-patterns (INTERDIT) :
 - Ne commence JAMAIS par "J'espere que vous allez bien", "Suite a notre dernier echange", "Je me permets de", "Je reviens vers vous"
 - Ouvre DIRECTEMENT par la valeur : un fait sectoriel, une question pertinente, un insight lie au contenu
+- Formule de politesse : utilise "Bonne journee", JAMAIS "Belle journee". Autres formules acceptees : "Bien a vous", "Cordialement", "A bientot".
 
 Signature obligatoire (a inclure dans body_html et body_text) :
 Louis Matar

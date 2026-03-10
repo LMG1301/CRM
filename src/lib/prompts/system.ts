@@ -113,7 +113,12 @@ const CAPABILITIES_BLOCK = `
 ## Format de reponse
 - Emails : commence par "Objet :" puis le corps. Pas de signature.
 - LinkedIn : commence directement par le message.
-- Langue : Francais. Markdown pour la mise en forme.`
+- Langue : Francais. Markdown pour la mise en forme.
+
+## Regles de style obligatoires
+- Formule de politesse : utilise "Bonne journee", JAMAIS "Belle journee".
+- Autres formules acceptees : "Bien a vous", "Cordialement", "A bientot".
+- Ne commence JAMAIS un email par "J'espere que vous allez bien" ou "J'espere que tout va bien".`
 
 // ─── Fallback prompt (if no business context configured) ───
 
@@ -322,7 +327,7 @@ function buildProspectContext(
         : activity.type === 'meeting' ? 'Reunion'
         : activity.type === 'presentation' ? 'Presentation'
         : activity.type
-      const rawContent = activity.content
+      const rawContent = activity.content || ''
       const maxLen = 300
       const content = rawContent.length > maxLen
         ? rawContent.substring(0, maxLen) + '...'

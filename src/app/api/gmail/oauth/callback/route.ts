@@ -5,16 +5,16 @@ import { storeGmailRefreshToken } from '@/lib/gmail'
  * Step 2: Google redirects here with an authorization code.
  * We exchange it for access + refresh tokens, store refresh_token in a cookie
  * AND in the integrations table (for server-side/cron access),
- * then redirect to /import.
+ * then redirect to /settings.
  */
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
   const error = req.nextUrl.searchParams.get('error')
 
   if (error) {
-    const importUrl = new URL('/import', req.url)
-    importUrl.searchParams.set('gmail_error', error)
-    return NextResponse.redirect(importUrl)
+    const settingsUrl = new URL('/settings', req.url)
+    settingsUrl.searchParams.set('gmail_error', error)
+    return NextResponse.redirect(settingsUrl)
   }
 
   if (!code) {
@@ -50,16 +50,16 @@ export async function GET(req: NextRequest) {
     const tokenData = await tokenRes.json()
 
     if (!tokenRes.ok || !tokenData.access_token) {
-      const importUrl = new URL('/import', req.url)
-      importUrl.searchParams.set('gmail_error', tokenData.error_description || 'Token exchange failed')
-      return NextResponse.redirect(importUrl)
+      const settingsUrl = new URL('/settings', req.url)
+      settingsUrl.searchParams.set('gmail_error', tokenData.error_description || 'Token exchange failed')
+      return NextResponse.redirect(settingsUrl)
     }
 
     // Store refresh token in secure cookie (lasts 1 year)
-    const importUrl = new URL('/import', req.url)
-    importUrl.searchParams.set('gmail_connected', '1')
+    const settingsUrl = new URL('/settings', req.url)
+    settingsUrl.searchParams.set('gmail_connected', '1')
 
-    const response = NextResponse.redirect(importUrl)
+    const response = NextResponse.redirect(settingsUrl)
 
     if (tokenData.refresh_token) {
       response.cookies.set('gmail_refresh_token', tokenData.refresh_token, {
@@ -85,8 +85,8 @@ export async function GET(req: NextRequest) {
 
     return response
   } catch (err) {
-    const importUrl = new URL('/import', req.url)
-    importUrl.searchParams.set('gmail_error', (err as Error).message)
-    return NextResponse.redirect(importUrl)
+    const settingsUrl = new URL('/settings', req.url)
+    settingsUrl.searchParams.set('gmail_error', (err as Error).message)
+    return NextResponse.redirect(settingsUrl)
   }
 }

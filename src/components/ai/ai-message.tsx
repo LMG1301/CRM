@@ -24,6 +24,15 @@ export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentA
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // Force plain text on manual selection + Ctrl+C (avoid white-on-white in Gmail)
+  const handleManualCopy = (e: React.ClipboardEvent) => {
+    const selection = window.getSelection()?.toString()
+    if (selection) {
+      e.preventDefault()
+      e.clipboardData.setData('text/plain', selection)
+    }
+  }
+
   return (
     <div
       className={cn(
@@ -57,7 +66,7 @@ export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentA
             : 'bg-brand-accent/20 text-foreground'
         )}
       >
-        <div className="prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:bg-white/5 [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-brand-accent">
+        <div className="prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:bg-white/5 [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-brand-accent" onCopy={handleManualCopy}>
           {content.split('\n').map((line, i) => {
             // Detect [CONTENT:id] and render as button
             const contentMatch = line.match(/\[CONTENT:([a-zA-Z0-9-]+)\]/)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Loader2, Zap } from 'lucide-react'
+import { Loader2, Mail, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import type { Sequence } from '@/lib/types'
@@ -27,19 +27,22 @@ export function EnrollSequenceDialog({
   const [sendMode, setSendMode] = useState<'semi_auto' | 'auto'>('semi_auto')
   const [enrolling, setEnrolling] = useState(false)
   const [result, setResult] = useState<{ enrolled: number; skipped: number } | null>(null)
+  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null)
 
   useEffect(() => {
     if (open) {
       setResult(null)
+      setGmailConnected(null)
       setLoading(true)
-      fetch('/api/sequences')
-        .then(r => r.json())
-        .then(data => {
-          const active = (Array.isArray(data) ? data : []).filter((s: Sequence) => s.is_active)
-          setSequences(active)
-          if (active.length > 0 && !selectedId) setSelectedId(active[0].id)
-        })
-        .catch(() => {})
+      Promise.all([
+        fetch('/api/sequences').then(r => r.json()),
+        fetch('/api/gmail/status').then(r => r.json()).catch(() => ({ connected: false })),
+      ]).then(([data, gmailStatus]) => {
+        const active = (Array.isArray(data) ? data : []).filter((s: Sequence) => s.is_active)
+        setSequences(active)
+        if (active.length > 0 && !selectedId) setSelectedId(active[0].id)
+        setGmailConnected(gmailStatus.connected || false)
+      }).catch(() => {})
         .finally(() => setLoading(false))
     }
   }, [open])
@@ -82,6 +85,20 @@ export function EnrollSequenceDialog({
         {loading ? (
           <div className="flex h-32 items-center justify-center">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : gmailConnected === false ? (
+          <div className="py-6 text-center space-y-3">
+            <Mail className="mx-auto size-8 text-muted-foreground/30" />
+            <p className="text-sm text-muted-foreground">
+              Connectez Gmail dans les Parametres pour activer les sequences email.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { window.location.href = '/settings' }}
+            >
+              Aller aux Parametres
+            </Button>
           </div>
         ) : result ? (
           <div className="space-y-4">

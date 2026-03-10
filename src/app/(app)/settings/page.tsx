@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Settings, Save, Loader2, Building2, Package, Target, Palette, Mail, Linkedin, FileText, Upload, ExternalLink, FileSpreadsheet, Presentation, File, BrainCircuit, Search, ChevronLeft, ChevronRight, Trash2, RefreshCw, Zap, BookOpen, X } from 'lucide-react'
+import { Settings, Save, Loader2, Building2, Package, Target, Palette, Mail, Linkedin, FileText, Upload, ExternalLink, FileSpreadsheet, Presentation, File, BrainCircuit, Search, ChevronLeft, ChevronRight, Trash2, RefreshCw, Zap, BookOpen, X, Link2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import type { BusinessContext } from '@/lib/types'
 import { Badge } from '@/components/ui/badge'
+import { ConnectionsPanel } from '@/components/settings/connections-panel'
 
 interface SyncedDocument {
   id: string
@@ -370,6 +371,20 @@ export default function SettingsPage() {
           {saved ? 'Sauvegarde !' : 'Sauvegarder'}
         </Button>
       </div>
+
+      {/* Connexions section */}
+      <div className="mb-8">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+          <Link2 className="size-5" />
+          Connexions
+        </h2>
+        <ConnectionsPanel />
+      </div>
+
+      <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+        <Building2 className="size-5" />
+        Contexte commercial
+      </h2>
 
       <div className="space-y-4">
         {fields.map((field) => (
