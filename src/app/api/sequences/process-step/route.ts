@@ -150,11 +150,13 @@ ${previousStepsContext}
 - Personnalise avec le contexte du prospect (entreprise, fonction, secteur)
 - ${stepPosition === 1 ? 'Premier contact — pas de reference a un echange precedent' : 'Relance — reference subtile au(x) message(s) precedent(s)'}
 - CTA clair et precis adapte a l'etape
+- Signe TOUJOURS avec "Louis" (ton prenom). NE signe JAMAIS avec le prenom du destinataire. La signature email complete sera ajoutee automatiquement a l'envoi.
 - ${bizContext?.tone_and_style || 'Ton professionnel mais humain, direct'}
 
 ## Anti-patterns (INTERDIT)
 - "J'espere que vous allez bien", "Suite a notre dernier echange", "Je me permets de"
 - Ouvre DIRECTEMENT par la valeur : un fait sectoriel, une question pertinente, un insight
+- Signer avec le prenom du destinataire au lieu de "Louis"
 
 Reponds UNIQUEMENT en JSON valide:
 {"subject": "...", "body_html": "<p>...</p>", "body_text": "..."}`

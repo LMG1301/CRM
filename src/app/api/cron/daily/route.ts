@@ -82,12 +82,12 @@ export async function POST(request: NextRequest) {
         )
 
         if (daysSinceContact >= maxDays) {
-          // Check if we already have a pending action for this prospect
-          const alreadyFlagged = prospect.date_prochaine_action &&
-            prospect.date_prochaine_action <= todayStr &&
-            prospect.type_prochaine_action
+          // Only flag if the prospect has NO action planned at all.
+          // If the user already has an action (even past) or cleared one manually,
+          // don't overwrite — avoids re-creating actions the user already dismissed.
+          const hasAnyAction = !!prospect.type_prochaine_action
 
-          if (!alreadyFlagged) {
+          if (!hasAnyAction) {
             // Set relance action
             await supabase
               .from('prospects')
