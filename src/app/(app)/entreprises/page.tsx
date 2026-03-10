@@ -27,19 +27,16 @@ function formatDate(dateStr: string | null): string {
   })
 }
 
-const STAGE_COLORS: Record<string, string> = {
-  ciblage: '#6B7280',
-  touch_1: '#3B82F6',
-  repondu: '#06B6D4',
-  devis: '#EC4899',
-  onboarding: '#F97316',
-  client: '#22C55E',
-  a_recontacter: '#94A3B8',
-  refuse: '#EF4444',
-}
-
-function CompanyRow({ company }: { company: CompanySummary }) {
+function CompanyRow({ company, stages }: { company: CompanySummary; stages: Array<{slug: string; name: string; color: string}> }) {
   const [expanded, setExpanded] = useState(false)
+
+  function getStageColor(slug: string): string {
+    return stages.find(s => s.slug === slug)?.color || '#6B7280'
+  }
+
+  function getStageName(slug: string): string {
+    return stages.find(s => s.slug === slug)?.name || slug.replace(/_/g, ' ')
+  }
 
   const actionsDue = company.contacts.filter(
     (c) => c.date_prochaine_action && c.date_prochaine_action <= toLocalDateString(new Date())
@@ -80,11 +77,11 @@ function CompanyRow({ company }: { company: CompanySummary }) {
                 key={stage}
                 className="text-[10px] px-1.5 py-0 border-0"
                 style={{
-                  backgroundColor: (STAGE_COLORS[stage] || '#6B7280') + '20',
-                  color: STAGE_COLORS[stage] || '#6B7280',
+                  backgroundColor: getStageColor(stage) + '20',
+                  color: getStageColor(stage),
                 }}
               >
-                {stage.replace(/_/g, ' ')}
+                {getStageName(stage)}
               </Badge>
             ))}
           </div>
@@ -135,11 +132,11 @@ function CompanyRow({ company }: { company: CompanySummary }) {
                   <Badge
                     className="text-[10px] px-1.5 py-0 border-0"
                     style={{
-                      backgroundColor: (STAGE_COLORS[contact.pipeline_stage] || '#6B7280') + '20',
-                      color: STAGE_COLORS[contact.pipeline_stage] || '#6B7280',
+                      backgroundColor: getStageColor(contact.pipeline_stage) + '20',
+                      color: getStageColor(contact.pipeline_stage),
                     }}
                   >
-                    {contact.pipeline_stage.replace(/_/g, ' ')}
+                    {getStageName(contact.pipeline_stage)}
                   </Badge>
 
                   {contact.date_prochaine_action && (
@@ -167,6 +164,7 @@ export default function EntreprisesPage() {
   const [companies, setCompanies] = useState<CompanySummary[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [stages, setStages] = useState<Array<{slug: string; name: string; color: string}>>([])
 
   useEffect(() => {
     fetch('/api/companies')
@@ -174,6 +172,11 @@ export default function EntreprisesPage() {
       .then((data) => setCompanies(data.companies || []))
       .catch(() => setCompanies([]))
       .finally(() => setLoading(false))
+
+    fetch('/api/pipeline-stages')
+      .then(r => r.json())
+      .then(data => setStages(data.stages || []))
+      .catch(() => {})
   }, [])
 
   const filtered = useMemo(() => {
@@ -218,7 +221,7 @@ export default function EntreprisesPage() {
 
       <div className="space-y-2">
         {filtered.map((company) => (
-          <CompanyRow key={company.entreprise} company={company} />
+          <CompanyRow key={company.entreprise} company={company} stages={stages} />
         ))}
         {!loading && filtered.length === 0 && (
           <p className="py-12 text-center text-muted-foreground">

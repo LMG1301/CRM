@@ -31,9 +31,6 @@ const RELANCE_RULES: Record<string, number> = {
 // DISABLED — Pipeline auto-progression removed. pipeline_stage is now ONLY changed by user action.
 // const PIPELINE_RULES was here — deleted.
 
-// Terminal stages — used to filter relance queries
-const TERMINAL_STAGES = ['client', 'refuse']
-
 export async function POST(request: NextRequest) {
   try {
     // Verify auth
@@ -43,6 +40,13 @@ export async function POST(request: NextRequest) {
     if (secret !== process.env.WEBHOOK_SECRET && cronSecret !== process.env.CRON_SECRET) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    // Fetch terminal stages from DB
+    const { data: termStages } = await supabase
+      .from('pipeline_stages')
+      .select('slug')
+      .eq('is_terminal', true)
+    const TERMINAL_STAGE_SLUGS = (termStages || []).map(s => s.slug)
 
     const results = {
       relances: { checked: 0, flagged: 0, details: [] as Array<{ prospect: string; stage: string; days_since_contact: number }> },
@@ -58,7 +62,7 @@ export async function POST(request: NextRequest) {
     const { data: activeProspects } = await supabase
       .from('prospects')
       .select('id, prenom, nom, entreprise, pipeline_stage, date_dernier_contact, date_prochaine_action, type_prochaine_action')
-      .not('pipeline_stage', 'in', `(${TERMINAL_STAGES.join(',')})`)
+      .not('pipeline_stage', 'in', `(${TERMINAL_STAGE_SLUGS.join(',')})`)
 
     if (activeProspects) {
       const today = new Date()

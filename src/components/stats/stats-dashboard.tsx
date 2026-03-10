@@ -68,8 +68,11 @@ export function StatsDashboard({ stats, stages, machineStats }: StatsDashboardPr
 
   // Compute contact-based conversion
   const totalContacted = useMemo(() => {
-    return funnelData.reduce((s, f) => f.slug !== 'ciblage' ? s + f.count : s, 0)
-  }, [funnelData])
+    return funnelData.reduce((s, f) => {
+      const stageInfo = stages.find(st => st.slug === f.slug)
+      return (!stageInfo?.is_default) ? s + f.count : s
+    }, 0)
+  }, [funnelData, stages])
 
   const clientCount = stats.byStage['client'] || 0
   const convGlobal = totalContacted > 0 ? ((clientCount / totalContacted) * 100).toFixed(1) : '0'

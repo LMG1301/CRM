@@ -7,6 +7,16 @@ import type { Integration, BusinessContext } from '../types'
 // ─── Dashboard Stats ───
 
 export async function getDashboardStats() {
+  // Fetch pipeline stage metadata for dynamic filtering
+  const { data: pipeStages } = await supabase
+    .from('pipeline_stages')
+    .select('slug, is_terminal, is_default')
+    .order('position')
+  const stagesList = pipeStages || []
+  const terminalSlugs = stagesList.filter(s => s.is_terminal).map(s => s.slug)
+  const defaultSlugs = stagesList.filter(s => s.is_default).map(s => s.slug)
+  const activeStageSlugs = stagesList.filter(s => !s.is_terminal && !s.is_default).map(s => s.slug)
+
   const { data: prospects } = await supabase
     .from('prospects')
     .select('pipeline_stage, categorie, source, statut_commercial')
@@ -15,19 +25,19 @@ export async function getDashboardStats() {
   const total = all.length
   const clients = all.filter(p => p.pipeline_stage === 'client').length
   const discussions = all.filter(p =>
-    ['devis', 'repondu', 'onboarding', 'a_recontacter'].includes(p.pipeline_stage) ||
+    activeStageSlugs.includes(p.pipeline_stage) ||
     p.categorie === 'Client / Discussion active'
   ).length
   const replied = all.filter(p =>
     p.pipeline_stage === 'repondu' || p.categorie === 'A répondu'
   ).length
   const contacted = all.filter(p =>
-    !['ciblage', 'refuse'].includes(p.pipeline_stage)
+    !defaultSlugs.includes(p.pipeline_stage) && p.pipeline_stage !== 'refuse'
   ).length
   const tauxReponse = contacted > 0 ? Math.round((replied + discussions + clients) / contacted * 100) : 0
 
   const prospectsActifs = all.filter(p =>
-    !['refuse', 'client'].includes(p.pipeline_stage)
+    !terminalSlugs.includes(p.pipeline_stage)
   ).length
   const conversionRate = total > 0 ? Math.round(clients / total * 100) : 0
 
@@ -67,10 +77,11 @@ export async function getDashboardStats() {
     reason: string
   }> = []
 
+  const excludedSlugs = [...defaultSlugs, ...terminalSlugs]
   const { data: stuckProspects } = await supabase
     .from('prospects')
     .select('id, prenom, nom, entreprise, pipeline_stage, date_dernier_contact, updated_at')
-    .not('pipeline_stage', 'in', '("ciblage","client","refuse")')
+    .not('pipeline_stage', 'in', `(${excludedSlugs.map(s => `"${s}"`).join(',')})`)
     .order('updated_at', { ascending: true })
     .limit(50)
 

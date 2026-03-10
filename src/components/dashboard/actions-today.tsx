@@ -4,21 +4,11 @@ import Link from 'next/link'
 import { CalendarClock, Building2, ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import type { Prospect } from '@/lib/types'
+import type { Prospect, PipelineStage } from '@/lib/types'
 
 interface ActionsTodayProps {
   prospects: Prospect[]
-}
-
-const STAGE_LABELS: Record<string, string> = {
-  ciblage: 'Ciblage',
-  touch_1: 'Contacte',
-  repondu: 'Repondu',
-  devis: 'Devis',
-  onboarding: 'Onboarding',
-  client: 'Client',
-  a_recontacter: 'A recontacter',
-  refuse: 'Perdu',
+  stages: PipelineStage[]
 }
 
 function daysSince(dateStr: string | null): number {
@@ -27,7 +17,7 @@ function daysSince(dateStr: string | null): number {
   return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)))
 }
 
-export function ActionsToday({ prospects }: ActionsTodayProps) {
+export function ActionsToday({ prospects, stages }: ActionsTodayProps) {
   if (prospects.length === 0) {
     return (
       <Card>
@@ -61,7 +51,7 @@ export function ActionsToday({ prospects }: ActionsTodayProps) {
         {prospects.map((prospect) => {
           const days = daysSince(prospect.date_dernier_contact)
           const fullName = `${prospect.prenom} ${prospect.nom}`.trim()
-          const stageLabel = STAGE_LABELS[prospect.pipeline_stage] || prospect.pipeline_stage
+          const stageLabel = stages.find(s => s.slug === prospect.pipeline_stage)?.name || prospect.pipeline_stage
 
           return (
             <Link

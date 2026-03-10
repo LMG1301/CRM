@@ -278,11 +278,19 @@ export async function bulkImportProspects(
 
 export async function getActionsDuJour(): Promise<Prospect[]> {
   const today = toLocalDateString(new Date())
+
+  // Fetch terminal stages dynamically
+  const { data: termStages } = await supabase
+    .from('pipeline_stages')
+    .select('slug')
+    .eq('is_terminal', true)
+  const terminalFilter = (termStages || []).map(s => `"${s.slug}"`).join(',') || '"client","refuse"'
+
   const { data, error } = await supabase
     .from('prospects')
     .select('*')
     .lte('date_prochaine_action', today)
-    .not('pipeline_stage', 'in', '("client","refuse")')
+    .not('pipeline_stage', 'in', `(${terminalFilter})`)
     .order('date_prochaine_action')
   if (error) throw new Error(error.message)
   return data || []

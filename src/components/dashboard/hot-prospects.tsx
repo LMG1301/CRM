@@ -4,25 +4,14 @@ import Link from 'next/link'
 import { Flame, Building2, ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import type { Prospect } from '@/lib/types'
+import type { Prospect, PipelineStage } from '@/lib/types'
 
 interface HotProspectsProps {
   prospects: Prospect[]
+  stages: PipelineStage[]
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  repondu: 'Repondu',
-  devis: 'Devis',
-  onboarding: 'Onboarding',
-}
-
-const STAGE_COLORS: Record<string, string> = {
-  repondu: 'bg-brand-accent/10 text-brand-accent border-brand-accent/20',
-  devis: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  onboarding: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-}
-
-export function HotProspects({ prospects }: HotProspectsProps) {
+export function HotProspects({ prospects, stages }: HotProspectsProps) {
   if (prospects.length === 0) {
     return (
       <Card>
@@ -55,8 +44,8 @@ export function HotProspects({ prospects }: HotProspectsProps) {
       <CardContent className="space-y-3">
         {prospects.map((prospect) => {
           const fullName = `${prospect.prenom} ${prospect.nom}`.trim()
-          const stageLabel = STAGE_LABELS[prospect.pipeline_stage] || prospect.pipeline_stage
-          const stageColor = STAGE_COLORS[prospect.pipeline_stage] || 'bg-secondary text-secondary-foreground'
+          const stageLabel = stages.find(s => s.slug === prospect.pipeline_stage)?.name || prospect.pipeline_stage
+          const stageColor = stages.find(s => s.slug === prospect.pipeline_stage)?.color || '#6b7280'
 
           return (
             <Link
@@ -80,7 +69,11 @@ export function HotProspects({ prospects }: HotProspectsProps) {
               </div>
 
               <div className="flex shrink-0 items-center gap-2">
-                <Badge variant="outline" className={`text-xs ${stageColor}`}>
+                <Badge variant="outline" className="text-xs" style={{
+                  backgroundColor: stageColor + '20',
+                  color: stageColor,
+                  borderColor: stageColor + '33',
+                }}>
                   {stageLabel}
                 </Badge>
                 <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />

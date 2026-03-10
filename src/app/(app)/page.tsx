@@ -1,4 +1,4 @@
-import { getDashboardStats, getActionsDuJour, getProspects, getPendingReviewEmails } from '@/lib/actions'
+import { getDashboardStats, getActionsDuJour, getProspects, getPendingReviewEmails, getStages } from '@/lib/actions'
 import { supabase } from '@/lib/supabase'
 import { KpiCards } from '@/components/dashboard/kpi-cards'
 import { ActionsToday } from '@/components/dashboard/actions-today'
@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   const today = toLocalDateString(new Date())
 
-  const [stats, actionsDuJour, allProspects, tasksDuJour, pendingSequenceEmails] = await Promise.all([
+  const [stats, actionsDuJour, allProspects, tasksDuJour, pendingSequenceEmails, stages] = await Promise.all([
     getDashboardStats(),
     getActionsDuJour(),
     getProspects(),
@@ -26,13 +26,15 @@ export default async function DashboardPage() {
         .order('due_date')
     ).then(({ data }) => data || []).catch(() => []),
     getPendingReviewEmails().catch(() => []),
+    getStages(),
   ])
 
-  // Hot prospects: those in active discussion stages, limited to 8
+  // Hot prospects: those in non-terminal, non-default stages (active discussions)
   const hotProspects = allProspects
-    .filter((p) =>
-      ['repondu', 'devis', 'onboarding'].includes(p.pipeline_stage)
-    )
+    .filter((p) => {
+      const stage = stages.find(s => s.slug === p.pipeline_stage)
+      return stage && !stage.is_terminal && !stage.is_default
+    })
     .slice(0, 8)
 
   return (
@@ -62,7 +64,7 @@ export default async function DashboardPage() {
           <div className="space-y-8 lg:col-span-3">
             {/* ===== SECTION OBLIGATOIRE 1/5 : Actions du jour ===== */}
             <section>
-              <ActionsToday prospects={actionsDuJour} />
+              <ActionsToday prospects={actionsDuJour} stages={stages} />
             </section>
 
             {/* ===== SECTION OBLIGATOIRE 2/5 : Sequences en attente (NE PAS SUPPRIMER) =====
@@ -85,7 +87,7 @@ export default async function DashboardPage() {
 
             {/* ===== SECTION OBLIGATOIRE 4/5 : Prospects chauds ===== */}
             <section>
-              <HotProspects prospects={hotProspects} />
+              <HotProspects prospects={hotProspects} stages={stages} />
             </section>
           </div>
 

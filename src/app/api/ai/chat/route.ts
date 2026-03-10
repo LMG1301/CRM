@@ -14,6 +14,13 @@ import type { Prospect } from '@/lib/types'
 async function executeCrmQuery(input: { data_type: string; filters?: string }): Promise<unknown> {
   const { data_type, filters } = input
 
+  // Fetch valid pipeline stages from DB (used by multiple cases)
+  const { data: dbStages } = await supabase
+    .from('pipeline_stages')
+    .select('slug, is_terminal, is_default')
+    .order('position')
+  const validStageSlugs = (dbStages || []).map(s => s.slug)
+
   switch (data_type) {
     case 'prospects': {
       let query = supabase
@@ -23,8 +30,7 @@ async function executeCrmQuery(input: { data_type: string; filters?: string }): 
         .limit(50)
 
       if (filters) {
-        const stages = ['ciblage', 'contacte', 'touch_1', 'repondu', 'a_recontacter', 'call_planifie', 'devis', 'onboarding', 'client', 'refuse']
-        if (stages.includes(filters.toLowerCase())) {
+        if (validStageSlugs.includes(filters.toLowerCase())) {
           query = query.eq('pipeline_stage', filters.toLowerCase())
         } else {
           query = query.ilike('entreprise', `%${filters}%`)
@@ -206,11 +212,16 @@ async function executeCrmQuery(input: { data_type: string; filters?: string }): 
       const threshold = new Date()
       threshold.setDate(threshold.getDate() - 21)
 
+      // Exclude terminal + default stages (e.g. client, refuse, ciblage)
+      const terminalAndDefaultSlugs = (dbStages || [])
+        .filter(s => s.is_terminal || s.is_default)
+        .map(s => `"${s.slug}"`).join(',') || '"client","refuse","ciblage"'
+
       const { data } = await supabase
         .from('prospects')
         .select('prenom, nom, entreprise, pipeline_stage, date_dernier_contact, date_prochaine_action')
         .lt('date_dernier_contact', threshold.toISOString().split('T')[0])
-        .not('pipeline_stage', 'in', '("client","refuse","ciblage")')
+        .not('pipeline_stage', 'in', `(${terminalAndDefaultSlugs})`)
         .order('date_dernier_contact', { ascending: true })
         .limit(30)
 
@@ -332,11 +343,16 @@ async function executeCrmQuery(input: { data_type: string; filters?: string }): 
     case 'overdue_actions': {
       const today = new Date().toISOString().split('T')[0]
 
+      // Exclude terminal stages dynamically
+      const terminalSlugs = (dbStages || [])
+        .filter(s => s.is_terminal)
+        .map(s => `"${s.slug}"`).join(',') || '"client","refuse"'
+
       const { data } = await supabase
         .from('prospects')
         .select('prenom, nom, entreprise, pipeline_stage, date_prochaine_action, type_prochaine_action, description_prochaine_action, date_dernier_contact')
         .lt('date_prochaine_action', today)
-        .not('pipeline_stage', 'in', '("client","refuse")')
+        .not('pipeline_stage', 'in', `(${terminalSlugs})`)
         .order('date_prochaine_action', { ascending: true })
         .limit(20)
 
@@ -543,7 +559,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs, allProspects, prospectEmails, dealGroupMembers.length > 0 ? dealGroupMembers : undefined)
+    // Fetch pipeline stage slugs for dynamic stage ordering in prompts
+    let stageOrderSlugs: string[] | undefined
+    try {
+      const { data: stageRows } = await supabase
+        .from('pipeline_stages')
+        .select('slug')
+        .order('position')
+      if (stageRows && stageRows.length > 0) {
+        stageOrderSlugs = stageRows.map(s => s.slug)
+      }
+    } catch {
+      // Continue without stage order
+    }
+
+    const systemPrompt = buildSystemPrompt(prospect, activities, businessContext, knowledgeDocs, allProspects, prospectEmails, dealGroupMembers.length > 0 ? dealGroupMembers : undefined, stageOrderSlugs)
 
     // Enhance system prompt with knowledge context when relevant
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''

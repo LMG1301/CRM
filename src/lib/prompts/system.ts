@@ -40,7 +40,8 @@ export function buildSystemPrompt(
   knowledgeDocuments?: KnowledgeDocument[],
   allProspects?: ProspectSummary[],
   emails?: Email[],
-  dealGroupMembers?: Prospect[]
+  dealGroupMembers?: Prospect[],
+  stageOrder?: string[]
 ): string {
   let prompt = buildBasePrompt(businessContext)
 
@@ -57,7 +58,7 @@ export function buildSystemPrompt(
   }
 
   if (!prospect && allProspects && allProspects.length > 0) {
-    prompt += '\n\n' + buildPipelineSummary(allProspects)
+    prompt += '\n\n' + buildPipelineSummary(allProspects, stageOrder)
   }
 
   return prompt
@@ -341,7 +342,7 @@ function buildProspectContext(
 
 // ─── Build pipeline summary (compact — when no specific prospect selected) ───
 
-export function buildPipelineSummary(prospects: ProspectSummary[]): string {
+export function buildPipelineSummary(prospects: ProspectSummary[], stageOrder?: string[]): string {
   const lines: string[] = [
     '## Pipeline commercial (resume)',
     '',
@@ -355,11 +356,8 @@ export function buildPipelineSummary(prospects: ProspectSummary[]): string {
     byStage[stage].push(p)
   }
 
-  const stageOrder = [
-    'ciblage', 'touch_1', 'repondu', 'devis',
-    'onboarding', 'client', 'a_recontacter', 'refuse',
-  ]
-  const stageCounts = stageOrder
+  const order = stageOrder || [...new Set(prospects.map(p => p.pipeline_stage))]
+  const stageCounts = order
     .filter(s => byStage[s])
     .map(s => `${byStage[s].length} ${s.replace(/_/g, ' ')}`)
     .join(', ')

@@ -12,18 +12,6 @@ import { logApiUsage, enforceBudget } from '@/lib/api-usage'
  * Body: { prospect_id?: string, model?: string }
  */
 
-const STAGE_DESCRIPTIONS = `
-Les stages du pipeline commercial (du plus froid au plus chaud) :
-- "ciblage" : Prospect identifie, pas encore contacte
-- "touch_1" : Premier message envoye (email ou LinkedIn)
-- "repondu" : Le prospect a repondu (positivement ou neutre)
-- "devis" : Une proposition commerciale a ete envoyee
-- "onboarding" : Phase d'integration et mise en place
-- "client" : Deal signe, c'est un client
-- "a_recontacter" : Client ou prospect a recontacter plus tard (timing pas bon, budget reporte, etc.)
-- "refuse" : Le prospect a refuse explicitement ou deal perdu
-`
-
 export async function POST(request: NextRequest) {
   try {
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -110,9 +98,24 @@ async function analyzeProspect(prospectId: string, requestedModel?: string) {
 
   if (!prospect) return null
 
-  if (['client', 'refuse', 'a_recontacter'].includes(prospect.pipeline_stage)) {
+  // Fetch pipeline stages from DB for dynamic descriptions and terminal check
+  const { data: pipeStages } = await supabase
+    .from('pipeline_stages')
+    .select('slug, name, is_terminal')
+    .order('position')
+
+  const terminalSlugs = (pipeStages || []).filter(s => s.is_terminal).map(s => s.slug)
+
+  // Skip terminal stages — no analysis needed
+  if (terminalSlugs.includes(prospect.pipeline_stage)) {
     return null
   }
+
+  // Build stage descriptions dynamically
+  const stageDescriptions = (pipeStages || [])
+    .map(s => `- "${s.slug}" : ${s.name}${s.is_terminal ? ' (terminal)' : ''}`)
+    .join('\n')
+  const STAGE_DESCRIPTIONS_DYNAMIC = `Les stages du pipeline commercial (du plus froid au plus chaud) :\n${stageDescriptions}`
 
   const { data: activities } = await supabase
     .from('activities')
@@ -138,7 +141,7 @@ async function analyzeProspect(prospectId: string, requestedModel?: string) {
     max_tokens: 400,
     system: `Tu es un assistant commercial qui analyse les interactions avec un prospect pour determiner son stage dans le pipeline. Tu dois repondre UNIQUEMENT en JSON valide, sans markdown.
 
-${STAGE_DESCRIPTIONS}
+${STAGE_DESCRIPTIONS_DYNAMIC}
 
 Reponds avec ce format JSON exact :
 {"stage": "slug_du_stage", "reason": "Explication courte en 1 phrase", "next_action": "Action concrete suggeree (ex: Envoyer relance email, Planifier call decouverte, Envoyer devis)"}`,

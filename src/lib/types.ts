@@ -5,6 +5,8 @@ export interface PipelineStage {
   position: number
   color: string
   is_terminal: boolean
+  is_default: boolean
+  is_deletable: boolean
   created_at: string
 }
 

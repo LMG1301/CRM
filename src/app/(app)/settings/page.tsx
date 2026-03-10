@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Settings, Save, Loader2, Building2, Package, Target, Palette, Mail, Linkedin, FileText, Upload, ExternalLink, FileSpreadsheet, Presentation, File, BrainCircuit, Search, ChevronLeft, ChevronRight, Trash2, RefreshCw, Zap, BookOpen, X, Link2 } from 'lucide-react'
+import { Settings, Save, Loader2, Building2, Package, Target, Palette, Mail, Linkedin, FileText, Upload, ExternalLink, FileSpreadsheet, Presentation, File, BrainCircuit, Search, ChevronLeft, ChevronRight, Trash2, RefreshCw, Zap, BookOpen, X, Link2, Layers } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -457,6 +457,21 @@ export default function SettingsPage() {
               <p className="text-sm font-medium">Sequences</p>
               <p className="text-xs text-muted-foreground">
                 Creez des sequences d&apos;emails automatises multi-etapes
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </a>
+        <a
+          href="/settings/pipeline"
+          className="flex items-center justify-between rounded-lg border p-4 hover:bg-white/5 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Layers className="size-5 text-brand-accent" />
+            <div>
+              <p className="text-sm font-medium">Pipeline</p>
+              <p className="text-xs text-muted-foreground">
+                Configurez les etapes du pipeline commercial
               </p>
             </div>
           </div>
