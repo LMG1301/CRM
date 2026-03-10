@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
         message: `Prospect existant: ${existing.prenom || ''} ${existing.nom || ''} (${existing.entreprise || ''})`.trim(),
         prospect_id: existing.id,
         crm_url: `${CRM_BASE_URL}/prospects/${existing.id}`,
-      })
+      }, { headers: corsHeaders })
     }
 
     // Create the prospect
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders })
     }
 
     return NextResponse.json({

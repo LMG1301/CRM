@@ -90,33 +90,60 @@ function extractPageData() {
   if (url.includes('linkedin.com/in/')) {
     data.linkedin = url.split('?')[0]
 
-    // === SOURCE 1: document.title (most reliable, always present) ===
-    // Format: "Prenom Nom - Headline | LinkedIn"
+    // === SOURCE 1: h1 for name (most reliable DOM element) ===
+    const h1 = document.querySelector('h1')
+    if (h1) {
+      const fullName = h1.textContent.trim()
+      const parts = fullName.split(/\s+/)
+      if (parts.length >= 2) {
+        data.prenom = parts[0]
+        data.nom = parts.slice(1).join(' ')
+      } else if (fullName) {
+        data.nom = fullName
+      }
+    }
+
+    // === SOURCE 2: Headline from DOM (div.text-body-medium below h1) ===
+    const headlineEl = document.querySelector('div.text-body-medium')
+      || document.querySelector('.pv-text-details__left-panel div.text-body-medium')
+      || document.querySelector('[data-generated-suggestion-target] + div')
+    if (headlineEl) {
+      const headline = headlineEl.textContent.trim()
+      if (headline) data.fonction = headline
+    }
+
+    // === SOURCE 3: document.title fallback (handles -, –, — dashes) ===
+    // Format: "Prenom Nom - Headline | LinkedIn" or "Prenom Nom – Headline | LinkedIn"
     const title = document.title || ''
     if (title.includes('LinkedIn')) {
-      const withoutLinkedin = title.replace(/\s*\|\s*LinkedIn\s*$/, '').trim()
-      const dashIdx = withoutLinkedin.indexOf(' - ')
-      if (dashIdx > 0) {
-        const namePart = withoutLinkedin.substring(0, dashIdx).trim()
-        const headlinePart = withoutLinkedin.substring(dashIdx + 3).trim()
-        const parts = namePart.split(/\s+/)
-        if (parts.length >= 2) {
-          data.prenom = parts[0]
-          data.nom = parts.slice(1).join(' ')
-        } else {
-          data.nom = namePart
+      const withoutLinkedin = title.replace(/\s*[|]\s*LinkedIn\s*$/, '').trim()
+      // Match any dash type: hyphen (-), en-dash (–), em-dash (—)
+      const dashMatch = withoutLinkedin.match(/^(.+?)\s+[\-–—]\s+(.+)$/)
+      if (dashMatch) {
+        const namePart = dashMatch[1].trim()
+        const headlinePart = dashMatch[2].trim()
+        // Only use title for name if we don't already have it from h1
+        if (!data.prenom && !data.nom) {
+          const parts = namePart.split(/\s+/)
+          if (parts.length >= 2) {
+            data.prenom = parts[0]
+            data.nom = parts.slice(1).join(' ')
+          } else {
+            data.nom = namePart
+          }
         }
-        if (headlinePart) {
+        // Use title headline only if DOM headline not found
+        if (!data.fonction && headlinePart) {
           data.fonction = headlinePart
         }
       }
     }
 
-    // === SOURCE 2: meta description for location ===
+    // === SOURCE 4: meta description for location ===
     // Format: "Nom · Headline · Location · 500+ relations"
     const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content') || ''
     if (metaDesc) {
-      const parts = metaDesc.split(/\s*·\s*/)
+      const parts = metaDesc.split(/\s*[·]\s*/)
       // Find the location part (not name, not headline, not "X relations/connections")
       for (let i = 2; i < parts.length; i++) {
         const part = parts[i].trim()
@@ -127,40 +154,76 @@ function extractPageData() {
       }
     }
 
-    // === SOURCE 3: h1 fallback for name ===
-    if (!data.prenom && !data.nom) {
-      const h1 = document.querySelector('h1')
-      if (h1) {
-        const fullName = h1.textContent.trim()
-        const parts = fullName.split(/\s+/)
-        if (parts.length >= 2) {
-          data.prenom = parts[0]
-          data.nom = parts.slice(1).join(' ')
-        } else {
-          data.nom = fullName
+    // === SOURCE 5: Company extraction (multiple strategies) ===
+    // Strategy A: Company link in the top profile section (experience-group-position)
+    const expLinks = document.querySelectorAll(
+      '.pv-text-details__right-panel a[href*="/company/"],'
+      + ' .inline-show-more-text a[href*="/company/"],'
+      + ' .experience-group-position a[href*="/company/"]'
+    )
+    for (const link of expLinks) {
+      const text = link.textContent.trim()
+      if (text && text.length > 1 && text.length < 100) {
+        data.entreprise = text
+        break
+      }
+    }
+
+    // Strategy B: Any visible company link in the top 800px of the profile
+    if (!data.entreprise) {
+      const allCompanyLinks = document.querySelectorAll('a[href*="/company/"]')
+      for (const link of allCompanyLinks) {
+        const rect = link.getBoundingClientRect()
+        if (rect.top > 0 && rect.top < 800 && rect.width > 0 && rect.height > 0) {
+          const text = link.textContent.trim()
+          if (text && text.length > 1 && text.length < 100
+            && !/LinkedIn|Voir|See |Show /i.test(text)) {
+            data.entreprise = text
+            break
+          }
         }
       }
     }
 
-    // === SOURCE 4: Company from /company/ links ===
-    const allCompanyLinks = document.querySelectorAll('a[href*="/company/"]')
-    for (const link of allCompanyLinks) {
-      const rect = link.getBoundingClientRect()
-      if (rect.top > 0 && rect.top < 700 && rect.width > 0) {
-        const text = link.textContent.trim()
-        if (text && text.length > 1 && text.length < 100) {
-          data.entreprise = text
-          break
-        }
-      }
-    }
-
-    // Company fallback: parse from headline ("chez X", "at X")
+    // Strategy C: Parse headline for company ("chez X", "at X", "@ X", "- X")
     if (!data.entreprise && data.fonction) {
-      const chez = data.fonction.match(/\bchez\s+(.+?)(?:\s*[|\-]|$)/i)
-      const at = data.fonction.match(/\bat\s+(.+?)(?:\s*[|\-]|$)/i)
-      if (chez) data.entreprise = chez[1].trim()
-      else if (at) data.entreprise = at[1].trim()
+      const headline = data.fonction
+      // "chez Entreprise" (French)
+      const chez = headline.match(/\bchez\s+(.+?)(?:\s*[|]|$)/i)
+      // "at Entreprise" (English)
+      const at = headline.match(/\bat\s+(.+?)(?:\s*[|]|$)/i)
+      // "Titre @ Entreprise"
+      const arobase = headline.match(/\s+@\s+(.+?)(?:\s*[|]|$)/i)
+      // "Titre - Entreprise" or "Titre – Entreprise"
+      const dashSep = headline.match(/\s+[\-–—]\s+(.+?)(?:\s*[|]|$)/)
+
+      if (chez) {
+        data.entreprise = chez[1].trim()
+        // Clean fonction: remove "chez X" part to keep just the title
+        data.fonction = headline.replace(/\s*\bchez\s+.+$/i, '').trim()
+      } else if (at) {
+        data.entreprise = at[1].trim()
+        data.fonction = headline.replace(/\s*\bat\s+.+$/i, '').trim()
+      } else if (arobase) {
+        data.entreprise = arobase[1].trim()
+        data.fonction = headline.replace(/\s*@\s+.+$/i, '').trim()
+      } else if (dashSep) {
+        data.entreprise = dashSep[1].trim()
+        data.fonction = headline.replace(/\s*[\-–—]\s+.+$/, '').trim()
+      }
+    }
+
+    // Strategy D: meta description fallback for company
+    if (!data.entreprise && metaDesc) {
+      const metaParts = metaDesc.split(/\s*[·]\s*/)
+      // The headline is usually the 2nd part — try to parse company from it
+      if (metaParts.length >= 2) {
+        const metaHeadline = metaParts[1].trim()
+        const chezMeta = metaHeadline.match(/\bchez\s+(.+?)(?:\s*[|]|$)/i)
+        const atMeta = metaHeadline.match(/\bat\s+(.+?)(?:\s*[|]|$)/i)
+        if (chezMeta) data.entreprise = chezMeta[1].trim()
+        else if (atMeta) data.entreprise = atMeta[1].trim()
+      }
     }
 
     data.source = 'LinkedIn'
