@@ -146,6 +146,7 @@ export interface BusinessContext {
   linkedin_templates: string
   additional_context: string
   email_signature?: string
+  stats_start_date?: string
   created_at: string
   updated_at: string
 }

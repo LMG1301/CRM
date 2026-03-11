@@ -3,8 +3,23 @@ import { supabase } from '@/lib/supabase'
 export async function GET(request: Request) {
   try {
   const { searchParams } = new URL(request.url)
-  const startDate = searchParams.get('start') || getDefaultStart()
+  let startDate = searchParams.get('start') || getDefaultStart()
   const endDate = searchParams.get('end') || new Date().toISOString()
+
+  // Fetch stats_start_date from business_context
+  const { data: bizCtx } = await supabase
+    .from('business_context')
+    .select('stats_start_date')
+    .limit(1)
+    .single()
+
+  const statsStartDate = bizCtx?.stats_start_date || '2026-03-10'
+
+  // Clamp startDate to stats_start_date (activity queries only count after this date)
+  const statsStartISO = new Date(statsStartDate + 'T00:00:00').toISOString()
+  if (new Date(startDate) < new Date(statsStartISO)) {
+    startDate = statsStartISO
+  }
 
   // ─── 1. Pipeline stages (for labels & ordering) ───
   const { data: pipeStages } = await supabase
@@ -140,6 +155,7 @@ export async function GET(request: Request) {
     // Insights
     avgConversionDays,
     dealsMovedThisWeek,
+    statsStartDate,
     // Metadata
     stages: stages.map(s => ({
       slug: s.slug,

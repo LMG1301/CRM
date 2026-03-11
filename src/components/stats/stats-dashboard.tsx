@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Loader2, Calendar, ArrowRightLeft, Mail, Inbox, Users, Clock, TrendingUp } from 'lucide-react'
+import { Loader2, Calendar, Mail, Inbox, Users } from 'lucide-react'
 import type { MachineType } from '@/lib/types'
 import { MACHINE_TYPE_LABELS } from '@/lib/types'
 import type { MachineStats } from '@/lib/actions/machines'
@@ -33,6 +33,7 @@ interface StatsData {
   emailResponseRate: number
   avgConversionDays: number | null
   dealsMovedThisWeek: number
+  statsStartDate: string
   stages: StageInfo[]
 }
 
@@ -414,46 +415,6 @@ export function StatsDashboard({ machineStats }: StatsDashboardProps) {
                 </div>
               )
             })()}
-          </div>
-
-          {/* Points cles */}
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6">
-            <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-white/40">
-              Points cles
-            </h3>
-            <div className="space-y-3">
-              <div className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] p-3">
-                <TrendingUp className="mt-0.5 size-4 shrink-0 text-amber-400" />
-                <div>
-                  <div className="mb-0.5 text-[11px] font-semibold text-white/40">Taux de reponse reel</div>
-                  <div className="text-[13px] font-medium text-amber-400">
-                    {data.emailResponseRate}% — {data.emailsReceived} emails recus / {data.emailsSent} envoyes
-                  </div>
-                </div>
-              </div>
-
-              {data.avgConversionDays !== null && (
-                <div className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] p-3">
-                  <Clock className="mt-0.5 size-4 shrink-0 text-blue-400" />
-                  <div>
-                    <div className="mb-0.5 text-[11px] font-semibold text-white/40">Temps moyen de conversion</div>
-                    <div className="text-[13px] font-medium text-blue-400">
-                      {data.avgConversionDays} jours entre contacte et client
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] p-3">
-                <ArrowRightLeft className="mt-0.5 size-4 shrink-0 text-emerald-400" />
-                <div>
-                  <div className="mb-0.5 text-[11px] font-semibold text-white/40">Deals en mouvement</div>
-                  <div className="text-[13px] font-medium text-emerald-400">
-                    {data.dealsMovedThisWeek} prospect{data.dealsMovedThisWeek > 1 ? 's' : ''} ont change d&apos;etape cette semaine
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Machines signees */}

@@ -190,3 +190,48 @@ CREATE INDEX IF NOT EXISTS idx_chat_prospect ON ai_chat_messages(prospect_id, cr
 
 ALTER TABLE ai_chat_messages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all on ai_chat_messages" ON ai_chat_messages FOR ALL USING (true) WITH CHECK (true);
+
+-- =============================================
+-- PROSPECT FORECASTS
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS prospect_forecasts (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  prospect_id uuid NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  product_type text NOT NULL CHECK (product_type IN ('screenkit', 'smart_fridge', 'smart_freezer', 'autre')),
+  unit_price numeric NOT NULL,
+  quantity integer NOT NULL DEFAULT 1,
+  total_amount numeric GENERATED ALWAYS AS (unit_price * quantity) STORED,
+  probability integer NOT NULL CHECK (probability BETWEEN 0 AND 100),
+  expected_month text NOT NULL,
+  notes text,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_forecasts_prospect ON prospect_forecasts(prospect_id);
+CREATE INDEX IF NOT EXISTS idx_forecasts_month ON prospect_forecasts(expected_month);
+
+ALTER TABLE prospect_forecasts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on prospect_forecasts" ON prospect_forecasts FOR ALL USING (true) WITH CHECK (true);
+
+-- =============================================
+-- CLIENT MACHINES
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS client_machines (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  prospect_id uuid NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  entreprise text,
+  machine_type text NOT NULL CHECK (machine_type IN ('screenkit', 'smart_fridge', 'smart_freezer', 'boostbar', 'autre')),
+  quantity integer NOT NULL DEFAULT 1,
+  notes text,
+  installed_at date,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_machines_prospect ON client_machines(prospect_id);
+CREATE INDEX IF NOT EXISTS idx_machines_entreprise ON client_machines(entreprise);
+
+ALTER TABLE client_machines ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on client_machines" ON client_machines FOR ALL USING (true) WITH CHECK (true);

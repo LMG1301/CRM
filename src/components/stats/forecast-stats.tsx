@@ -377,6 +377,7 @@ export function ForecastStats() {
           </table>
         )}
       </div>
+
     </div>
   )
 }
