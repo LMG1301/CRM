@@ -33,7 +33,6 @@ interface StatsData {
   emailResponseRate: number
   avgConversionDays: number | null
   dealsMovedThisWeek: number
-  statsStartDate: string
   stages: StageInfo[]
 }
 

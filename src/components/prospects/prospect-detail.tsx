@@ -904,10 +904,8 @@ export function ProspectDetail({
             {/* Deal group — other prospects on same opportunity */}
             <DealGroupPanel prospect={prospect} />
 
-            {/* Forecast — visible for advanced pipeline stages */}
-            {['devis', 'closing', 'onboarding', 'client'].includes(prospect.pipeline_stage) && (
-              <ForecastPanel prospectId={prospect.id} />
-            )}
+            {/* Forecast */}
+            <ForecastPanel prospectId={prospect.id} />
 
             {/* Parc machines — only for onboarding/client stages */}
             {['onboarding', 'client'].includes(prospect.pipeline_stage) && (

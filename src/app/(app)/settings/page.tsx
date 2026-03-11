@@ -367,20 +367,6 @@ export default function SettingsPage() {
           <ConnectionsPanel />
         </div>
 
-        {/* ─── Date de debut stats ─── */}
-        <div className="rounded-lg border bg-card px-4 py-3 space-y-1.5">
-          <Label className="text-xs font-medium">Date de debut des statistiques</Label>
-          <p className="text-[11px] text-muted-foreground">
-            Les stats ne comptent que l&apos;activite apres cette date. Mettez la date a laquelle vous avez commence a utiliser le CRM en production.
-          </p>
-          <Input
-            type="date"
-            value={(context.stats_start_date as string) || '2026-03-10'}
-            onChange={(e) => updateField('stats_start_date', e.target.value)}
-            className="w-48"
-          />
-        </div>
-
         {/* ─── Section 2: Mon entreprise (accordion) ─── */}
         <AccordionSection
           title="Mon entreprise"
