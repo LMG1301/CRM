@@ -44,7 +44,9 @@ export interface Activity {
   type: ActivityType
   content: string
   metadata: Record<string, unknown>
+  activity_date?: string | null
   created_at: string
+  updated_at?: string | null
 }
 
 export type ActivityType =

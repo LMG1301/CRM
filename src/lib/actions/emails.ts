@@ -12,7 +12,14 @@ export async function getActivities(prospectId: string): Promise<Activity[]> {
     .eq('prospect_id', prospectId)
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
-  return data || []
+  // Sort by activity_date (fallback created_at) — newest first
+  const activities = data || []
+  activities.sort((a, b) => {
+    const dateA = a.activity_date || a.created_at
+    const dateB = b.activity_date || b.created_at
+    return new Date(dateB).getTime() - new Date(dateA).getTime()
+  })
+  return activities
 }
 
 export async function getRecentActivities(limit = 20): Promise<(Activity & { prospect?: Prospect })[]> {

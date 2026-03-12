@@ -59,11 +59,17 @@ CREATE TABLE IF NOT EXISTS prospects (
 CREATE TABLE IF NOT EXISTS activities (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   prospect_id uuid NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
-  type text NOT NULL CHECK (type IN ('note', 'call', 'email_sent', 'email_received', 'status_change', 'transcription')),
+  type text NOT NULL CHECK (type IN ('note', 'call', 'email_sent', 'email_received', 'status_change', 'transcription', 'linkedin_interaction', 'presentation', 'meeting')),
   content text DEFAULT '',
   metadata jsonb DEFAULT '{}',
-  created_at timestamptz DEFAULT now()
+  activity_date date,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz
 );
+
+-- Migration: add columns if they don't exist (for existing DBs)
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS activity_date date;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS updated_at timestamptz;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_prospects_pipeline_stage ON prospects(pipeline_stage);

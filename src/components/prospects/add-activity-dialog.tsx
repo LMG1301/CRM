@@ -12,7 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { createActivity } from '@/lib/actions'
 import { ACTIVITY_LABELS } from '@/lib/types'
 import type { ActivityType } from '@/lib/types'
 
@@ -34,7 +33,10 @@ export function AddActivityDialog({
   const [content, setContent] = useState('')
   const [subject, setSubject] = useState('')
   const [transcription, setTranscription] = useState('')
-  const [activityDate, setActivityDate] = useState('')
+  const [activityDate, setActivityDate] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
   const [saving, setSaving] = useState(false)
   const [summarizing, setSummarizing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -67,7 +69,7 @@ export function AddActivityDialog({
         metadata.subject = subject.trim()
       }
 
-      if ((type === 'call' || type === 'transcription') && activityDate) {
+      if ((type === 'call' || type === 'transcription' || type === 'note') && activityDate) {
         metadata.activity_date = activityDate
       }
 
@@ -117,6 +119,7 @@ export function AddActivityDialog({
             type,
             content: summaryContent,
             metadata: transcriptMetadata,
+            activity_date: activityDate || null,
           }),
         })
         if (!saveRes.ok) {
@@ -124,12 +127,22 @@ export function AddActivityDialog({
           throw new Error(err.error || 'Erreur sauvegarde transcription')
         }
       } else {
-        await createActivity({
-          prospect_id: prospectId,
-          type,
-          content: finalContent,
-          metadata,
+        // Save via API route (supports activity_date column)
+        const saveRes = await fetch('/api/activities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prospect_id: prospectId,
+            type,
+            content: finalContent,
+            metadata,
+            activity_date: activityDate || null,
+          }),
         })
+        if (!saveRes.ok) {
+          const err = await saveRes.json()
+          throw new Error(err.error || 'Erreur sauvegarde activite')
+        }
       }
 
       // Auto-trigger AI classification after every activity
@@ -163,16 +176,28 @@ export function AddActivityDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
-          {/* Note: simple textarea */}
+          {/* Note: date + textarea */}
           {type === 'note' && (
-            <div>
-              <Textarea
-                placeholder="Ecrivez votre note..."
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                className="min-h-[120px]"
-                autoFocus
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">
+                  Date
+                </label>
+                <Input
+                  type="date"
+                  value={activityDate}
+                  onChange={(e) => setActivityDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <Textarea
+                  placeholder="Ecrivez votre note..."
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  className="min-h-[120px]"
+                  autoFocus
+                />
+              </div>
             </div>
           )}
 
