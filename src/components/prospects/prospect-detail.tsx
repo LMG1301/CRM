@@ -150,7 +150,7 @@ export function ProspectDetail({
   >(null)
   const [editOpen, setEditOpen] = useState(false)
   const [voiceRecorderOpen, setVoiceRecorderOpen] = useState(false)
-  const [notesExpanded, setNotesExpanded] = useState(!!initialProspect.notes)
+  const [notesExpanded, setNotesExpanded] = useState(false)
   const [tasks, setTasks] = useState<Array<{ id: string; title: string; due_date: string; status: string }>>([])
   const [tasksLoading, setTasksLoading] = useState(true)
   const [sequenceDialogOpen, setSequenceDialogOpen] = useState(false)
@@ -484,7 +484,7 @@ export function ProspectDetail({
                     <ChevronRight className="size-4 text-muted-foreground" />
                   )}
                   <StickyNote className="size-4" />
-                  Notes
+                  Notes{notes ? ` (${notes.split('\n').filter(l => l.trim()).length})` : ''}
                   {savingNotes && (
                     <span className="text-xs font-normal text-muted-foreground">
                       Sauvegarde...
