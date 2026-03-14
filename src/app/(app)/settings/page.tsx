@@ -508,288 +508,71 @@ export default function SettingsPage() {
           />
         </AccordionSection>
 
-        {/* ─── Section 7: Base de connaissances (always visible) ─── */}
-        <div>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
-            <BookOpen className="size-5" />
-            Base de connaissances
-          </h2>
-          <p className="mb-4 text-sm text-muted-foreground">
-            Documents charges en local. L&apos;IA les utilise pour repondre aux questions techniques et personnaliser les messages.
-          </p>
+        {/* Hidden file inputs (must be in parent scope for handlers) */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.docx,.txt,.md,.csv,.json"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) handleUploadFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
+        <input
+          ref={replaceInputRef}
+          type="file"
+          accept=".pdf,.docx,.txt,.md,.csv,.json"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.[0] && replacingId) {
+              handleReplaceDocument(e.target.files[0], replacingId)
+            }
+            e.target.value = ''
+          }}
+        />
 
-          {/* Drag & drop upload zone */}
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`mb-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors ${
-              dragOver
-                ? 'border-brand-accent bg-brand-accent/10'
-                : 'border-border hover:border-brand-accent/50 hover:bg-white/5'
-            }`}
-          >
-            <Upload className={`mb-2 size-8 ${dragOver ? 'text-brand-accent' : 'text-muted-foreground'}`} />
-            <p className="text-sm font-medium text-foreground">
-              {uploading ? uploadProgress : 'Glissez vos fichiers ici ou cliquez pour choisir'}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              PDF, Word, TXT, Markdown, CSV — 10 MB max par fichier
-            </p>
-            {uploading && (
-              <Loader2 className="mt-2 size-5 animate-spin text-brand-accent" />
-            )}
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".pdf,.docx,.txt,.md,.csv,.json"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files) handleUploadFiles(e.target.files)
-              e.target.value = ''
-            }}
-          />
-          <input
-            ref={replaceInputRef}
-            type="file"
-            accept=".pdf,.docx,.txt,.md,.csv,.json"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files?.[0] && replacingId) {
-                handleReplaceDocument(e.target.files[0], replacingId)
-              }
-              e.target.value = ''
-            }}
-          />
-
-          {/* Upload progress toast */}
-          {uploadProgress && !uploading && (
-            <div className="mb-4 flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-400">
-              <BookOpen className="size-4 shrink-0" />
-              {uploadProgress}
-              <button onClick={() => setUploadProgress(null)} className="ml-auto">
-                <X className="size-3.5" />
-              </button>
-            </div>
-          )}
-
-          <Card>
-            <CardContent className="pt-6">
-              {/* Search + type filters */}
-              <div className="mb-4 space-y-3">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Rechercher un document..."
-                    value={docSearch}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setDocSearch(v)
-                      if (searchTimeout.current) clearTimeout(searchTimeout.current)
-                      searchTimeout.current = setTimeout(() => {
-                        setDocPage(0)
-                        loadDocuments(v, docType, 0)
-                      }, 300)
-                    }}
-                    className="pl-9"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { label: 'Tous', value: '' },
-                    { label: 'Docs', value: 'docs' },
-                    { label: 'Sheets', value: 'sheets' },
-                    { label: 'PDF', value: 'pdf' },
-                    { label: 'Slides', value: 'slides' },
-                  ].map((f) => (
-                    <button
-                      key={f.value}
-                      onClick={() => {
-                        setDocType(f.value)
-                        setDocPage(0)
-                        loadDocuments(docSearch, f.value, 0)
-                      }}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                        docType === f.value
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {docsLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : documents.length === 0 ? (
-                <div className="py-8 text-center">
-                  <BookOpen className="mx-auto mb-3 size-10 text-muted-foreground/50" />
-                  <p className="text-sm font-medium text-muted-foreground">
-                    {docSearch || docType ? 'Aucun document trouve' : 'Aucun document dans la base'}
-                  </p>
-                  {!docSearch && !docType && (
-                    <p className="mt-1 text-xs text-muted-foreground/70">
-                      Uploadez vos premiers documents pour que l&apos;IA puisse les utiliser.
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="mb-3 flex items-center justify-between">
-                    <Badge variant="secondary">{docTotal} document{docTotal > 1 ? 's' : ''}</Badge>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleReindex}
-                        disabled={indexing}
-                        title="Generer les resumes IA pour les documents non indexes"
-                      >
-                        {indexing ? <Loader2 className="size-3.5 animate-spin" /> : <BrainCircuit className="size-3.5" />}
-                        Re-indexer
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => loadDocuments(docSearch, docType, docPage * DOC_LIMIT)}>
-                        <RefreshCw className="size-3.5" />
-                        Rafraichir
-                      </Button>
-                    </div>
-                  </div>
-                  {documents.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between rounded-md border px-3 py-2"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        {doc.mime_type?.includes('presentation') ? (
-                          <Presentation className="size-4 shrink-0 text-yellow-500" />
-                        ) : doc.mime_type?.includes('spreadsheet') || doc.mime_type?.includes('csv') ? (
-                          <FileSpreadsheet className="size-4 shrink-0 text-green-500" />
-                        ) : doc.mime_type?.includes('pdf') ? (
-                          <File className="size-4 shrink-0 text-red-500" />
-                        ) : (
-                          <FileText className="size-4 shrink-0 text-blue-500" />
-                        )}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="truncate text-sm font-medium">{doc.name}</p>
-                            {doc.source === 'upload' ? (
-                              <span className="shrink-0 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
-                                Upload
-                              </span>
-                            ) : doc.source === 'drive' || doc.drive_file_id ? (
-                              <span className="shrink-0 rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                Drive
-                              </span>
-                            ) : null}
-                          </div>
-                          {doc.file_size ? (
-                            <p className="text-xs text-muted-foreground">
-                              {doc.file_size < 1024
-                                ? `${doc.file_size} o`
-                                : doc.file_size < 1024 * 1024
-                                  ? `${(doc.file_size / 1024).toFixed(1)} Ko`
-                                  : `${(doc.file_size / (1024 * 1024)).toFixed(1)} Mo`}
-                            </p>
-                          ) : doc.folder_path ? (
-                            <p className="truncate text-xs text-muted-foreground">{doc.folder_path}</p>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {doc.synced_at && (
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(doc.synced_at).toLocaleDateString('fr-FR')}
-                          </span>
-                        )}
-                        {doc.url && (
-                          <a
-                            href={doc.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-muted-foreground hover:text-foreground"
-                          >
-                            <ExternalLink className="size-3.5" />
-                          </a>
-                        )}
-                        <button
-                          onClick={() => {
-                            setReplacingId(doc.id)
-                            replaceInputRef.current?.click()
-                          }}
-                          disabled={replacingId === doc.id}
-                          className="text-muted-foreground hover:text-brand-accent transition-colors disabled:opacity-50"
-                          title="Remplacer le fichier"
-                        >
-                          {replacingId === doc.id ? (
-                            <Loader2 className="size-3.5 animate-spin" />
-                          ) : (
-                            <RefreshCw className="size-3.5" />
-                          )}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteDoc(doc.id)}
-                          disabled={deletingId === doc.id}
-                          className="text-muted-foreground hover:text-red-400 transition-colors disabled:opacity-50"
-                          title="Supprimer"
-                        >
-                          {deletingId === doc.id ? (
-                            <Loader2 className="size-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="size-3.5" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Pagination */}
-                  {docTotal > DOC_LIMIT && (
-                    <div className="flex items-center justify-between pt-3 border-t border-border">
-                      <span className="text-xs text-muted-foreground">
-                        {docPage * DOC_LIMIT + 1}-{Math.min((docPage + 1) * DOC_LIMIT, docTotal)} sur {docTotal}
-                      </span>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={docPage === 0}
-                          onClick={() => {
-                            const p = docPage - 1
-                            setDocPage(p)
-                            loadDocuments(docSearch, docType, p * DOC_LIMIT)
-                          }}
-                        >
-                          <ChevronLeft className="size-4" />
-                          Precedent
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={(docPage + 1) * DOC_LIMIT >= docTotal}
-                          onClick={() => {
-                            const p = docPage + 1
-                            setDocPage(p)
-                            loadDocuments(docSearch, docType, p * DOC_LIMIT)
-                          }}
-                        >
-                          Suivant
-                          <ChevronRight className="size-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        {/* ─── Section 7: Base de connaissances (collapsible) ─── */}
+        <KnowledgeBaseSection
+          documents={documents}
+          docTotal={docTotal}
+          docsLoading={docsLoading}
+          docSearch={docSearch}
+          setDocSearch={(v: string) => {
+            setDocSearch(v)
+            if (searchTimeout.current) clearTimeout(searchTimeout.current)
+            searchTimeout.current = setTimeout(() => {
+              setDocPage(0)
+              loadDocuments(v, docType, 0)
+            }, 300)
+          }}
+          docType={docType}
+          setDocType={(v: string) => {
+            setDocType(v)
+            setDocPage(0)
+            loadDocuments(docSearch, v, 0)
+          }}
+          docPage={docPage}
+          setDocPage={setDocPage}
+          DOC_LIMIT={DOC_LIMIT}
+          loadDocuments={loadDocuments}
+          handleDeleteDoc={handleDeleteDoc}
+          deletingId={deletingId}
+          handleUploadFiles={handleUploadFiles}
+          uploading={uploading}
+          uploadProgress={uploadProgress}
+          setUploadProgress={setUploadProgress}
+          dragOver={dragOver}
+          setDragOver={setDragOver}
+          handleDrop={handleDrop}
+          fileInputRef={fileInputRef}
+          replaceInputRef={replaceInputRef}
+          replacingId={replacingId}
+          setReplacingId={setReplacingId}
+          handleReindex={handleReindex}
+          indexing={indexing}
+        />
 
         {/* ─── Section 8: Pipeline (always visible) ─── */}
         <div>
@@ -989,6 +772,285 @@ CREATE INDEX idx_api_usage_created
             {saved ? 'Sauvegarde !' : 'Sauvegarder'}
           </Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Knowledge Base Section (collapsible) ───
+
+function KnowledgeBaseSection({
+  documents,
+  docTotal,
+  docsLoading,
+  docSearch,
+  setDocSearch,
+  docType,
+  setDocType,
+  docPage,
+  setDocPage,
+  DOC_LIMIT,
+  loadDocuments,
+  handleDeleteDoc,
+  deletingId,
+  handleUploadFiles,
+  uploading,
+  uploadProgress,
+  setUploadProgress,
+  dragOver,
+  setDragOver,
+  handleDrop,
+  fileInputRef,
+  replaceInputRef,
+  replacingId,
+  setReplacingId,
+  handleReindex,
+  indexing,
+}: {
+  documents: SyncedDocument[]
+  docTotal: number
+  docsLoading: boolean
+  docSearch: string
+  setDocSearch: (v: string) => void
+  docType: string
+  setDocType: (v: string) => void
+  docPage: number
+  setDocPage: (v: number) => void
+  DOC_LIMIT: number
+  loadDocuments: (search: string, type: string, offset: number) => void
+  handleDeleteDoc: (id: string) => void
+  deletingId: string | null
+  handleUploadFiles: (files: FileList | File[]) => void
+  uploading: boolean
+  uploadProgress: string | null
+  setUploadProgress: (v: string | null) => void
+  dragOver: boolean
+  setDragOver: (v: boolean) => void
+  handleDrop: (e: React.DragEvent) => void
+  fileInputRef: React.RefObject<HTMLInputElement | null>
+  replaceInputRef: React.RefObject<HTMLInputElement | null>
+  replacingId: string | null
+  setReplacingId: (v: string | null) => void
+  handleReindex: () => void
+  indexing: boolean
+}) {
+  const [listExpanded, setListExpanded] = useState(false)
+
+  const getDocIcon = (doc: SyncedDocument) => {
+    if (doc.mime_type?.includes('pdf')) return <File className="size-4 shrink-0 text-red-500" />
+    if (doc.mime_type?.includes('presentation')) return <Presentation className="size-4 shrink-0 text-yellow-500" />
+    if (doc.mime_type?.includes('spreadsheet') || doc.mime_type?.includes('csv')) return <FileSpreadsheet className="size-4 shrink-0 text-green-500" />
+    if (doc.mime_type?.includes('word') || doc.name?.endsWith('.docx')) return <FileSpreadsheet className="size-4 shrink-0 text-blue-500" />
+    return <FileText className="size-4 shrink-0 text-blue-500" />
+  }
+
+  const formatSize = (size: number) => {
+    if (size < 1024) return `${size} o`
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} Ko`
+    return `${(size / (1024 * 1024)).toFixed(1)} Mo`
+  }
+
+  return (
+    <div>
+      <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+        <BookOpen className="size-5" />
+        Base de connaissances
+      </h2>
+
+      {/* Upload zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+        className={`mb-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors ${
+          dragOver
+            ? 'border-brand-accent bg-brand-accent/10'
+            : 'border-border hover:border-brand-accent/50 hover:bg-white/5'
+        }`}
+      >
+        <Upload className={`mb-2 size-8 ${dragOver ? 'text-brand-accent' : 'text-muted-foreground'}`} />
+        <p className="text-sm font-medium text-foreground">
+          {uploading ? uploadProgress : 'Glissez vos fichiers ici ou cliquez pour choisir'}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Formats recommandes : .md, .txt (meilleure qualite)
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Aussi acceptes : .pdf, .docx, .csv (conversion automatique)
+        </p>
+        {uploading && (
+          <Loader2 className="mt-2 size-5 animate-spin text-brand-accent" />
+        )}
+      </div>
+      {/* Upload progress toast */}
+      {uploadProgress && !uploading && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-400">
+          <BookOpen className="size-4 shrink-0" />
+          {uploadProgress}
+          <button onClick={() => setUploadProgress(null)} className="ml-auto">
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Collapsible document list */}
+      <div className="rounded-lg border bg-card">
+        <button
+          onClick={() => setListExpanded(!listExpanded)}
+          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors"
+        >
+          <ChevronDown
+            className={`size-4 shrink-0 text-muted-foreground transition-transform ${
+              listExpanded ? '' : '-rotate-90'
+            }`}
+          />
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <BookOpen className="size-4" />
+            Base de connaissances ({docTotal} document{docTotal !== 1 ? 's' : ''})
+          </span>
+        </button>
+
+        {listExpanded && (
+          <div className="border-t px-4 py-4 space-y-3">
+            {/* Search + type filters */}
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+                <Input
+                  placeholder="Rechercher un document..."
+                  value={docSearch}
+                  onChange={(e) => setDocSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: 'Tous', value: '' },
+                  { label: 'Docs', value: 'docs' },
+                  { label: 'Sheets', value: 'sheets' },
+                  { label: 'PDF', value: 'pdf' },
+                  { label: 'Slides', value: 'slides' },
+                ].map((f) => (
+                  <button
+                    key={f.value}
+                    onClick={() => setDocType(f.value)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      docType === f.value
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Actions bar */}
+            <div className="flex items-center justify-end gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleReindex}
+                disabled={indexing}
+                title="Generer les resumes IA pour les documents non indexes"
+              >
+                {indexing ? <Loader2 className="size-3.5 animate-spin" /> : <BrainCircuit className="size-3.5" />}
+                Re-indexer
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => loadDocuments(docSearch, docType, docPage * DOC_LIMIT)}>
+                <RefreshCw className="size-3.5" />
+                Rafraichir
+              </Button>
+            </div>
+
+            {docsLoading ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : documents.length === 0 ? (
+              <div className="py-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  {docSearch || docType ? 'Aucun document trouve' : 'Aucun document dans la base'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {documents.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/5 transition-colors"
+                  >
+                    {getDocIcon(doc)}
+                    <span className="truncate text-sm font-medium min-w-0 flex-1">{doc.name}</span>
+                    {doc.file_size && (
+                      <span className="shrink-0 text-xs text-muted-foreground">{formatSize(doc.file_size)}</span>
+                    )}
+                    {doc.source === 'upload' ? (
+                      <span className="shrink-0 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
+                        Upload
+                      </span>
+                    ) : doc.source === 'drive' || doc.drive_file_id ? (
+                      <span className="shrink-0 rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                        Drive
+                      </span>
+                    ) : null}
+                    <button
+                      onClick={() => handleDeleteDoc(doc.id)}
+                      disabled={deletingId === doc.id}
+                      className="shrink-0 text-muted-foreground hover:text-red-400 transition-colors disabled:opacity-50"
+                      title="Supprimer"
+                    >
+                      {deletingId === doc.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-3.5" />
+                      )}
+                    </button>
+                  </div>
+                ))}
+
+                {/* Pagination */}
+                {docTotal > DOC_LIMIT && (
+                  <div className="flex items-center justify-between pt-3 border-t border-border">
+                    <span className="text-xs text-muted-foreground">
+                      {docPage * DOC_LIMIT + 1}-{Math.min((docPage + 1) * DOC_LIMIT, docTotal)} sur {docTotal}
+                    </span>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={docPage === 0}
+                        onClick={() => {
+                          const p = docPage - 1
+                          setDocPage(p)
+                          loadDocuments(docSearch, docType, p * DOC_LIMIT)
+                        }}
+                      >
+                        <ChevronLeft className="size-4" />
+                        Precedent
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={(docPage + 1) * DOC_LIMIT >= docTotal}
+                        onClick={() => {
+                          const p = docPage + 1
+                          setDocPage(p)
+                          loadDocuments(docSearch, docType, p * DOC_LIMIT)
+                        }}
+                      >
+                        Suivant
+                        <ChevronRight className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

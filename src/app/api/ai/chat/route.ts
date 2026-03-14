@@ -545,10 +545,11 @@ export async function POST(request: NextRequest) {
     if (budgetBlock) return budgetBlock
 
     const body = await request.json()
-    const { messages, prospectId, model: requestedModel } = body as {
+    const { messages, prospectId, model: requestedModel, file } = body as {
       messages: Array<{ role: 'user' | 'assistant'; content: string }>
       prospectId?: string
       model?: string
+      file?: { name: string; base64: string; mimeType: string }
     }
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -831,10 +832,52 @@ ${contentList}`
       async start(controller) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let apiMessages: any[] = messages.map((m) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-          }))
+          let apiMessages: any[] = messages.map((m, idx) => {
+            // If this is the last user message and a file was attached, build multimodal content
+            if (idx === messages.length - 1 && m.role === 'user' && file) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const contentParts: any[] = []
+
+              if (file.mimeType === 'application/pdf') {
+                contentParts.push({
+                  type: 'document',
+                  source: {
+                    type: 'base64',
+                    media_type: 'application/pdf',
+                    data: file.base64,
+                  },
+                })
+              } else if (file.mimeType.startsWith('image/')) {
+                contentParts.push({
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: file.mimeType,
+                    data: file.base64,
+                  },
+                })
+              } else {
+                // Text files (.txt, .md, .csv) — decode base64 to text
+                const textContent = Buffer.from(file.base64, 'base64').toString('utf-8')
+                contentParts.push({
+                  type: 'text',
+                  text: `=== Fichier: ${file.name} ===\n${textContent}`,
+                })
+              }
+
+              contentParts.push({
+                type: 'text',
+                text: m.content || 'Analyse ce document.',
+              })
+
+              return { role: 'user' as const, content: contentParts }
+            }
+
+            return {
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            }
+          })
           let totalInputTokens = 0
           let totalOutputTokens = 0
 

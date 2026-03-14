@@ -6,6 +6,7 @@ import { TasksToday } from '@/components/dashboard/tasks-today'
 import { HotProspects } from '@/components/dashboard/hot-prospects'
 import { PendingSequenceEmails } from '@/components/dashboard/pending-sequence-emails'
 import { WeeklyChecklist } from '@/components/dashboard/weekly-checklist'
+import { AgendaWidget } from '@/components/dashboard/agenda-widget'
 import { toLocalDateString } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
@@ -91,8 +92,14 @@ export default async function DashboardPage() {
             </section>
           </div>
 
-          {/* ===== SECTION OBLIGATOIRE 5/5 : Checklist semaine ===== */}
+          {/* Right column */}
           <div className="space-y-8 lg:col-span-2">
+            {/* ===== SECTION OBLIGATOIRE 5/6 : Agenda ===== */}
+            <section>
+              <AgendaWidget />
+            </section>
+
+            {/* ===== SECTION OBLIGATOIRE 6/6 : Checklist semaine ===== */}
             <section>
               <WeeklyChecklist />
             </section>

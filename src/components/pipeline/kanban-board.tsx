@@ -2,22 +2,7 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  useDroppable,
-  useDraggable,
-  pointerWithin,
-  rectIntersection,
-  type DragStartEvent,
-  type DragEndEvent,
-  type DragOverEvent,
-  type CollisionDetection,
-} from '@dnd-kit/core'
+import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { PipelineStage, Prospect } from '@/lib/types'
@@ -73,13 +58,12 @@ interface KanbanBoardProps {
   prospects: Prospect[]
 }
 
-// ─── Prospect Card Content (shared between real card and drag overlay) ───
+// ─── Prospect Card Content ───
 
 interface ProspectCardContentProps {
   prospect: Prospect
   stageColor: string
   isDragging?: boolean
-  isOverlay?: boolean
   onDelete?: (id: string) => void
   showDelete?: boolean
   dimmed?: boolean
@@ -95,7 +79,6 @@ function ProspectCardContent({
   prospect,
   stageColor,
   isDragging,
-  isOverlay,
   onDelete,
   showDelete,
   dimmed,
@@ -112,9 +95,8 @@ function ProspectCardContent({
     <div
       className={cn(
         'group relative rounded-lg border border-white/[0.08] bg-[#152c28] p-2.5 transition-all',
-        isDragging && 'opacity-40',
-        isOverlay && 'rotate-2 shadow-2xl shadow-black/50 ring-2 ring-white/20',
-        !isDragging && !isOverlay && 'hover:border-white/20 hover:bg-[#1a332f]',
+        isDragging && 'rotate-2 shadow-2xl shadow-black/50 ring-2 ring-white/20',
+        !isDragging && 'hover:border-white/20 hover:bg-[#1a332f]',
         dimmed && 'opacity-20 pointer-events-none',
         highlighted && 'ring-2 ring-brand-accent/60 border-brand-accent/40',
         isSelected && 'ring-2 ring-brand-accent border-brand-accent/50 bg-brand-accent/5'
@@ -156,19 +138,13 @@ function ProspectCardContent({
 
         {/* Card body — name + company only */}
         <div className="min-w-0 flex-1">
-          {isOverlay ? (
-            <p className="truncate text-sm font-medium text-white">
-              {prospect.prenom} {prospect.nom}
-            </p>
-          ) : (
-            <Link
-              href={`/prospects/${prospect.id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="block truncate text-sm font-medium text-white hover:underline"
-            >
-              {prospect.prenom} {prospect.nom}
-            </Link>
-          )}
+          <Link
+            href={`/prospects/${prospect.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="block truncate text-sm font-medium text-white hover:underline"
+          >
+            {prospect.prenom} {prospect.nom}
+          </Link>
           {prospect.entreprise && (
             <div className="mt-0.5 flex items-center gap-1">
               <Building2 className="h-3 w-3 shrink-0 text-white/30" />
@@ -199,7 +175,7 @@ function ProspectCardContent({
       </div>
 
       {/* Stage select dropdown — fallback for drag & drop */}
-      {!isOverlay && stages && onStageChange && (
+      {stages && onStageChange && (
         <div className="mt-1.5 pl-1">
           <select
             value={prospect.pipeline_stage}
@@ -222,79 +198,11 @@ function ProspectCardContent({
   )
 }
 
-// ─── Draggable Prospect Card ───
-
-function DraggableProspectCard({
-  prospect,
-  stageColor,
-  onDelete,
-  showDelete,
-  dimmed,
-  highlighted,
-  selectionMode,
-  isSelected,
-  onToggleSelect,
-  stages,
-  onStageChange,
-}: {
-  prospect: Prospect
-  stageColor: string
-  onDelete?: (id: string) => void
-  showDelete?: boolean
-  dimmed?: boolean
-  highlighted?: boolean
-  selectionMode?: boolean
-  isSelected?: boolean
-  onToggleSelect?: (id: string) => void
-  stages?: PipelineStage[]
-  onStageChange?: (prospectId: string, newStage: string) => void
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: prospect.id,
-    data: {
-      type: 'prospect',
-      prospect,
-    },
-  })
-
-  const handleClick = useCallback(() => {
-    if (!isDragging && selectionMode && onToggleSelect) {
-      onToggleSelect(prospect.id)
-    }
-  }, [prospect.id, isDragging, selectionMode, onToggleSelect])
-
-  return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      onClick={handleClick}
-      style={{ cursor: isDragging ? 'grabbing' : selectionMode ? 'pointer' : 'default' }}
-    >
-      <ProspectCardContent
-        prospect={prospect}
-        stageColor={stageColor}
-        isDragging={isDragging}
-        onDelete={onDelete}
-        showDelete={showDelete}
-        dimmed={dimmed}
-        highlighted={highlighted}
-        selectionMode={selectionMode}
-        isSelected={isSelected}
-        onToggleSelect={onToggleSelect}
-        stages={stages}
-        onStageChange={onStageChange}
-      />
-    </div>
-  )
-}
-
 // ─── Droppable Column (Desktop) ───
 
 interface StageColumnProps {
   stage: PipelineStage
   prospects: Prospect[]
-  isOver: boolean
   onDelete?: (id: string) => void
   showDelete?: boolean
   matchesSearch?: (p: Prospect) => boolean
@@ -306,22 +214,9 @@ interface StageColumnProps {
   onStageChange?: (prospectId: string, newStage: string) => void
 }
 
-function StageColumn({ stage, prospects, isOver, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect, allStages, onStageChange }: StageColumnProps) {
-  const { setNodeRef } = useDroppable({
-    id: `column-${stage.slug}`,
-    data: {
-      type: 'column',
-      stage,
-    },
-  })
-
+function StageColumn({ stage, prospects, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect, allStages, onStageChange }: StageColumnProps) {
   return (
-    <div
-      className={cn(
-        'flex h-full w-[300px] shrink-0 flex-col rounded-xl border border-white/[0.06] bg-[#112220] transition-all duration-200',
-        isOver && 'border-brand-accent/50 bg-[#142a27] ring-1 ring-brand-accent/20'
-      )}
-    >
+    <div className="flex h-full w-[300px] shrink-0 flex-col rounded-xl border border-white/[0.06] bg-[#112220] transition-all duration-200">
       {/* Column header */}
       <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
         <div className="flex items-center gap-2.5">
@@ -339,40 +234,65 @@ function StageColumn({ stage, prospects, isOver, onDelete, showDelete, matchesSe
         </Badge>
       </div>
 
-      {/* Cards container */}
-      <div
-        ref={setNodeRef}
-        className={cn(
-          'flex flex-1 flex-col gap-2 overflow-y-auto p-2',
-          isOver && 'bg-white/[0.02]'
-        )}
-      >
-        {prospects.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center py-8">
-            <p className="text-xs text-white/25">Aucun prospect</p>
+      {/* Cards container — Droppable */}
+      <Droppable droppableId={stage.slug}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={cn(
+              'flex flex-1 flex-col gap-2 overflow-y-auto p-2',
+              snapshot.isDraggingOver && 'bg-white/[0.02] border-brand-accent/30'
+            )}
+          >
+            {prospects.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center py-8">
+                <p className="text-xs text-white/25">Aucun prospect</p>
+              </div>
+            ) : (
+              prospects.map((prospect, index) => {
+                const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
+                return (
+                  <Draggable draggableId={prospect.id} index={index} key={prospect.id}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        {...provided.dragHandleProps}
+                        onClick={() => {
+                          if (!snapshot.isDragging && selectionMode && onToggleSelect) {
+                            onToggleSelect(prospect.id)
+                          }
+                        }}
+                        style={{
+                          ...provided.draggableProps.style,
+                          cursor: snapshot.isDragging ? 'grabbing' : selectionMode ? 'pointer' : 'grab',
+                        }}
+                      >
+                        <ProspectCardContent
+                          prospect={prospect}
+                          stageColor={stage.color}
+                          isDragging={snapshot.isDragging}
+                          onDelete={onDelete}
+                          showDelete={showDelete}
+                          dimmed={hasSearch && !matches}
+                          highlighted={hasSearch && matches}
+                          selectionMode={selectionMode}
+                          isSelected={selectedIds?.has(prospect.id)}
+                          onToggleSelect={onToggleSelect}
+                          stages={allStages}
+                          onStageChange={onStageChange}
+                        />
+                      </div>
+                    )}
+                  </Draggable>
+                )
+              })
+            )}
+            {provided.placeholder}
           </div>
-        ) : (
-          prospects.map((prospect) => {
-            const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
-            return (
-              <DraggableProspectCard
-                key={prospect.id}
-                prospect={prospect}
-                stageColor={stage.color}
-                onDelete={onDelete}
-                showDelete={showDelete}
-                dimmed={hasSearch && !matches}
-                highlighted={hasSearch && matches}
-                selectionMode={selectionMode}
-                isSelected={selectedIds?.has(prospect.id)}
-                onToggleSelect={onToggleSelect}
-                stages={allStages}
-                onStageChange={onStageChange}
-              />
-            )
-          })
         )}
-      </div>
+      </Droppable>
 
       {/* Column footer */}
       <div className="border-t border-white/[0.06] px-4 py-2">
@@ -392,7 +312,6 @@ function StageColumn({ stage, prospects, isOver, onDelete, showDelete, matchesSe
 interface MobileStageSectionProps {
   stage: PipelineStage
   prospects: Prospect[]
-  isOver: boolean
   onDelete?: (id: string) => void
   showDelete?: boolean
   matchesSearch?: (p: Prospect) => boolean
@@ -404,26 +323,13 @@ interface MobileStageSectionProps {
   onStageChange?: (prospectId: string, newStage: string) => void
 }
 
-function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect, allStages, onStageChange }: MobileStageSectionProps) {
+function MobileStageSection({ stage, prospects, onDelete, showDelete, matchesSearch, hasSearch, selectionMode, selectedIds, onToggleSelect, allStages, onStageChange }: MobileStageSectionProps) {
   const [isExpanded, setIsExpanded] = useState(
     prospects.length > 0 && prospects.length <= 10
   )
 
-  const { setNodeRef } = useDroppable({
-    id: `column-${stage.slug}`,
-    data: {
-      type: 'column',
-      stage,
-    },
-  })
-
   return (
-    <div
-      className={cn(
-        'rounded-xl border border-white/[0.06] bg-[#112220] transition-colors',
-        isOver && 'border-white/20 bg-[#142a27]'
-      )}
-    >
+    <div className="rounded-xl border border-white/[0.06] bg-[#112220] transition-colors">
       {/* Header - tap to expand/collapse */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
@@ -462,38 +368,54 @@ function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete, ma
         </div>
       </button>
 
-      {/* Cards list */}
+      {/* Cards list — Droppable */}
       {isExpanded && (
-        <div
-          ref={setNodeRef}
-          className="flex flex-col gap-2 border-t border-white/[0.06] p-2"
-        >
-          {prospects.length === 0 ? (
-            <div className="py-4 text-center">
-              <p className="text-xs text-white/25">Aucun prospect</p>
+        <Droppable droppableId={stage.slug}>
+          {(provided) => (
+            <div
+              ref={provided.innerRef}
+              {...provided.droppableProps}
+              className="flex flex-col gap-2 border-t border-white/[0.06] p-2"
+            >
+              {prospects.length === 0 ? (
+                <div className="py-4 text-center">
+                  <p className="text-xs text-white/25">Aucun prospect</p>
+                </div>
+              ) : (
+                prospects.map((prospect, index) => {
+                  const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
+                  return (
+                    <Draggable draggableId={prospect.id} index={index} key={prospect.id}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                        >
+                          <ProspectCardContent
+                            prospect={prospect}
+                            stageColor={stage.color}
+                            isDragging={snapshot.isDragging}
+                            onDelete={onDelete}
+                            showDelete={showDelete}
+                            dimmed={hasSearch && !matches}
+                            highlighted={hasSearch && matches}
+                            selectionMode={selectionMode}
+                            isSelected={selectedIds?.has(prospect.id)}
+                            onToggleSelect={onToggleSelect}
+                            stages={allStages}
+                            onStageChange={onStageChange}
+                          />
+                        </div>
+                      )}
+                    </Draggable>
+                  )
+                })
+              )}
+              {provided.placeholder}
             </div>
-          ) : (
-            prospects.map((prospect) => {
-              const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
-              return (
-                <DraggableProspectCard
-                  key={prospect.id}
-                  prospect={prospect}
-                  stageColor={stage.color}
-                  onDelete={onDelete}
-                  showDelete={showDelete}
-                  dimmed={hasSearch && !matches}
-                  highlighted={hasSearch && matches}
-                  selectionMode={selectionMode}
-                  isSelected={selectedIds?.has(prospect.id)}
-                  onToggleSelect={onToggleSelect}
-                  stages={allStages}
-                  onStageChange={onStageChange}
-                />
-              )
-            })
           )}
-        </div>
+        </Droppable>
       )}
     </div>
   )
@@ -501,17 +423,8 @@ function MobileStageSection({ stage, prospects, isOver, onDelete, showDelete, ma
 
 // ─── Main Kanban Board ───
 
-// Custom collision: pointerWithin first (most intuitive), fallback to rectIntersection
-const kanbanCollision: CollisionDetection = (args) => {
-  const pointerCollisions = pointerWithin(args)
-  if (pointerCollisions.length > 0) return pointerCollisions
-  return rectIntersection(args)
-}
-
 export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoardProps) {
   const [prospects, setProspects] = useState<Prospect[]>(initialProspects)
-  const [activeProspect, setActiveProspect] = useState<Prospect | null>(null)
-  const [overId, setOverId] = useState<string | null>(null)
   const [businessFilter, setBusinessFilter] = useState<BusinessType>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -569,20 +482,6 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
     return fields.some(f => f!.toLowerCase().includes(q))
   }, [searchQuery])
 
-  // Configure drag sensors with activation constraints to avoid accidental drags
-  const pointerSensor = useSensor(PointerSensor, {
-    activationConstraint: {
-      distance: 8,
-    },
-  })
-  const touchSensor = useSensor(TouchSensor, {
-    activationConstraint: {
-      delay: 200,
-      tolerance: 5,
-    },
-  })
-  const sensors = useSensors(pointerSensor, touchSensor)
-
   // Filter prospects by business type then group by pipeline stage
   const filteredProspects = useMemo(() => {
     if (businessFilter === 'all') return prospects
@@ -609,48 +508,6 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
     }
     return grouped
   }, [filteredProspects, stages])
-
-  // Resolve a droppable/draggable id to a column slug
-  const findColumnSlug = useCallback(
-    (id: string | number): string | null => {
-      const idStr = String(id)
-      if (idStr.startsWith('column-')) {
-        return idStr.replace('column-', '')
-      }
-      // Must be a prospect id; find which stage it currently belongs to
-      for (const stage of stages) {
-        const stageProspects = prospectsByStage[stage.slug] || []
-        if (stageProspects.some((p) => p.id === idStr)) {
-          return stage.slug
-        }
-      }
-      return null
-    },
-    [stages, prospectsByStage]
-  )
-
-  const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      const prospect = prospects.find((p) => p.id === event.active.id)
-      if (prospect) {
-        setActiveProspect(prospect)
-      }
-    },
-    [prospects]
-  )
-
-  const handleDragOver = useCallback(
-    (event: DragOverEvent) => {
-      const { over } = event
-      if (over) {
-        const columnSlug = findColumnSlug(over.id)
-        setOverId(columnSlug ? `column-${columnSlug}` : null)
-      } else {
-        setOverId(null)
-      }
-    },
-    [findColumnSlug]
-  )
 
   // Move a single prospect to a new stage (optimistic + persist)
   const executeMoveProspect = useCallback(
@@ -684,33 +541,29 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
     []
   )
 
+  // @hello-pangea/dnd handler
   const handleDragEnd = useCallback(
-    async (event: DragEndEvent) => {
-      const { active, over } = event
-      setActiveProspect(null)
-      setOverId(null)
+    async (result: DropResult) => {
+      if (!result.destination) return
 
-      if (!over) return
-
-      const prospectId = String(active.id)
-      const targetColumnSlug = findColumnSlug(over.id)
-      if (!targetColumnSlug) return
+      const prospectId = result.draggableId
+      const targetSlug = result.destination.droppableId
 
       const currentProspect = prospects.find((p) => p.id === prospectId)
       if (!currentProspect) return
-      if (currentProspect.pipeline_stage === targetColumnSlug) return
+      if (currentProspect.pipeline_stage === targetSlug) return
 
       // Check if prospect belongs to a deal group
       if (currentProspect.deal_group) {
         try {
           const members = await getDealGroupMembers(currentProspect.deal_group, currentProspect.id)
           if (members.length > 0) {
-            const targetStage = stages.find(s => s.slug === targetColumnSlug)
+            const targetStage = stages.find(s => s.slug === targetSlug)
             setPendingMove({
               prospect: currentProspect,
               members,
-              targetSlug: targetColumnSlug,
-              targetStageName: targetStage?.name || targetColumnSlug,
+              targetSlug,
+              targetStageName: targetStage?.name || targetSlug,
               previousStage: currentProspect.pipeline_stage,
             })
             return
@@ -721,9 +574,9 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
       }
 
       // No deal group or no members: move directly
-      executeMoveProspect(prospectId, targetColumnSlug, currentProspect.pipeline_stage)
+      executeMoveProspect(prospectId, targetSlug, currentProspect.pipeline_stage)
     },
-    [prospects, findColumnSlug, stages, executeMoveProspect]
+    [prospects, stages, executeMoveProspect]
   )
 
   const handleDealGroupMoveConfirm = useCallback(
@@ -797,18 +650,6 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
       setProspects(prev => [...prev, prospect])
     }
   }, [prospects])
-
-  const handleDragCancel = useCallback(() => {
-    setActiveProspect(null)
-    setOverId(null)
-  }, [])
-
-  // Stage color for the drag overlay card
-  const activeStageColor = useMemo(() => {
-    if (!activeProspect) return '#6366f1'
-    const stage = stages.find((s) => s.slug === activeProspect.pipeline_stage)
-    return stage?.color || '#6366f1'
-  }, [activeProspect, stages])
 
   const totalCount = filteredProspects.length
 
@@ -886,15 +727,8 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
         )}
       </div>
 
-      {/* DnD context wrapping both desktop and mobile views */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={kanbanCollision}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-      >
+      {/* DragDropContext wrapping both desktop and mobile views */}
+      <DragDropContext onDragEnd={handleDragEnd}>
         {/* Desktop: horizontal scrolling columns */}
         <div className="hidden flex-1 md:block">
           <div className="flex h-[calc(100vh-200px)] gap-3 overflow-x-auto pb-4">
@@ -903,7 +737,6 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
                 key={stage.id}
                 stage={stage}
                 prospects={prospectsByStage[stage.slug] || []}
-                isOver={overId === `column-${stage.slug}`}
                 onDelete={handleDeleteProspect}
                 showDelete
                 matchesSearch={matchesSearch}
@@ -925,7 +758,6 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
               key={stage.id}
               stage={stage}
               prospects={prospectsByStage[stage.slug] || []}
-              isOver={overId === `column-${stage.slug}`}
               onDelete={handleDeleteProspect}
               showDelete
               matchesSearch={matchesSearch}
@@ -938,20 +770,7 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
             />
           ))}
         </div>
-
-        {/* Drag overlay - follows the cursor */}
-        <DragOverlay dropAnimation={null}>
-          {activeProspect ? (
-            <div className="w-[284px]">
-              <ProspectCardContent
-                prospect={activeProspect}
-                stageColor={activeStageColor}
-                isOverlay
-              />
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      </DragDropContext>
 
       {/* Bulk action bar */}
       {selectionMode && selectedIds.size > 0 && (

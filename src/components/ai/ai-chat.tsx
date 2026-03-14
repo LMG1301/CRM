@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Send, Loader2, Trash2, MessageSquarePlus } from 'lucide-react'
+import { Send, Loader2, Trash2, MessageSquarePlus, Paperclip, FileText, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { AIMessage } from './ai-message'
@@ -49,9 +49,42 @@ export function AIChat({
     bodyHtml?: string
     subject?: string
   }>({ open: false, contentId: null })
+  const [attachedFile, setAttachedFile] = useState<{
+    file: File
+    name: string
+    size: number
+    base64: string
+    mimeType: string
+  } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Fichier trop volumineux (max 5 Mo)')
+      e.target.value = ''
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      // Remove data URL prefix to get raw base64
+      const base64 = result.split(',')[1] || ''
+      setAttachedFile({
+        file,
+        name: file.name,
+        size: file.size,
+        base64,
+        mimeType: file.type,
+      })
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }, [])
 
   // Load chat history from DB on mount
   useEffect(() => {
@@ -131,12 +164,19 @@ export function AIChat({
 
   const sendMessage = useCallback(
     async (userMessage: string) => {
-      if (!userMessage.trim() || isStreaming) return
+      if ((!userMessage.trim() && !attachedFile) || isStreaming) return
+
+      // Capture file before clearing
+      const currentFile = attachedFile
+
+      const displayContent = currentFile
+        ? `[Fichier: ${currentFile.name}]\n${userMessage.trim() || 'Analyse ce document.'}`
+        : userMessage.trim()
 
       const userMsg: Message = {
         id: crypto.randomUUID(),
         role: 'user',
-        content: userMessage.trim(),
+        content: displayContent,
       }
 
       const assistantMsg: Message = {
@@ -147,6 +187,7 @@ export function AIChat({
 
       setMessages((prev) => [...prev, userMsg, assistantMsg])
       setInput('')
+      setAttachedFile(null)
       setIsStreaming(true)
 
       // Build conversation history for the API call
@@ -172,6 +213,13 @@ export function AIChat({
             messages: recentForApi,
             prospectId,
             model: selectedModel,
+            ...(currentFile && {
+              file: {
+                name: currentFile.name,
+                base64: currentFile.base64,
+                mimeType: currentFile.mimeType,
+              },
+            }),
           }),
           signal: abortRef.current.signal,
         })
@@ -268,7 +316,7 @@ export function AIChat({
         abortRef.current = null
       }
     },
-    [messages, isStreaming, prospectId, selectedModel, saveToHistory, contextStartIndex]
+    [messages, isStreaming, prospectId, selectedModel, saveToHistory, contextStartIndex, attachedFile]
   )
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -460,7 +508,43 @@ export function AIChat({
             </div>
           )}
         </div>
+        {/* Attached file preview */}
+        {attachedFile && (
+          <div className="mb-2 flex items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1.5">
+            <FileText className="h-4 w-4 shrink-0 text-brand-accent" />
+            <span className="truncate text-xs text-foreground">{attachedFile.name}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {attachedFile.size < 1024 * 1024
+                ? `${(attachedFile.size / 1024).toFixed(1)} Ko`
+                : `${(attachedFile.size / (1024 * 1024)).toFixed(1)} Mo`}
+            </span>
+            <button
+              onClick={() => setAttachedFile(null)}
+              className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isStreaming}
+            className="h-[44px] w-[44px] shrink-0 text-muted-foreground hover:text-foreground"
+            title="Joindre un fichier"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
           <Textarea
             ref={textareaRef}
             value={input}
@@ -474,7 +558,7 @@ export function AIChat({
           <Button
             type="submit"
             size="icon"
-            disabled={!input.trim() || isStreaming}
+            disabled={(!input.trim() && !attachedFile) || isStreaming}
             className="h-[44px] w-[44px] shrink-0"
           >
             {isStreaming ? (
