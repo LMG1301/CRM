@@ -139,7 +139,7 @@ export function buildKnowledgeContext(documents: KnowledgeDocument[]): string {
   const lines: string[] = [
     '## Base de connaissances (index)',
     '',
-    'Voici l\'index de la base de connaissances. Si tu as besoin du contenu complet d\'un document pour repondre, demande-le par son nom.',
+    'Voici l\'index des documents disponibles. Tu as un outil read_document() pour charger le contenu complet de n\'importe quel document. Utilise-le systematiquement quand tu as besoin du contenu. Ne dis JAMAIS que tu n\'as pas acces au contenu ou que tu as seulement le resume — charge le document avec read_document().',
     '',
   ]
 

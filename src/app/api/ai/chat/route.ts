@@ -483,7 +483,67 @@ function getISOWeekNumber(date: Date): number {
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
 }
 
+// ─── Read Document Tool executor ───
+
+async function executeReadDocument(input: { document_name: string }): Promise<unknown> {
+  const { document_name } = input
+
+  // Flexible search: try exact match first, then fuzzy
+  let { data } = await supabase
+    .from('knowledge_documents')
+    .select('name, content, summary')
+    .ilike('name', `%${document_name}%`)
+    .limit(1)
+    .maybeSingle()
+
+  // If no match, try replacing separators with wildcards
+  if (!data) {
+    const fuzzyName = document_name.replace(/[_\-\.\s]+/g, '%')
+    const result = await supabase
+      .from('knowledge_documents')
+      .select('name, content, summary')
+      .ilike('name', `%${fuzzyName}%`)
+      .limit(1)
+      .maybeSingle()
+    data = result.data
+  }
+
+  if (!data) {
+    // Return list of available documents so the AI can retry
+    const { data: allDocs } = await supabase
+      .from('knowledge_documents')
+      .select('name')
+      .order('name')
+
+    return {
+      error: `Document "${document_name}" non trouve.`,
+      documents_disponibles: (allDocs || []).map(d => d.name),
+    }
+  }
+
+  return {
+    name: data.name,
+    content: data.content || '(Contenu vide)',
+    summary: data.summary || null,
+  }
+}
+
 // ─── Tool definitions ───
+
+const READ_DOCUMENT_TOOL = {
+  name: "read_document",
+  description: "Charge le contenu complet d'un document de la base de connaissances par son nom (ou une partie du nom). Utilise cet outil systematiquement quand tu as besoin du contenu d'un document pour repondre a une question.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      document_name: {
+        type: "string",
+        description: "Le nom (ou une partie du nom) du document a charger. Ex: 'Sodebo', 'offre commerciale', 'pricing'",
+      },
+    },
+    required: ["document_name"],
+  },
+}
 
 const SAVE_WEEKLY_TASKS_TOOL = {
   name: "save_weekly_tasks",
@@ -635,6 +695,8 @@ export async function POST(request: NextRequest) {
     enhancedSystem += `\n\nTu as un outil query_crm() pour interroger les donnees du CRM en temps reel. Utilise-le pour repondre aux questions sur les prospects, clients, pipeline, machines, activites recentes. Ne demande JAMAIS a l'utilisateur de copier-coller des donnees — interroge le CRM directement.
 
 Tu as un outil save_weekly_tasks() pour sauvegarder des taches dans la checklist hebdo du dashboard.
+
+Tu as un outil read_document() pour charger le contenu complet de n'importe quel document de la base de connaissances. Utilise-le systematiquement quand l'utilisateur pose une question sur un document, demande de le lire, ou quand tu as besoin d'informations detaillees d'un document. Ne dis JAMAIS que tu n'as que le resume ou l'index — charge le document avec read_document().
 
 ## Monday Check-in
 Quand l'utilisateur dit "check-in", "monday check-in", "prepare ma semaine", "to-do list", "priorites de la semaine" :
@@ -882,7 +944,7 @@ ${contentList}`
           let totalOutputTokens = 0
 
           // Agentic loop: stream text, handle tool_use for query_crm
-          for (let round = 0; round < 4; round++) {
+          for (let round = 0; round < 6; round++) {
             const stream = anthropic.messages.stream({
               model: model.apiModelId,
               max_tokens: model.maxOutputTokens,
@@ -902,6 +964,8 @@ ${contentList}`
                 CRM_TOOL as any,
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 SAVE_WEEKLY_TASKS_TOOL as any,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                READ_DOCUMENT_TOOL as any,
               ],
               messages: apiMessages,
             })
@@ -922,7 +986,7 @@ ${contentList}`
             // Find custom tool calls (web_search is handled server-side by the API)
             const customToolBlocks = finalMessage.content.filter(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (b: any) => b.type === 'tool_use' && (b.name === 'query_crm' || b.name === 'save_weekly_tasks')
+              (b: any) => b.type === 'tool_use' && (b.name === 'query_crm' || b.name === 'save_weekly_tasks' || b.name === 'read_document')
             )
 
             if (customToolBlocks.length === 0) break
@@ -940,6 +1004,9 @@ ${contentList}`
               } else if (block.name === 'save_weekly_tasks') {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 result = await executeSaveWeeklyTasks(block.input as any)
+              } else if (block.name === 'read_document') {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                result = await executeReadDocument(block.input as any)
               }
               toolResults.push({
                 type: 'tool_result' as const,
