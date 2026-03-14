@@ -2,12 +2,11 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { PipelineStage, Prospect } from '@/lib/types'
 import { updateProspect, deleteProspect, getDealGroupMembers } from '@/lib/actions'
-import { Building2, GripVertical, Trash2, Search, X, Zap, CheckSquare } from 'lucide-react'
+import { Building2, Trash2, Search, X, Zap, CheckSquare } from 'lucide-react'
 import { EnrollSequenceDialog } from '@/components/sequences/enroll-sequence-dialog'
 import { DealGroupMoveDialog } from './deal-group-move-dialog'
 
@@ -58,12 +57,11 @@ interface KanbanBoardProps {
   prospects: Prospect[]
 }
 
-// ─── Prospect Card Content ───
+// ─── Prospect Card ───
 
-interface ProspectCardContentProps {
+interface ProspectCardProps {
   prospect: Prospect
   stageColor: string
-  isDragging?: boolean
   onDelete?: (id: string) => void
   showDelete?: boolean
   dimmed?: boolean
@@ -75,10 +73,9 @@ interface ProspectCardContentProps {
   onStageChange?: (prospectId: string, newStage: string) => void
 }
 
-function ProspectCardContent({
+function ProspectCard({
   prospect,
   stageColor,
-  isDragging,
   onDelete,
   showDelete,
   dimmed,
@@ -88,19 +85,24 @@ function ProspectCardContent({
   onToggleSelect,
   stages,
   onStageChange,
-}: ProspectCardContentProps) {
+}: ProspectCardProps) {
   const initials = (prospect.prenom?.[0] || '') + (prospect.nom?.[0] || '')
 
   return (
     <div
       className={cn(
         'group relative rounded-lg border border-white/[0.08] bg-[#152c28] p-2.5 transition-all',
-        isDragging && 'rotate-2 shadow-2xl shadow-black/50 ring-2 ring-white/20',
-        !isDragging && 'hover:border-white/20 hover:bg-[#1a332f]',
+        'hover:border-white/20 hover:bg-[#1a332f]',
         dimmed && 'opacity-20 pointer-events-none',
         highlighted && 'ring-2 ring-brand-accent/60 border-brand-accent/40',
         isSelected && 'ring-2 ring-brand-accent border-brand-accent/50 bg-brand-accent/5'
       )}
+      onClick={() => {
+        if (selectionMode && onToggleSelect) {
+          onToggleSelect(prospect.id)
+        }
+      }}
+      style={{ cursor: selectionMode ? 'pointer' : undefined }}
     >
       {/* Left color accent bar */}
       <div
@@ -155,26 +157,23 @@ function ProspectCardContent({
           )}
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-0.5">
-          {showDelete && onDelete && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                e.preventDefault()
-                onDelete(prospect.id)
-              }}
-              className="shrink-0 rounded p-0.5 text-white/20 opacity-0 transition-all hover:bg-red-500/20 hover:text-red-400 group-hover:opacity-100"
-              title="Supprimer"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          )}
-          <GripVertical className="h-3.5 w-3.5 shrink-0 text-white/25 opacity-0 transition-opacity group-hover:opacity-100" />
-        </div>
+        {/* Delete action */}
+        {showDelete && onDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              onDelete(prospect.id)
+            }}
+            className="shrink-0 rounded p-0.5 text-white/20 opacity-0 transition-all hover:bg-red-500/20 hover:text-red-400 group-hover:opacity-100"
+            title="Supprimer"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
-      {/* Stage select dropdown — fallback for drag & drop */}
+      {/* Stage select dropdown */}
       {stages && onStageChange && (
         <div className="mt-1.5 pl-1">
           <select
@@ -198,7 +197,7 @@ function ProspectCardContent({
   )
 }
 
-// ─── Droppable Column (Desktop) ───
+// ─── Desktop Stage Column ───
 
 interface StageColumnProps {
   stage: PipelineStage
@@ -234,65 +233,34 @@ function StageColumn({ stage, prospects, onDelete, showDelete, matchesSearch, ha
         </Badge>
       </div>
 
-      {/* Cards container — Droppable */}
-      <Droppable droppableId={stage.slug}>
-        {(provided, snapshot) => (
-          <div
-            ref={provided.innerRef}
-            {...provided.droppableProps}
-            className={cn(
-              'flex flex-1 flex-col gap-2 overflow-y-auto p-2',
-              snapshot.isDraggingOver && 'bg-white/[0.02] border-brand-accent/30'
-            )}
-          >
-            {prospects.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center py-8">
-                <p className="text-xs text-white/25">Aucun prospect</p>
-              </div>
-            ) : (
-              prospects.map((prospect, index) => {
-                const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
-                return (
-                  <Draggable draggableId={prospect.id} index={index} key={prospect.id}>
-                    {(provided, snapshot) => (
-                      <div
-                        ref={provided.innerRef}
-                        {...provided.draggableProps}
-                        {...provided.dragHandleProps}
-                        onClick={() => {
-                          if (!snapshot.isDragging && selectionMode && onToggleSelect) {
-                            onToggleSelect(prospect.id)
-                          }
-                        }}
-                        style={{
-                          ...provided.draggableProps.style,
-                          cursor: snapshot.isDragging ? 'grabbing' : selectionMode ? 'pointer' : 'grab',
-                        }}
-                      >
-                        <ProspectCardContent
-                          prospect={prospect}
-                          stageColor={stage.color}
-                          isDragging={snapshot.isDragging}
-                          onDelete={onDelete}
-                          showDelete={showDelete}
-                          dimmed={hasSearch && !matches}
-                          highlighted={hasSearch && matches}
-                          selectionMode={selectionMode}
-                          isSelected={selectedIds?.has(prospect.id)}
-                          onToggleSelect={onToggleSelect}
-                          stages={allStages}
-                          onStageChange={onStageChange}
-                        />
-                      </div>
-                    )}
-                  </Draggable>
-                )
-              })
-            )}
-            {provided.placeholder}
+      {/* Cards container */}
+      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
+        {prospects.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center py-8">
+            <p className="text-xs text-white/25">Aucun prospect</p>
           </div>
+        ) : (
+          prospects.map((prospect) => {
+            const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
+            return (
+              <ProspectCard
+                key={prospect.id}
+                prospect={prospect}
+                stageColor={stage.color}
+                onDelete={onDelete}
+                showDelete={showDelete}
+                dimmed={hasSearch && !matches}
+                highlighted={hasSearch && matches}
+                selectionMode={selectionMode}
+                isSelected={selectedIds?.has(prospect.id)}
+                onToggleSelect={onToggleSelect}
+                stages={allStages}
+                onStageChange={onStageChange}
+              />
+            )
+          })
         )}
-      </Droppable>
+      </div>
 
       {/* Column footer */}
       <div className="border-t border-white/[0.06] px-4 py-2">
@@ -368,54 +336,35 @@ function MobileStageSection({ stage, prospects, onDelete, showDelete, matchesSea
         </div>
       </button>
 
-      {/* Cards list — Droppable */}
+      {/* Cards list */}
       {isExpanded && (
-        <Droppable droppableId={stage.slug}>
-          {(provided) => (
-            <div
-              ref={provided.innerRef}
-              {...provided.droppableProps}
-              className="flex flex-col gap-2 border-t border-white/[0.06] p-2"
-            >
-              {prospects.length === 0 ? (
-                <div className="py-4 text-center">
-                  <p className="text-xs text-white/25">Aucun prospect</p>
-                </div>
-              ) : (
-                prospects.map((prospect, index) => {
-                  const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
-                  return (
-                    <Draggable draggableId={prospect.id} index={index} key={prospect.id}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                        >
-                          <ProspectCardContent
-                            prospect={prospect}
-                            stageColor={stage.color}
-                            isDragging={snapshot.isDragging}
-                            onDelete={onDelete}
-                            showDelete={showDelete}
-                            dimmed={hasSearch && !matches}
-                            highlighted={hasSearch && matches}
-                            selectionMode={selectionMode}
-                            isSelected={selectedIds?.has(prospect.id)}
-                            onToggleSelect={onToggleSelect}
-                            stages={allStages}
-                            onStageChange={onStageChange}
-                          />
-                        </div>
-                      )}
-                    </Draggable>
-                  )
-                })
-              )}
-              {provided.placeholder}
+        <div className="flex flex-col gap-2 border-t border-white/[0.06] p-2">
+          {prospects.length === 0 ? (
+            <div className="py-4 text-center">
+              <p className="text-xs text-white/25">Aucun prospect</p>
             </div>
+          ) : (
+            prospects.map((prospect) => {
+              const matches = !hasSearch || !matchesSearch || matchesSearch(prospect)
+              return (
+                <ProspectCard
+                  key={prospect.id}
+                  prospect={prospect}
+                  stageColor={stage.color}
+                  onDelete={onDelete}
+                  showDelete={showDelete}
+                  dimmed={hasSearch && !matches}
+                  highlighted={hasSearch && matches}
+                  selectionMode={selectionMode}
+                  isSelected={selectedIds?.has(prospect.id)}
+                  onToggleSelect={onToggleSelect}
+                  stages={allStages}
+                  onStageChange={onStageChange}
+                />
+              )
+            })
           )}
-        </Droppable>
+        </div>
       )}
     </div>
   )
@@ -541,51 +490,13 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
     []
   )
 
-  // @hello-pangea/dnd handler
-  const handleDragEnd = useCallback(
-    async (result: DropResult) => {
-      if (!result.destination) return
-
-      const prospectId = result.draggableId
-      const targetSlug = result.destination.droppableId
-
-      const currentProspect = prospects.find((p) => p.id === prospectId)
-      if (!currentProspect) return
-      if (currentProspect.pipeline_stage === targetSlug) return
-
-      // Check if prospect belongs to a deal group
-      if (currentProspect.deal_group) {
-        try {
-          const members = await getDealGroupMembers(currentProspect.deal_group, currentProspect.id)
-          if (members.length > 0) {
-            const targetStage = stages.find(s => s.slug === targetSlug)
-            setPendingMove({
-              prospect: currentProspect,
-              members,
-              targetSlug,
-              targetStageName: targetStage?.name || targetSlug,
-              previousStage: currentProspect.pipeline_stage,
-            })
-            return
-          }
-        } catch {
-          // If fetch fails, proceed with single move
-        }
-      }
-
-      // No deal group or no members: move directly
-      executeMoveProspect(prospectId, targetSlug, currentProspect.pipeline_stage)
-    },
-    [prospects, stages, executeMoveProspect]
-  )
-
   const handleDealGroupMoveConfirm = useCallback(
     async (moveAll: boolean) => {
       if (!pendingMove) return
 
       const { prospect, members, targetSlug, previousStage } = pendingMove
 
-      // Always move the dragged prospect
+      // Always move the selected prospect
       executeMoveProspect(prospect.id, targetSlug, previousStage)
 
       // If moveAll, also move all group members
@@ -602,7 +513,7 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
     [pendingMove, executeMoveProspect]
   )
 
-  // Stage select dropdown handler (with deal group support)
+  // Stage select handler (with deal group support)
   const handleStageSelect = useCallback(
     async (prospectId: string, newStage: string) => {
       const currentProspect = prospects.find((p) => p.id === prospectId)
@@ -727,34 +638,11 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
         )}
       </div>
 
-      {/* DragDropContext wrapping both desktop and mobile views */}
-      <DragDropContext onDragEnd={handleDragEnd}>
-        {/* Desktop: horizontal scrolling columns */}
-        <div className="hidden flex-1 md:block">
-          <div className="flex h-[calc(100vh-200px)] gap-3 overflow-x-auto pb-4">
-            {stages.map((stage) => (
-              <StageColumn
-                key={stage.id}
-                stage={stage}
-                prospects={prospectsByStage[stage.slug] || []}
-                onDelete={handleDeleteProspect}
-                showDelete
-                matchesSearch={matchesSearch}
-                hasSearch={!!searchQuery.trim()}
-                selectionMode={selectionMode}
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelect}
-                allStages={stages}
-                onStageChange={handleStageSelect}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Mobile: vertically stacked collapsible sections */}
-        <div className="flex flex-col gap-4 md:hidden">
+      {/* Desktop: horizontal scrolling columns */}
+      <div className="hidden flex-1 md:block">
+        <div className="flex h-[calc(100vh-200px)] gap-3 overflow-x-auto pb-4">
           {stages.map((stage) => (
-            <MobileStageSection
+            <StageColumn
               key={stage.id}
               stage={stage}
               prospects={prospectsByStage[stage.slug] || []}
@@ -770,7 +658,27 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
             />
           ))}
         </div>
-      </DragDropContext>
+      </div>
+
+      {/* Mobile: vertically stacked collapsible sections */}
+      <div className="flex flex-col gap-4 md:hidden">
+        {stages.map((stage) => (
+          <MobileStageSection
+            key={stage.id}
+            stage={stage}
+            prospects={prospectsByStage[stage.slug] || []}
+            onDelete={handleDeleteProspect}
+            showDelete
+            matchesSearch={matchesSearch}
+            hasSearch={!!searchQuery.trim()}
+            selectionMode={selectionMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            allStages={stages}
+            onStageChange={handleStageSelect}
+          />
+        ))}
+      </div>
 
       {/* Bulk action bar */}
       {selectionMode && selectedIds.size > 0 && (
@@ -812,7 +720,6 @@ export function KanbanBoard({ stages, prospects: initialProspects }: KanbanBoard
           targetStageName={pendingMove.targetStageName}
           onConfirm={handleDealGroupMoveConfirm}
           onClose={() => {
-            // If dismissed, move only the dragged prospect
             handleDealGroupMoveConfirm(false)
           }}
         />

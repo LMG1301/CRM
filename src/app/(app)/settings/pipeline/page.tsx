@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   ChevronLeft,
-  GripVertical,
+  ChevronUp,
+  ChevronDown,
   Plus,
   Pencil,
   Trash2,
@@ -23,22 +24,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-  arrayMove,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 
 // ─── Types ───
 
@@ -70,13 +55,17 @@ const COLORS = [
   '#10b981',
 ]
 
-// ─── SortableStageItem ───
+// ─── StageItem ───
 
-function SortableStageItem({
+function StageItem({
   stage,
   onRename,
   onColorChange,
   onDelete,
+  onMoveUp,
+  onMoveDown,
+  isFirst,
+  isLast,
   editingId,
   editingName,
   setEditingId,
@@ -87,34 +76,37 @@ function SortableStageItem({
   onRename: (id: string, name: string) => void
   onColorChange: (id: string, color: string) => void
   onDelete: (stage: StageWithCount) => void
+  onMoveUp: (id: string) => void
+  onMoveDown: (id: string) => void
+  isFirst: boolean
+  isLast: boolean
   editingId: string | null
   editingName: string
   setEditingId: (id: string | null) => void
   setEditingName: (name: string) => void
   saving: boolean
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id: stage.id })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
   const [showColors, setShowColors] = useState(false)
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="flex items-center gap-3 rounded-lg border bg-card p-3"
-    >
-      {/* Drag handle */}
-      <button
-        {...attributes}
-        {...listeners}
-        className="cursor-grab touch-none"
-      >
-        <GripVertical className="size-4 text-muted-foreground" />
-      </button>
+    <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+      {/* Up/Down reorder buttons */}
+      <div className="flex flex-col gap-0.5">
+        <button
+          onClick={() => onMoveUp(stage.id)}
+          disabled={isFirst || saving}
+          className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
+        >
+          <ChevronUp className="size-3.5" />
+        </button>
+        <button
+          onClick={() => onMoveDown(stage.id)}
+          disabled={isLast || saving}
+          className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
+        >
+          <ChevronDown className="size-3.5" />
+        </button>
+      </div>
 
       {/* Color dot with popover */}
       <div className="relative">
@@ -246,15 +238,6 @@ export default function PipelineSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
-  // DnD sensors
-  const pointerSensor = useSensor(PointerSensor, {
-    activationConstraint: { distance: 5 },
-  })
-  const touchSensor = useSensor(TouchSensor, {
-    activationConstraint: { delay: 200, tolerance: 5 },
-  })
-  const sensors = useSensors(pointerSensor, touchSensor)
-
   // ─── Load stages ───
 
   const loadStages = useCallback(async () => {
@@ -275,20 +258,11 @@ export default function PipelineSettingsPage() {
     loadStages()
   }, [loadStages])
 
-  // ─── Drag & Drop Reorder ───
+  // ─── Reorder with up/down buttons ───
 
-  const handleDragEnd = useCallback(
-    async (event: DragEndEvent) => {
-      const { active, over } = event
-      if (!over || active.id === over.id) return
-
-      const oldIndex = stages.findIndex((s) => s.id === active.id)
-      const newIndex = stages.findIndex((s) => s.id === over.id)
-      if (oldIndex === -1 || newIndex === -1) return
-
-      const reordered = arrayMove(stages, oldIndex, newIndex)
+  const saveReorder = useCallback(
+    async (reordered: StageWithCount[]) => {
       setStages(reordered)
-
       try {
         setSaving(true)
         const res = await fetch('/api/pipeline-stages/reorder', {
@@ -311,7 +285,29 @@ export default function PipelineSettingsPage() {
         setSaving(false)
       }
     },
-    [stages, loadStages]
+    [loadStages]
+  )
+
+  const handleMoveUp = useCallback(
+    (id: string) => {
+      const index = stages.findIndex((s) => s.id === id)
+      if (index <= 0) return
+      const reordered = [...stages]
+      ;[reordered[index - 1], reordered[index]] = [reordered[index], reordered[index - 1]]
+      saveReorder(reordered)
+    },
+    [stages, saveReorder]
+  )
+
+  const handleMoveDown = useCallback(
+    (id: string) => {
+      const index = stages.findIndex((s) => s.id === id)
+      if (index === -1 || index >= stages.length - 1) return
+      const reordered = [...stages]
+      ;[reordered[index], reordered[index + 1]] = [reordered[index + 1], reordered[index]]
+      saveReorder(reordered)
+    },
+    [stages, saveReorder]
   )
 
   // ─── Rename ───
@@ -458,8 +454,8 @@ export default function PipelineSettingsPage() {
         <CardHeader>
           <CardTitle>Etapes du pipeline</CardTitle>
           <CardDescription>
-            Configurez les etapes de votre pipeline commercial. Glissez pour
-            reordonner.
+            Configurez les etapes de votre pipeline commercial. Utilisez les
+            fleches pour reordonner.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -471,34 +467,27 @@ export default function PipelineSettingsPage() {
             </div>
           )}
 
-          {/* Sortable stage list */}
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={stages.map((s) => s.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-2">
-                {stages.map((stage) => (
-                  <SortableStageItem
-                    key={stage.id}
-                    stage={stage}
-                    onRename={handleRename}
-                    onColorChange={handleColorChange}
-                    onDelete={handleDelete}
-                    editingId={editingId}
-                    editingName={editingName}
-                    setEditingId={setEditingId}
-                    setEditingName={setEditingName}
-                    saving={saving}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
+          {/* Stage list */}
+          <div className="space-y-2">
+            {stages.map((stage, index) => (
+              <StageItem
+                key={stage.id}
+                stage={stage}
+                onRename={handleRename}
+                onColorChange={handleColorChange}
+                onDelete={handleDelete}
+                onMoveUp={handleMoveUp}
+                onMoveDown={handleMoveDown}
+                isFirst={index === 0}
+                isLast={index === stages.length - 1}
+                editingId={editingId}
+                editingName={editingName}
+                setEditingId={setEditingId}
+                setEditingName={setEditingName}
+                saving={saving}
+              />
+            ))}
+          </div>
 
           {/* Delete confirmation overlay */}
           {deletingStage && (

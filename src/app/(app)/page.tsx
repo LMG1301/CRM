@@ -1,42 +1,19 @@
-import { getDashboardStats, getActionsDuJour, getProspects, getPendingReviewEmails, getStages } from '@/lib/actions'
-import { supabase } from '@/lib/supabase'
+import { getDashboardStats, getActionsDuJour, getPendingReviewEmails, getStages } from '@/lib/actions'
 import { KpiCards } from '@/components/dashboard/kpi-cards'
 import { ActionsToday } from '@/components/dashboard/actions-today'
-import { TasksToday } from '@/components/dashboard/tasks-today'
-import { HotProspects } from '@/components/dashboard/hot-prospects'
 import { PendingSequenceEmails } from '@/components/dashboard/pending-sequence-emails'
 import { WeeklyChecklist } from '@/components/dashboard/weekly-checklist'
-import { AgendaWidget } from '@/components/dashboard/agenda-widget'
-import { toLocalDateString } from '@/lib/utils'
+import { CalendarWidget } from '@/components/dashboard/calendar-widget'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  const today = toLocalDateString(new Date())
-
-  const [stats, actionsDuJour, allProspects, tasksDuJour, pendingSequenceEmails, stages] = await Promise.all([
+  const [stats, actionsDuJour, pendingSequenceEmails, stages] = await Promise.all([
     getDashboardStats(),
     getActionsDuJour(),
-    getProspects(),
-    Promise.resolve(
-      supabase
-        .from('tasks')
-        .select('*, prospect:prospects(prenom, nom, entreprise)')
-        .eq('status', 'pending')
-        .lte('due_date', `${today}T23:59:59`)
-        .order('due_date')
-    ).then(({ data }) => data || []).catch(() => []),
     getPendingReviewEmails().catch(() => []),
     getStages(),
   ])
-
-  // Hot prospects: those in non-terminal, non-default stages (active discussions)
-  const hotProspects = allProspects
-    .filter((p) => {
-      const stage = stages.find(s => s.slug === p.pipeline_stage)
-      return stage && !stage.is_terminal && !stage.is_default
-    })
-    .slice(0, 8)
 
   return (
     <div className="min-h-screen bg-background">
@@ -55,53 +32,44 @@ export default async function DashboardPage() {
             total={stats.total}
             clients={stats.clients}
             discussions={stats.discussions}
-            tauxReponse={stats.tauxReponse}
+            enClosing={stats.enClosing}
           />
         </section>
 
-        {/* Main content: 2-column layout */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
-          {/* Left column - Actions, Sequences pending, Tasks, Hot prospects */}
-          <div className="space-y-8 lg:col-span-3">
-            {/* ===== SECTION OBLIGATOIRE 1/5 : Actions du jour ===== */}
+        {/* Main content: 3-column layout */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/* Left column: Aujourd'hui */}
+          <div className="space-y-4">
+            <p className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Aujourd&apos;hui
+            </p>
             <section>
               <ActionsToday prospects={actionsDuJour} stages={stages} />
             </section>
-
-            {/* ===== SECTION OBLIGATOIRE 2/5 : Sequences en attente (NE PAS SUPPRIMER) =====
-                Affiche les emails de sequence en attente d'approbation (semi-auto).
-                La section est masquee quand il n'y a aucun email en attente
-                (enrollments actives avec pending_email IS NOT NULL).
-                getPendingReviewEmails() est appele dans le Promise.all ci-dessus. */}
             {pendingSequenceEmails && pendingSequenceEmails.length > 0 && (
               <section>
                 <PendingSequenceEmails initialPending={pendingSequenceEmails} />
               </section>
             )}
+          </div>
 
-            {/* ===== SECTION OBLIGATOIRE 3/5 : Taches du jour ===== */}
-            {tasksDuJour.length > 0 && (
-              <section>
-                <TasksToday initialTasks={tasksDuJour} />
-              </section>
-            )}
-
-            {/* ===== SECTION OBLIGATOIRE 4/5 : Prospects chauds ===== */}
+          {/* Middle column: Cette semaine */}
+          <div className="space-y-4">
+            <p className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Cette semaine
+            </p>
             <section>
-              <HotProspects prospects={hotProspects} stages={stages} />
+              <WeeklyChecklist />
             </section>
           </div>
 
-          {/* Right column */}
-          <div className="space-y-8 lg:col-span-2">
-            {/* ===== SECTION OBLIGATOIRE 5/6 : Agenda ===== */}
+          {/* Right column: Calendrier */}
+          <div className="space-y-4">
+            <p className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Calendrier
+            </p>
             <section>
-              <AgendaWidget />
-            </section>
-
-            {/* ===== SECTION OBLIGATOIRE 6/6 : Checklist semaine ===== */}
-            <section>
-              <WeeklyChecklist />
+              <CalendarWidget />
             </section>
           </div>
         </div>

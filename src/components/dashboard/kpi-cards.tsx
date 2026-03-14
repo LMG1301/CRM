@@ -7,7 +7,7 @@ interface KpiCardsProps {
   total: number
   clients: number
   discussions: number
-  tauxReponse: number
+  enClosing: number
 }
 
 const kpis = [
@@ -33,23 +33,22 @@ const kpis = [
     bgColor: 'bg-emerald-500/10',
   },
   {
-    key: 'tauxReponse' as const,
-    label: 'Taux de reponse',
+    key: 'enClosing' as const,
+    label: 'En closing',
     icon: TrendingUp,
     color: 'text-violet-400',
     bgColor: 'bg-violet-400/10',
   },
 ]
 
-export function KpiCards({ total, clients, discussions, tauxReponse }: KpiCardsProps) {
-  const values: Record<string, number> = { total, clients, discussions, tauxReponse }
+export function KpiCards({ total, clients, discussions, enClosing }: KpiCardsProps) {
+  const values: Record<string, number> = { total, clients, discussions, enClosing }
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {kpis.map((kpi) => {
         const Icon = kpi.icon
         const value = values[kpi.key]
-        const displayValue = kpi.key === 'tauxReponse' ? `${value}%` : value
 
         return (
           <Card key={kpi.key} className="py-5">
@@ -62,7 +61,7 @@ export function KpiCards({ total, clients, discussions, tauxReponse }: KpiCardsP
                   {kpi.label}
                 </p>
                 <p className="text-2xl font-bold tracking-tight">
-                  {displayValue}
+                  {value}
                 </p>
               </div>
             </CardContent>

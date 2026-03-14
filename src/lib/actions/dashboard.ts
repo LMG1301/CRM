@@ -28,13 +28,9 @@ export async function getDashboardStats() {
     activeStageSlugs.includes(p.pipeline_stage) ||
     p.categorie === 'Client / Discussion active'
   ).length
-  const replied = all.filter(p =>
-    p.pipeline_stage === 'repondu' || p.categorie === 'A répondu'
+  const enClosing = all.filter(p =>
+    p.pipeline_stage === 'devis' || p.pipeline_stage === 'closing'
   ).length
-  const contacted = all.filter(p =>
-    !defaultSlugs.includes(p.pipeline_stage) && p.pipeline_stage !== 'refuse'
-  ).length
-  const tauxReponse = contacted > 0 ? Math.round((replied + discussions + clients) / contacted * 100) : 0
 
   const prospectsActifs = all.filter(p =>
     !terminalSlugs.includes(p.pipeline_stage)
@@ -101,7 +97,7 @@ export async function getDashboardStats() {
   }
 
   return {
-    total, clients, discussions, replied, tauxReponse,
+    total, clients, discussions, enClosing,
     prospectsActifs, conversionRate,
     byStage, byCategorie, weeklyActivity,
     blockers: blockers.sort((a, b) => b.days - a.days).slice(0, 10),
