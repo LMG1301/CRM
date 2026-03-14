@@ -25,18 +25,18 @@ export function CompanyContextPanel({ prospect }: CompanyContextPanelProps) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!prospect.entreprise) {
+    if (!prospect.entreprise && !prospect.company_id) {
       setLoading(false)
       return
     }
 
-    getCompanyColleagues(prospect.entreprise, prospect.id)
+    getCompanyColleagues(prospect.entreprise, prospect.id, prospect.company_id)
       .then(setColleagues)
       .catch(() => setColleagues([]))
       .finally(() => setLoading(false))
-  }, [prospect.entreprise, prospect.id])
+  }, [prospect.entreprise, prospect.company_id, prospect.id])
 
-  if (!prospect.entreprise || (!loading && colleagues.length === 0)) {
+  if ((!prospect.entreprise && !prospect.company_id) || (!loading && colleagues.length === 0)) {
     return null
   }
 

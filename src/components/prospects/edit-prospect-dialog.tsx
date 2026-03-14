@@ -20,9 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Search, Sparkles, Loader2, Bot } from 'lucide-react'
+import { Search, Sparkles, Loader2, Bot, Building2, Plus } from 'lucide-react'
 import { updateProspect, getDealGroups } from '@/lib/actions'
-import type { Prospect } from '@/lib/types'
+import type { Prospect, Company } from '@/lib/types'
 
 interface EditProspectDialogProps {
   prospect: Prospect
@@ -37,7 +37,7 @@ const FIELD_GROUPS = [
     fields: [
       { key: 'prenom', label: 'Prenom', placeholder: 'Jean' },
       { key: 'nom', label: 'Nom', placeholder: 'Dupont' },
-      { key: 'entreprise', label: 'Entreprise', placeholder: 'Acme Inc.' },
+      // entreprise is rendered as a custom autocomplete below
       { key: 'site_web', label: 'Site web', placeholder: 'https://www.acme.com', type: 'url' },
       { key: 'fonction', label: 'Fonction / Poste', placeholder: 'Directeur commercial' },
     ],
@@ -101,10 +101,36 @@ export function EditProspectDialog({
   const [dealGroupOpen, setDealGroupOpen] = useState(false)
   const dealGroupRef = useRef<HTMLDivElement>(null)
 
+  // Company autocomplete state
+  const [companyQuery, setCompanyQuery] = useState(prospect.entreprise || '')
+  const [companySuggestions, setCompanySuggestions] = useState<Company[]>([])
+  const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false)
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(prospect.company_id || null)
+  const companyRef = useRef<HTMLDivElement>(null)
+  const companyFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Load existing deal groups for autocomplete
   useEffect(() => {
     getDealGroups().then(setDealGroups).catch(() => {})
   }, [])
+
+  // Fetch company suggestions with debounce
+  const fetchCompanySuggestions = (query: string) => {
+    if (companyFetchTimer.current) clearTimeout(companyFetchTimer.current)
+    if (!query || query.length < 2) {
+      setCompanySuggestions([])
+      return
+    }
+    companyFetchTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/companies/search?q=${encodeURIComponent(query)}`)
+        const data = await res.json()
+        setCompanySuggestions(data.companies || [])
+      } catch {
+        setCompanySuggestions([])
+      }
+    }, 200)
+  }
 
   const handleChange = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -194,6 +220,14 @@ export function EditProspectDialog({
         }
       }
 
+      // Handle company fields
+      if (companyQuery !== (prospect.entreprise || '')) {
+        updates.entreprise = companyQuery || null
+      }
+      if (selectedCompanyId !== (prospect.company_id || null)) {
+        updates.company_id = selectedCompanyId
+      }
+
       if (Object.keys(updates).length === 0) {
         onOpenChange(false)
         return
@@ -261,7 +295,7 @@ export function EditProspectDialog({
                     <div
                       key={field.key}
                       className={
-                        field.key === 'linkedin_url' || field.key === 'entreprise' || field.key === 'site_web' || field.key === 'fonction' || field.key === 'source'
+                        field.key === 'linkedin_url' || field.key === 'site_web' || field.key === 'fonction' || field.key === 'source'
                           ? 'col-span-2'
                           : ''
                       }
@@ -289,6 +323,90 @@ export function EditProspectDialog({
                     </div>
                   )
                 })}
+                {/* Company autocomplete — only in Identite group */}
+                {group.title === 'Identite' && (
+                  <div className="col-span-2 relative" ref={companyRef}>
+                    <Label htmlFor="entreprise" className="mb-1.5 text-xs flex items-center gap-1.5">
+                      <Building2 className="size-3" />
+                      Entreprise
+                      {selectedCompanyId && (
+                        <Badge variant="outline" className="h-4 px-1 text-[10px] font-medium border-brand-accent/40 text-brand-accent bg-brand-accent/10">
+                          Liee
+                        </Badge>
+                      )}
+                    </Label>
+                    <Input
+                      id="entreprise"
+                      placeholder="Rechercher ou creer une entreprise..."
+                      value={companyQuery}
+                      onChange={(e) => {
+                        setCompanyQuery(e.target.value)
+                        setSelectedCompanyId(null) // Reset link when typing
+                        setCompanyDropdownOpen(true)
+                        fetchCompanySuggestions(e.target.value)
+                      }}
+                      onFocus={() => {
+                        setCompanyDropdownOpen(true)
+                        fetchCompanySuggestions(companyQuery)
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => setCompanyDropdownOpen(false), 200)
+                      }}
+                      autoComplete="off"
+                      className={selectedCompanyId ? 'border-brand-accent/30 bg-brand-accent/5' : ''}
+                    />
+                    {companyDropdownOpen && (companySuggestions.length > 0 || companyQuery.length >= 2) && (
+                      <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[180px] overflow-y-auto rounded-md border border-white/10 bg-popover shadow-md">
+                        {companySuggestions.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent/50 transition-colors"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setCompanyQuery(c.name)
+                              setSelectedCompanyId(c.id)
+                              setCompanyDropdownOpen(false)
+                            }}
+                          >
+                            <Building2 className="size-3 shrink-0 text-muted-foreground" />
+                            <span>{c.name}</span>
+                            {c.aliases && c.aliases.length > 0 && (
+                              <span className="text-[10px] text-muted-foreground">
+                                ({c.aliases.length} alias)
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                        {companyQuery.length >= 2 && !companySuggestions.some(c => c.name.toLowerCase() === companyQuery.toLowerCase()) && (
+                          <button
+                            type="button"
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-brand-accent hover:bg-accent/50 transition-colors border-t border-white/[0.06]"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={async () => {
+                              try {
+                                const res = await fetch('/api/companies', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ name: companyQuery.trim() }),
+                                })
+                                const data = await res.json()
+                                if (data.company) {
+                                  setSelectedCompanyId(data.company.id)
+                                  setCompanyQuery(data.company.name)
+                                }
+                              } catch { /* ignore */ }
+                              setCompanyDropdownOpen(false)
+                            }}
+                          >
+                            <Plus className="size-3 shrink-0" />
+                            Creer &quot;{companyQuery.trim()}&quot;
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* Categorie Select — only in Commercial group */}
                 {group.title === 'Commercial' && (
                   <>

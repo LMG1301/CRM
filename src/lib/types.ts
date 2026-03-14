@@ -15,6 +15,7 @@ export interface Prospect {
   prenom: string
   nom: string
   entreprise: string
+  company_id: string | null
   fonction: string
   email: string
   email_pro: string
@@ -36,6 +37,19 @@ export interface Prospect {
   notes: string
   created_at: string
   updated_at: string
+}
+
+// ─── Company ───
+
+export interface Company {
+  id: string
+  name: string
+  aliases: string[]
+  sector: string | null
+  website: string | null
+  location: string | null
+  notes: string | null
+  created_at: string
 }
 
 export interface Activity {

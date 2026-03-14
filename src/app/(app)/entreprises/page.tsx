@@ -16,9 +16,26 @@ import {
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import type { CompanySummary } from '@/lib/actions'
 
-function formatDate(dateStr: string | null): string {
+// Unified shape that works for both fuzzy and table sources
+interface CompanyDisplay {
+  id?: string
+  name: string
+  contacts: Array<{
+    id: string
+    prenom: string
+    nom: string
+    fonction?: string
+    pipeline_stage: string
+    email?: string
+    date_dernier_contact?: string | null
+    date_prochaine_action?: string | null
+  }>
+  stages: string[]
+  lastContact: string | null
+}
+
+function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleDateString('fr-FR', {
     day: 'numeric',
@@ -27,7 +44,7 @@ function formatDate(dateStr: string | null): string {
   })
 }
 
-function CompanyRow({ company, stages }: { company: CompanySummary; stages: Array<{slug: string; name: string; color: string}> }) {
+function CompanyRow({ company, stages }: { company: CompanyDisplay; stages: Array<{slug: string; name: string; color: string}> }) {
   const [expanded, setExpanded] = useState(false)
 
   function getStageColor(slug: string): string {
@@ -59,18 +76,16 @@ function CompanyRow({ company, stages }: { company: CompanySummary; stages: Arra
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-foreground">
-            {company.entreprise}
+            {company.name}
           </p>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          {/* Contact count */}
           <Badge variant="secondary" className="text-xs">
             <Users className="size-3 mr-1" />
             {company.contacts.length}
           </Badge>
 
-          {/* Stages */}
           <div className="hidden sm:flex items-center gap-1">
             {company.stages.map((stage) => (
               <Badge
@@ -86,14 +101,12 @@ function CompanyRow({ company, stages }: { company: CompanySummary; stages: Arra
             ))}
           </div>
 
-          {/* Actions due indicator */}
           {actionsDue.length > 0 && (
             <Badge variant="destructive" className="text-[10px]">
               {actionsDue.length} action{actionsDue.length > 1 ? 's' : ''}
             </Badge>
           )}
 
-          {/* Last contact */}
           <span className="hidden md:flex items-center gap-1 text-xs text-muted-foreground">
             <Clock className="size-3" />
             {formatDate(company.lastContact)}
@@ -161,7 +174,7 @@ function CompanyRow({ company, stages }: { company: CompanySummary; stages: Arra
 }
 
 export default function EntreprisesPage() {
-  const [companies, setCompanies] = useState<CompanySummary[]>([])
+  const [companies, setCompanies] = useState<CompanyDisplay[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [stages, setStages] = useState<Array<{slug: string; name: string; color: string}>>([])
@@ -169,7 +182,19 @@ export default function EntreprisesPage() {
   useEffect(() => {
     fetch('/api/companies')
       .then((r) => r.json())
-      .then((data) => setCompanies(data.companies || []))
+      .then((data) => {
+        const raw = data.companies || []
+        // Normalize both source formats into CompanyDisplay
+        const normalized: CompanyDisplay[] = raw.map((c: Record<string, unknown>) => ({
+          id: c.id || undefined,
+          // "name" from table source, "entreprise" from fuzzy source
+          name: (c.name || c.entreprise || '') as string,
+          contacts: (c.contacts || []) as CompanyDisplay['contacts'],
+          stages: (c.stages || []) as string[],
+          lastContact: (c.lastContact || null) as string | null,
+        }))
+        setCompanies(normalized)
+      })
       .catch(() => setCompanies([]))
       .finally(() => setLoading(false))
 
@@ -184,7 +209,7 @@ export default function EntreprisesPage() {
     const q = search.toLowerCase()
     return companies.filter(
       (c) =>
-        c.entreprise.toLowerCase().includes(q) ||
+        c.name.toLowerCase().includes(q) ||
         c.contacts.some(
           (p) =>
             p.prenom?.toLowerCase().includes(q) ||
@@ -220,8 +245,8 @@ export default function EntreprisesPage() {
       </div>
 
       <div className="space-y-2">
-        {filtered.map((company) => (
-          <CompanyRow key={company.entreprise} company={company} stages={stages} />
+        {filtered.map((company, i) => (
+          <CompanyRow key={company.id || `${company.name}-${i}`} company={company} stages={stages} />
         ))}
         {!loading && filtered.length === 0 && (
           <p className="py-12 text-center text-muted-foreground">

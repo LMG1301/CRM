@@ -142,8 +142,21 @@ export async function getProspectsSummary(): Promise<
 
 export async function getCompanyColleagues(
   entreprise: string,
-  excludeId: string
+  excludeId: string,
+  companyId?: string | null
 ): Promise<Prospect[]> {
+  // Prefer company_id if available (exact match)
+  if (companyId) {
+    const { data, error } = await supabase
+      .from('prospects')
+      .select('*')
+      .eq('company_id', companyId)
+      .neq('id', excludeId)
+      .order('date_dernier_contact', { ascending: false })
+    if (!error && data && data.length > 0) return data
+  }
+
+  // Fallback: fuzzy matching on entreprise text
   if (!entreprise) return []
   const { normalizedDistance } = await import('@/lib/company-matching')
   const { data, error } = await supabase
