@@ -170,7 +170,7 @@ export function WeeklyChecklist() {
   // Copy for Monday call
   const handleCopy = () => {
     const lines: string[] = []
-    lines.push(`Checklist semaine du ${formatWeekLabel(currentMonday)}`)
+    lines.push(`Checklist semaine — S${getISOWeekNumber(currentMonday)} (${formatWeekLabel(currentMonday)})`)
     lines.push('')
 
     for (const cat of CATEGORIES) {
@@ -184,7 +184,7 @@ export function WeeklyChecklist() {
         const carryTag = weeks >= 2
           ? ` [EN RETARD S${getISOWeekNumber(new Date(t.week_start + 'T00:00:00'))}]`
           : weeks === 1
-            ? ' [Reporte]'
+            ? ` [Reporte S${getISOWeekNumber(new Date(t.week_start + 'T00:00:00'))}]`
             : ''
         lines.push(`  ${check} ${t.title}${prospect}${carryTag}`)
       }
@@ -213,7 +213,7 @@ export function WeeklyChecklist() {
 
     return (
       <span className="ml-1.5 inline-flex shrink-0 items-center rounded px-1 py-0.5 text-[9px] font-semibold bg-orange-500/20 text-orange-400 border border-orange-500/30">
-        Reporte
+        Reporte S{origWeekNum}
       </span>
     )
   }
@@ -234,7 +234,7 @@ export function WeeklyChecklist() {
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Checklist semaine</CardTitle>
+          <CardTitle className="text-base">Checklist semaine — S{getISOWeekNumber(currentMonday)}</CardTitle>
           {totalCount > 0 && (
             <Badge variant="secondary" className="text-xs">
               {completedCount}/{totalCount}

@@ -1,9 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Bot, User, Copy, Check, Save, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { Components } from 'react-markdown'
 
 interface AIMessageProps {
   role: 'user' | 'assistant'
@@ -32,6 +35,88 @@ export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentA
       e.clipboardData.setData('text/plain', selection)
     }
   }
+
+  // Strip [CONTENT:id] markers and extract IDs
+  const contentIds = useMemo(() => {
+    const matches = content.matchAll(/\[CONTENT:([a-zA-Z0-9-]+)\]/g)
+    return [...matches].map(m => m[1])
+  }, [content])
+
+  const cleanContent = useMemo(
+    () => content.replace(/\[CONTENT:[a-zA-Z0-9-]+\]/g, ''),
+    [content]
+  )
+
+  const markdownComponents: Components = useMemo(() => ({
+    table: (props) => (
+      <table
+        className="w-full border-collapse my-2 text-[13px]"
+        {...props}
+      />
+    ),
+    thead: (props) => (
+      <thead {...props} />
+    ),
+    th: (props) => (
+      <th
+        className="border-b border-white/15 px-2.5 py-1.5 text-left font-semibold text-foreground"
+        {...props}
+      />
+    ),
+    td: (props) => (
+      <td
+        className="border-b border-white/[0.08] px-2.5 py-1.5 text-muted-foreground"
+        {...props}
+      />
+    ),
+    h1: (props) => (
+      <h1 className="text-lg font-semibold mt-4 mb-2" {...props} />
+    ),
+    h2: (props) => (
+      <h2 className="text-base font-semibold mt-3.5 mb-1.5" {...props} />
+    ),
+    h3: (props) => (
+      <h3 className="text-sm font-semibold mt-3 mb-1" {...props} />
+    ),
+    ul: (props) => (
+      <ul className="pl-5 my-1" {...props} />
+    ),
+    ol: (props) => (
+      <ol className="pl-5 my-1 list-decimal" {...props} />
+    ),
+    li: (props) => (
+      <li className="my-0.5" {...props} />
+    ),
+    strong: (props) => (
+      <strong className="font-semibold text-foreground" {...props} />
+    ),
+    a: (props) => (
+      <a className="text-brand-accent underline" target="_blank" rel="noopener noreferrer" {...props} />
+    ),
+    code: ({ className, children, ...props }) => {
+      const isBlock = className?.includes('language-')
+      if (isBlock) {
+        return (
+          <code className={cn(className, 'text-brand-accent')} {...props}>
+            {children}
+          </code>
+        )
+      }
+      return (
+        <code className="rounded bg-white/5 px-1 py-0.5 text-xs text-brand-accent" {...props}>
+          {children}
+        </code>
+      )
+    },
+    p: ({ children, ...props }) => {
+      // Check if this paragraph contains an "Objet" line
+      const text = typeof children === 'string' ? children : ''
+      if (text.startsWith('Objet')) {
+        return <p className="font-semibold text-brand-accent" {...props}>{children}</p>
+      }
+      return <p className="text-sm leading-relaxed my-1" {...props}>{children}</p>
+    },
+  }), [])
 
   return (
     <div
@@ -66,71 +151,36 @@ export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentA
             : 'bg-brand-accent/20 text-foreground'
         )}
       >
-        <div className="prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:bg-white/5 [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-brand-accent" onCopy={handleManualCopy}>
-          {content.split('\n').map((line, i) => {
-            // Detect [CONTENT:id] and render as button
-            const contentMatch = line.match(/\[CONTENT:([a-zA-Z0-9-]+)\]/)
-            const renderLine = (text: string) => renderInlineMarkdown(text.replace(/\[CONTENT:[a-zA-Z0-9-]+\]/g, ''))
-
-            if (line.startsWith('# ')) {
-              return <h1 key={i} className="font-bold">{renderLine(line.slice(2))}</h1>
-            }
-            if (line.startsWith('## ')) {
-              return <h2 key={i} className="font-semibold">{renderLine(line.slice(3))}</h2>
-            }
-            if (line.startsWith('### ')) {
-              return <h3 key={i} className="font-medium">{renderLine(line.slice(4))}</h3>
-            }
-            if (line.startsWith('- ') || line.startsWith('* ')) {
-              return (
-                <div key={i}>
-                  <div className="flex gap-2 text-sm">
-                    <span className="text-muted-foreground">•</span>
-                    <span>{renderLine(line.slice(2))}</span>
-                  </div>
-                  {contentMatch && onContentAction && !isStreaming && (
-                    <button
-                      onClick={() => onContentAction(contentMatch[1])}
-                      className="ml-5 mt-1 flex items-center gap-1.5 rounded-full border border-brand-accent/30 bg-brand-accent/10 px-3 py-1 text-[11px] text-brand-accent transition-colors hover:bg-brand-accent/20"
-                    >
-                      <Mail className="h-3 w-3" />
-                      Envoyer par email
-                    </button>
-                  )}
-                </div>
-              )
-            }
-            if (line.startsWith('**Objet') || line.startsWith('Objet')) {
-              return (
-                <p key={i} className="font-semibold text-brand-accent">
-                  {renderLine(line)}
-                </p>
-              )
-            }
-            if (line.trim() === '') {
-              return <div key={i} className="h-2" />
-            }
-            return (
-              <div key={i}>
-                <p className="text-sm leading-relaxed">
-                  {renderLine(line)}
-                </p>
-                {contentMatch && onContentAction && !isStreaming && (
-                  <button
-                    onClick={() => onContentAction(contentMatch[1])}
-                    className="mt-1 flex items-center gap-1.5 rounded-full border border-brand-accent/30 bg-brand-accent/10 px-3 py-1 text-[11px] text-brand-accent transition-colors hover:bg-brand-accent/20"
-                  >
-                    <Mail className="h-3 w-3" />
-                    Envoyer par email
-                  </button>
-                )}
-              </div>
-            )
-          })}
+        <div
+          className="prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:bg-white/5 [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-brand-accent [&_table]:my-2"
+          onCopy={handleManualCopy}
+        >
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={markdownComponents}
+          >
+            {cleanContent}
+          </ReactMarkdown>
           {isStreaming && (
             <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-brand-accent/60" />
           )}
         </div>
+
+        {/* [CONTENT:id] action buttons */}
+        {contentIds.length > 0 && onContentAction && !isStreaming && (
+          <div className="mt-2">
+            {contentIds.map(id => (
+              <button
+                key={id}
+                onClick={() => onContentAction(id)}
+                className="mt-1 flex items-center gap-1.5 rounded-full border border-brand-accent/30 bg-brand-accent/10 px-3 py-1 text-[11px] text-brand-accent transition-colors hover:bg-brand-accent/20"
+              >
+                <Mail className="h-3 w-3" />
+                Envoyer par email
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Actions (only for assistant messages, not while streaming) */}
         {role === 'assistant' && !isStreaming && content.length > 0 && (
@@ -175,52 +225,4 @@ export function AIMessage({ role, content, isStreaming, onSaveAsNote, onContentA
       </div>
     </div>
   )
-}
-
-// Simple inline markdown renderer (bold, italic, code)
-function renderInlineMarkdown(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = []
-  let remaining = text
-  let key = 0
-
-  while (remaining.length > 0) {
-    // Bold: **text**
-    const boldMatch = remaining.match(/\*\*(.+?)\*\*/)
-    // Code: `text`
-    const codeMatch = remaining.match(/`(.+?)`/)
-
-    const firstMatch = [boldMatch, codeMatch]
-      .filter(Boolean)
-      .sort((a, b) => (a!.index ?? 0) - (b!.index ?? 0))[0]
-
-    if (!firstMatch || firstMatch.index === undefined) {
-      parts.push(remaining)
-      break
-    }
-
-    if (firstMatch.index > 0) {
-      parts.push(remaining.slice(0, firstMatch.index))
-    }
-
-    if (firstMatch === boldMatch) {
-      parts.push(
-        <strong key={key++} className="font-semibold">
-          {firstMatch[1]}
-        </strong>
-      )
-    } else if (firstMatch === codeMatch) {
-      parts.push(
-        <code
-          key={key++}
-          className="rounded bg-white/5 px-1 py-0.5 text-xs text-brand-accent"
-        >
-          {firstMatch[1]}
-        </code>
-      )
-    }
-
-    remaining = remaining.slice(firstMatch.index + firstMatch[0].length)
-  }
-
-  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : parts
 }

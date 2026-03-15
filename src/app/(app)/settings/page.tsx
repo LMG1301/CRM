@@ -415,6 +415,14 @@ export default function SettingsPage() {
             placeholder="Touch 1 (J0) : Premier message LinkedIn ou email..."
             rows={3}
           />
+        </AccordionSection>
+
+        {/* ─── Section 4: Ton et style (accordion) ─── */}
+        <AccordionSection
+          title="Ton et style"
+          icon={<Palette className="size-4" />}
+          preview={context.tone_and_style ? context.tone_and_style.slice(0, 80) + '...' : undefined}
+        >
           <FieldRow
             label="Ton et style"
             description="Comment l'IA doit ecrire : ton, longueur des messages, regles de redaction."
@@ -426,11 +434,11 @@ export default function SettingsPage() {
           />
         </AccordionSection>
 
-        {/* ─── Section 4: Templates (accordion) ─── */}
+        {/* ===== SECTION OBLIGATOIRE : Templates email (NE PAS SUPPRIMER) ===== */}
         <AccordionSection
-          title="Templates"
+          title="Templates email"
           icon={<Mail className="size-4" />}
-          preview="Exemples email & LinkedIn, liens vers templates et sequences"
+          preview={context.email_templates ? context.email_templates.slice(0, 80) + '...' : undefined}
         >
           <FieldRow
             label="Exemples de style email"
@@ -441,6 +449,26 @@ export default function SettingsPage() {
             placeholder="Touch 1 type : Objet : [Entreprise] x Boost Inc...."
             rows={3}
           />
+          <div className="pt-2">
+            <a
+              href="/settings/templates"
+              className="flex items-center justify-between rounded-lg border p-3 hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Mail className="size-4 text-brand-accent" />
+                <span className="text-sm font-medium">Gerer les templates email</span>
+              </div>
+              <ChevronRight className="size-4 text-muted-foreground" />
+            </a>
+          </div>
+        </AccordionSection>
+
+        {/* ===== SECTION OBLIGATOIRE : Templates LinkedIn (NE PAS SUPPRIMER) ===== */}
+        <AccordionSection
+          title="Templates LinkedIn"
+          icon={<Linkedin className="size-4" />}
+          preview={context.linkedin_templates ? context.linkedin_templates.slice(0, 80) + '...' : undefined}
+        >
           <FieldRow
             label="Exemples de style LinkedIn"
             description="Exemples de messages LinkedIn (demande de connexion, InMail, etc.)."
@@ -450,28 +478,24 @@ export default function SettingsPage() {
             placeholder="Message de connexion : Bonjour [Prenom], je suis..."
             rows={3}
           />
-          <div className="space-y-2 pt-2">
-            <a
-              href="/settings/templates"
-              className="flex items-center justify-between rounded-lg border p-3 hover:bg-white/5 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <Mail className="size-4 text-brand-accent" />
-                <span className="text-sm font-medium">Templates email</span>
-              </div>
-              <ChevronRight className="size-4 text-muted-foreground" />
-            </a>
-            <a
-              href="/settings/sequences"
-              className="flex items-center justify-between rounded-lg border p-3 hover:bg-white/5 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <Zap className="size-4 text-brand-accent" />
-                <span className="text-sm font-medium">Sequences</span>
-              </div>
-              <ChevronRight className="size-4 text-muted-foreground" />
-            </a>
-          </div>
+        </AccordionSection>
+
+        {/* ===== SECTION OBLIGATOIRE : Sequences email (NE PAS SUPPRIMER) ===== */}
+        <AccordionSection
+          title="Sequences email"
+          icon={<Zap className="size-4" />}
+          preview="Configurez vos sequences d'emails automatisees"
+        >
+          <a
+            href="/settings/sequences"
+            className="flex items-center justify-between rounded-lg border p-3 hover:bg-white/5 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <Zap className="size-4 text-brand-accent" />
+              <span className="text-sm font-medium">Gerer les sequences</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground" />
+          </a>
         </AccordionSection>
 
         {/* ─── Section 5: Signature email (accordion) ─── */}

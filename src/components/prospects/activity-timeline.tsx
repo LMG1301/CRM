@@ -9,6 +9,8 @@ import type { Activity } from '@/lib/types'
 import { ACTIVITY_LABELS, ACTIVITY_ICONS } from '@/lib/types'
 import { deleteActivity } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface ActivityTimelineProps {
   activities: Activity[]
@@ -66,52 +68,40 @@ function getDisplayDate(activity: Activity): string {
 const CONTENT_PREVIEW_LENGTH = 150
 const COLLAPSE_THRESHOLD = 200
 
-/**
- * Simple markdown renderer — converts **bold**, - bullets, and line breaks to JSX
- */
 function renderMarkdown(text: string) {
-  const lines = text.split('\n')
-  const elements: React.ReactNode[] = []
-  let listItems: React.ReactNode[] = []
-
-  const flushList = () => {
-    if (listItems.length > 0) {
-      elements.push(<ul key={`ul-${elements.length}`} className="list-disc list-inside space-y-0.5 my-1">{listItems}</ul>)
-      listItems = []
-    }
-  }
-
-  const formatInline = (line: string, key: string): React.ReactNode => {
-    const parts = line.split(/(\*\*[^*]+\*\*)/)
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={`${key}-${i}`} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>
-      }
-      return part
-    })
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const trimmed = line.trim()
-
-    if (/^[-*]\s+/.test(trimmed)) {
-      const content = trimmed.replace(/^[-*]\s+/, '')
-      listItems.push(<li key={`li-${i}`}>{formatInline(content, `li-${i}`)}</li>)
-      continue
-    }
-
-    flushList()
-
-    if (trimmed === '') {
-      elements.push(<br key={`br-${i}`} />)
-    } else {
-      elements.push(<span key={`p-${i}`}>{formatInline(trimmed, `p-${i}`)}{i < lines.length - 1 ? '\n' : ''}</span>)
-    }
-  }
-
-  flushList()
-  return elements
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        table: (props) => (
+          <table className="w-full border-collapse my-2 text-[13px]" {...props} />
+        ),
+        th: (props) => (
+          <th className="border-b border-white/15 px-2.5 py-1.5 text-left font-semibold text-foreground" {...props} />
+        ),
+        td: (props) => (
+          <td className="border-b border-white/[0.08] px-2.5 py-1.5" {...props} />
+        ),
+        strong: (props) => (
+          <strong className="font-semibold text-foreground" {...props} />
+        ),
+        a: (props) => (
+          <a className="text-brand-accent underline" target="_blank" rel="noopener noreferrer" {...props} />
+        ),
+        ul: (props) => (
+          <ul className="list-disc list-inside space-y-0.5 my-1" {...props} />
+        ),
+        ol: (props) => (
+          <ol className="list-decimal list-inside space-y-0.5 my-1" {...props} />
+        ),
+        p: (props) => (
+          <p className="my-0.5" {...props} />
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  )
 }
 
 function ActivityEntry({
