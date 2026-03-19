@@ -88,18 +88,19 @@ export async function GET(request: NextRequest) {
 
   // === Level 1: Exact email match (case insensitive) ===
   if (email) {
-    // Try email field first, then email_pro (avoid .or() parsing issues)
+    // Try email field first
     const { data: d1, error: e1 } = await supabase
       .from('prospects')
       .select(PROSPECT_FIELDS)
       .ilike('email', email)
       .limit(1)
       .maybeSingle()
-    if (e1) console.log('[by-email] L1a error:', e1.message)
+    debugLog.push(`L1a email=${email} found=${!!d1} err=${e1?.message || 'none'}`)
     if (d1) {
       prospect = d1
       matchType = 'email_exact'
     }
+    // Then email_pro
     if (!prospect) {
       const { data: d2, error: e2 } = await supabase
         .from('prospects')
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
         .ilike('email_pro', email)
         .limit(1)
         .maybeSingle()
-      if (e2) console.log('[by-email] L1b error:', e2.message)
+      debugLog.push(`L1b email_pro=${email} found=${!!d2} err=${e2?.message || 'none'}`)
       if (d2) {
         prospect = d2
         matchType = 'email_pro_exact'
