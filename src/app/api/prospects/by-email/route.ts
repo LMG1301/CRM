@@ -7,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-const PROSPECT_FIELDS = 'id, prenom, nom, entreprise, fonction, pipeline_stage, email, email_pro, telephone, localisation, prochaine_action_desc, date_prochaine_action, type_prochaine_action'
+const PROSPECT_FIELDS = 'id, prenom, nom, entreprise, fonction, pipeline_stage, email, email_pro, telephone, localisation'
 
 const FREE_PROVIDERS = new Set([
   'gmail.com','yahoo.com','yahoo.fr','hotmail.com','hotmail.fr',
