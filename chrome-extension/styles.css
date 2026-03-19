@@ -1,47 +1,150 @@
-/* Boost CRM — Shared styles (LinkedIn + Gmail) */
-
-.boost-panel {
+/* === Boost CRM — Tab (retractable sidebar trigger) === */
+#boost-crm-tab {
   position: fixed;
-  top: 80px;
-  right: 20px;
-  width: 320px;
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 80px;
   background: #132926;
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px;
-  padding: 16px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 13px;
-  color: #f0f4f3;
-  z-index: 10000;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-}
-
-.boost-panel-small {
-  max-height: 120px;
-}
-
-.boost-panel-header {
+  border-radius: 8px 0 0 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-right: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 99999;
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f0f4f3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  box-shadow: -2px 0 8px rgba(0,0,0,0.3);
+  transition: opacity 0.2s ease;
+}
+#boost-crm-tab:hover {
+  background: #1a3a35;
+}
+
+/* === Boost CRM — Panel (slides from right) === */
+#boost-crm-panel {
+  position: fixed;
+  top: 60px;
+  right: 0;
+  width: 340px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background: #132926;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-right: none;
+  border-radius: 12px 0 0 12px;
+  padding: 16px;
+  color: #f0f4f3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  z-index: 99999;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.4);
+  transform: translateX(0);
+  transition: transform 0.3s ease;
+}
+#boost-crm-panel.hidden {
+  transform: translateX(100%);
+  pointer-events: none;
+}
+
+/* === Header === */
+.boost-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
   border-bottom: 1px solid rgba(255,255,255,0.1);
+  color: #f0f4f3;
 }
 
-.boost-logo { font-size: 18px; }
-.boost-title { font-weight: 600; font-size: 14px; flex: 1; }
 .boost-close {
-  background: none; border: none; color: #8fa8a2;
-  cursor: pointer; font-size: 16px; padding: 4px;
+  background: none;
+  border: none;
+  color: #8fa8a2;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
 }
-.boost-close:hover { color: #f0f4f3; }
+.boost-close:hover { color: #fff; }
 
-/* Prospect info */
+/* === Form === */
+.boost-form { display: flex; flex-direction: column; gap: 10px; }
+
+.boost-row { display: flex; gap: 8px; }
+.boost-row .boost-field { flex: 1; }
+
+.boost-field label {
+  display: block;
+  font-size: 11px;
+  color: #8fa8a2;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.boost-field input,
+.boost-field select {
+  width: 100%;
+  padding: 7px 10px;
+  background: rgba(255,255,255,0.08) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+  border-radius: 6px;
+  color: #f0f4f3 !important;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+  -webkit-text-fill-color: #f0f4f3 !important;
+}
+
+.boost-field input::placeholder {
+  color: #666 !important;
+  -webkit-text-fill-color: #666 !important;
+}
+
+.boost-field input:focus,
+.boost-field select:focus {
+  border-color: #1863DC !important;
+}
+
+.boost-field select option {
+  background: #132926;
+  color: #f0f4f3;
+}
+
+.boost-btn-save {
+  width: 100%;
+  padding: 10px;
+  background: #1863DC;
+  color: white !important;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 4px;
+  -webkit-text-fill-color: white !important;
+}
+.boost-btn-save:hover { background: #1454b8; }
+.boost-btn-save:disabled { background: #22c55e; cursor: default; }
+
+#boost-status {
+  text-align: center;
+  font-size: 12px;
+  min-height: 20px;
+}
+
+/* === Gmail: prospect info === */
 .boost-prospect-info { margin-bottom: 12px; }
-.boost-name { font-weight: 600; font-size: 15px; }
+.boost-name { font-weight: 600; font-size: 15px; color: #f0f4f3 !important; }
 .boost-company { color: #8fa8a2; font-size: 12px; margin-top: 2px; }
 
 .boost-stage {
@@ -51,6 +154,8 @@
   font-size: 11px;
   font-weight: 600;
   margin-top: 6px;
+  background: rgba(24,99,220,0.2);
+  color: #60a5fa;
 }
 .boost-stage-ciblage { background: rgba(107,114,128,0.2); color: #9ca3af; }
 .boost-stage-touch_1, .boost-stage-touch_2, .boost-stage-touch_3 { background: rgba(59,7,100,0.3); color: #d8b4fe; }
@@ -59,26 +164,32 @@
 .boost-stage-nurturing { background: rgba(251,191,36,0.15); color: #fbbf24; }
 .boost-stage-call_decouverte { background: rgba(34,197,94,0.2); color: #22c55e; }
 .boost-stage-devis { background: rgba(34,197,94,0.2); color: #22c55e; }
-.boost-stage-closing { background: rgba(234,179,8,0.2); color: #eab308; }
-.boost-stage-onboarding { background: rgba(245,158,11,0.2); color: #f59e0b; }
 .boost-stage-client { background: rgba(16,185,129,0.2); color: #10b981; }
 .boost-stage-refuse { background: rgba(239,68,68,0.15); color: #fca5a5; }
 .boost-stage-bounced { background: rgba(239,68,68,0.15); color: #fca5a5; }
 
-/* Notes & actions */
-.boost-note, .boost-action {
+/* === Gmail: notes/actions === */
+.boost-note-block {
   background: rgba(255,255,255,0.05);
   border-radius: 8px;
   padding: 10px;
   margin-bottom: 8px;
 }
-.boost-note-label, .boost-action-label {
-  font-size: 11px; color: #8fa8a2; margin-bottom: 4px; font-weight: 600;
+.boost-note-label {
+  font-size: 11px;
+  color: #8fa8a2;
+  margin-bottom: 4px;
+  font-weight: 600;
 }
-.boost-note-text, .boost-action-text { font-size: 12px; line-height: 1.4; }
+.boost-note-text { font-size: 12px; line-height: 1.4; color: #ccc; }
 
-/* Buttons */
-.boost-buttons { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+/* === Gmail: buttons === */
+.boost-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
 
 .boost-btn {
   width: 100%;
@@ -90,21 +201,22 @@
   font-weight: 500;
   text-align: center;
 }
-.boost-btn-primary { background: #1863DC; color: white; }
+.boost-btn-primary { background: #1863DC; color: white !important; -webkit-text-fill-color: white !important; }
 .boost-btn-primary:hover { background: #1454b8; }
 .boost-btn-primary:disabled { background: #555; cursor: not-allowed; }
-.boost-btn-secondary { background: rgba(255,255,255,0.08); color: #f0f4f3; }
+.boost-btn-secondary { background: rgba(255,255,255,0.08); color: #f0f4f3 !important; -webkit-text-fill-color: #f0f4f3 !important; }
 .boost-btn-secondary:hover { background: rgba(255,255,255,0.15); }
 
-/* Reply area */
+/* === Gmail: reply area === */
 .boost-reply { margin-top: 12px; }
 .boost-reply-label { font-size: 11px; color: #8fa8a2; margin-bottom: 6px; font-weight: 600; }
 .boost-reply-text {
   width: 100%;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.08) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
   border-radius: 6px;
-  color: #f0f4f3;
+  color: #f0f4f3 !important;
+  -webkit-text-fill-color: #f0f4f3 !important;
   padding: 10px;
   font-size: 13px;
   line-height: 1.5;
@@ -115,13 +227,14 @@
 .boost-reply-buttons { display: flex; gap: 6px; margin-top: 8px; }
 .boost-reply-buttons .boost-btn { flex: 1; }
 
-/* Note input */
+/* === Gmail: note input === */
 .boost-note-textarea {
   width: 100%;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.08) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
   border-radius: 6px;
-  color: #f0f4f3;
+  color: #f0f4f3 !important;
+  -webkit-text-fill-color: #f0f4f3 !important;
   padding: 8px;
   font-size: 13px;
   resize: vertical;
@@ -132,42 +245,40 @@
 .boost-note-buttons { display: flex; gap: 6px; margin-top: 6px; }
 .boost-note-buttons .boost-btn { flex: 1; }
 
-/* Form (LinkedIn capture) */
-.boost-form { margin-bottom: 8px; }
-.boost-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.boost-form-field { margin-bottom: 8px; }
+/* === Unknown contact panel === */
+.boost-unknown { text-align: center; padding: 10px 0; }
+.boost-unknown-text { color: #8fa8a2; font-size: 13px; font-weight: 500; }
+.boost-unknown-email { font-size: 12px; color: #666; margin-top: 4px; }
+
+/* === Form rows (Gmail add form) === */
+.boost-form-row { display: flex; gap: 8px; }
+.boost-form-row .boost-form-field { flex: 1; }
 .boost-form-field label {
   display: block;
   font-size: 11px;
   color: #8fa8a2;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
+  font-weight: 500;
 }
-.boost-form-field input,
-.boost-form-field select {
+.boost-form-field input {
   width: 100%;
-  padding: 6px 8px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 5px;
-  color: #f0f4f3;
+  padding: 7px 10px;
+  background: rgba(255,255,255,0.08) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+  border-radius: 6px;
+  color: #f0f4f3 !important;
   font-size: 13px;
+  font-family: inherit;
   outline: none;
   box-sizing: border-box;
+  -webkit-text-fill-color: #f0f4f3 !important;
 }
-.boost-form-field input:focus,
-.boost-form-field select:focus {
-  border-color: #1863DC;
+.boost-form-field input:focus {
+  border-color: #1863DC !important;
 }
-.boost-form-field input::placeholder { color: rgba(255,255,255,0.25); }
-.boost-form-field select option { background: #132926; color: #f0f4f3; }
 
-/* Status messages */
+/* === Status messages === */
 .boost-loading { text-align: center; padding: 20px; color: #8fa8a2; }
 .boost-error { color: #ef4444; padding: 10px; background: rgba(239,68,68,0.1); border-radius: 6px; font-size: 12px; margin-top: 8px; }
 .boost-warning { color: #fbbf24; padding: 10px; background: rgba(251,191,36,0.1); border-radius: 6px; font-size: 12px; margin-top: 8px; }
 .boost-success { color: #22c55e; padding: 10px; text-align: center; font-size: 12px; margin-top: 8px; }
-
-/* Unknown contact */
-.boost-unknown { text-align: center; padding: 8px 0; }
-.boost-unknown-text { color: #8fa8a2; font-size: 12px; }
-.boost-unknown-email { font-size: 11px; color: #666; margin-top: 4px; }

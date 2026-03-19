@@ -1,357 +1,452 @@
-// Boost CRM — Gmail Content Script
-// Auto-detects opened emails and shows prospect panel with AI reply
+console.log('BOOST CRM: Gmail content script loaded');
 
-let lastProcessedEmail = null
+let lastSenderEmail = '';
+
+// Injecter l'onglet au chargement
+injectTab();
+
+// Observer les changements d'email (debounced)
+const observer = new MutationObserver(debounce(() => {
+  const sender = getSenderInfo();
+  if (sender.email && sender.email !== lastSenderEmail) {
+    lastSenderEmail = sender.email;
+    const panel = document.getElementById('boost-crm-panel');
+    if (panel && !panel.classList.contains('hidden')) {
+      loadProspectPanel(sender.email, sender.name);
+    }
+  }
+}, 1000));
+observer.observe(document.body, { childList: true, subtree: true });
+
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+}
 
 // === Email detection ===
 
-function extractSenderEmail() {
-  // .gD[email] is Gmail's specific sender element in opened emails
-  const senders = document.querySelectorAll('.gD[email]')
-  let senderEl = null
-
+function getSenderInfo() {
+  // Prefer .gD[email] (Gmail sender element) as it's more reliable
+  const senders = document.querySelectorAll('.gD[email]');
+  let el = null;
   if (senders.length === 1) {
-    senderEl = senders[0]
+    el = senders[0];
   } else if (senders.length > 1) {
-    for (const el of senders) {
-      const rect = el.getBoundingClientRect()
-      if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top < window.innerHeight) {
-        senderEl = el
-        break
-      }
+    // Pick the visible one
+    for (const s of senders) {
+      const rect = s.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) { el = s; break; }
     }
-    if (!senderEl) senderEl = senders[0]
+    if (!el) el = senders[0];
   }
+  // Fallback
+  if (!el) el = document.querySelector('[data-message-id] [email]');
 
-  if (!senderEl) return null
-
-  const email = senderEl.getAttribute('email')
-  const name = senderEl.getAttribute('name') || senderEl.textContent?.trim()
-
-  if (!email) return null
-
-  let prenom = ''
-  let nom = ''
-  if (name && name !== email) {
-    const parts = name.split(/\s+/)
-    if (parts.length >= 2) {
-      prenom = parts[0]
-      nom = parts.slice(1).join(' ')
-    } else {
-      nom = name
-    }
-  }
-
-  return { email, prenom, nom }
+  const email = el?.getAttribute('email') || '';
+  const name = el?.getAttribute('name') || el?.textContent?.trim() || '';
+  console.log('[Boost CRM] getSenderInfo:', email, name);
+  return { email, name };
 }
 
-function extractSubject() {
+function getEmailContent() {
   const subjectEl = document.querySelector('h2[data-thread-perm-id]')
-    || document.querySelector('.hP')
-  return subjectEl?.textContent?.trim() || ''
+    || document.querySelector('.hP');
+  const subject = subjectEl?.textContent || '';
+
+  const messages = document.querySelectorAll('[data-message-id] [dir="ltr"]');
+  const lastBody = messages.length > 0
+    ? messages[messages.length - 1].innerText?.substring(0, 2000)
+    : '';
+
+  return { subject, body: lastBody || '' };
 }
 
-function extractLastMessageBody() {
-  // Gmail message bodies
-  const messages = document.querySelectorAll('[data-message-id] [dir="ltr"]')
-  if (messages.length > 0) {
-    return messages[messages.length - 1].innerText?.substring(0, 2000) || ''
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// === Tab + Panel (same pattern as LinkedIn) ===
+
+function injectTab() {
+  if (document.getElementById('boost-crm-tab')) return;
+  const tab = document.createElement('div');
+  tab.id = 'boost-crm-tab';
+  tab.textContent = '\u26A1 CRM';
+  tab.onclick = () => {
+    const sender = getSenderInfo();
+    openPanel();
+    loadProspectPanel(sender.email, sender.name);
+  };
+  document.body.appendChild(tab);
+}
+
+function openPanel() {
+  let panel = document.getElementById('boost-crm-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'boost-crm-panel';
+    document.body.appendChild(panel);
+  }
+  panel.classList.remove('hidden');
+  panel.innerHTML = '<div class="boost-loading">Chargement...</div>';
+  const tab = document.getElementById('boost-crm-tab');
+  if (tab) tab.style.display = 'none';
+}
+
+function closePanel() {
+  const panel = document.getElementById('boost-crm-panel');
+  if (panel) panel.classList.add('hidden');
+  const tab = document.getElementById('boost-crm-tab');
+  if (tab) tab.style.display = 'flex';
+}
+
+// === Load prospect panel ===
+
+async function loadProspectPanel(email, name) {
+  const panel = document.getElementById('boost-crm-panel');
+  if (!panel) return;
+
+  panel.innerHTML = '<div class="boost-loading">Recherche du contact...</div>';
+
+  let prospect = null;
+  if (email) {
+    console.log('[Boost CRM] Looking up:', email, name);
+    const result = await BoostAPI.findProspectByEmail(email, name);
+    console.log('[Boost CRM] Lookup result:', JSON.stringify(result).substring(0, 300));
+    if (result.found) prospect = result.prospect;
   }
 
-  // Fallback: .a3s is Gmail's message body class
-  const bodies = document.querySelectorAll('.a3s.aiL')
-  if (bodies.length > 0) {
-    return bodies[bodies.length - 1].innerText?.substring(0, 2000) || ''
+  if (prospect) {
+    showFoundProspect(panel, prospect, email, name);
+  } else {
+    showUnknownContact(panel, email, name);
   }
-
-  return ''
 }
 
-// === Panel rendering ===
+// === Model selector HTML ===
 
-function removePanel() {
-  const existing = document.getElementById('boost-crm-panel')
-  if (existing) existing.remove()
+function modelSelectorHtml() {
+  return `
+    <select id="boost-model" style="
+      width:100%; padding:6px; margin-bottom:8px;
+      background:rgba(255,255,255,0.08);
+      border:1px solid rgba(255,255,255,0.15);
+      border-radius:4px; color:#f0f4f3; font-size:12px;
+      -webkit-text-fill-color:#f0f4f3;
+    ">
+      <option value="claude-haiku-4-5-20251001">Haiku (rapide)</option>
+      <option value="claude-sonnet-4-20250514" selected>Sonnet (qualite)</option>
+    </select>
+  `;
 }
 
-function showProspectPanel(prospect, senderEmail, subject, body) {
-  removePanel()
+// === Prospect found ===
 
+function showFoundProspect(panel, prospect, email, senderName) {
   const stageLabels = {
     ciblage: 'Ciblage', touch_1: 'Touch 1', touch_2: 'Touch 2', touch_3: 'Touch 3',
     nurturing: 'Nurturing', repondu: 'Repondu', call_decouverte: 'Call decouverte',
     devis: 'Devis', client: 'Client', refuse: 'Refuse', bounced: 'Bounced',
-  }
-  const stage = prospect.pipeline_stage || 'ciblage'
+  };
+  const stage = prospect.pipeline_stage || 'ciblage';
 
-  const panel = document.createElement('div')
-  panel.id = 'boost-crm-panel'
   panel.innerHTML = `
-    <div class="boost-panel">
-      <div class="boost-panel-header">
-        <span class="boost-logo">\u26A1</span>
-        <span class="boost-title">Boost CRM</span>
-        <button class="boost-close" id="boost-close">\u2715</button>
-      </div>
-
-      <div class="boost-prospect-info">
-        <div class="boost-name">${prospect.prenom || ''} ${prospect.nom || ''}</div>
-        <div class="boost-company">${prospect.entreprise || ''}</div>
-        <span class="boost-stage boost-stage-${stage}">
-          ${prospect.pipeline_stage_label || stageLabels[stage] || stage}
-        </span>
-      </div>
-
-      ${prospect.derniere_note ? `
-        <div class="boost-note">
-          <div class="boost-note-label">Derniere note</div>
-          <div class="boost-note-text">${prospect.derniere_note.substring(0, 150)}${prospect.derniere_note.length > 150 ? '...' : ''}</div>
-        </div>
-      ` : ''}
-
-      ${prospect.prochaine_action_desc ? `
-        <div class="boost-action">
-          <div class="boost-action-label">Prochaine action</div>
-          <div class="boost-action-text">${prospect.prochaine_action_desc}</div>
-        </div>
-      ` : ''}
-
-      <div class="boost-buttons">
-        <button class="boost-btn boost-btn-primary" id="boost-generate-reply">
-          \uD83E\uDD16 Generer une reponse
-        </button>
-        <button class="boost-btn boost-btn-secondary" id="boost-add-note">
-          \uD83D\uDCDD Ajouter une note
-        </button>
-        <button class="boost-btn boost-btn-secondary" id="boost-open-crm">
-          \uD83D\uDCC2 Ouvrir dans le CRM
-        </button>
-      </div>
-
-      <div id="boost-reply-area" style="display:none;"></div>
-      <div id="boost-note-area" style="display:none;"></div>
+    <div class="boost-header">
+      <span>\u26A1 Boost CRM</span>
+      <button class="boost-close" id="boost-close">\u2715</button>
     </div>
-  `
 
-  // Insert in Gmail (alongside the thread)
-  const gmailMain = document.querySelector('[role="main"]')
-  if (gmailMain && gmailMain.parentElement) {
-    gmailMain.parentElement.appendChild(panel)
-  } else {
-    document.body.appendChild(panel)
-  }
+    <div class="boost-prospect-info">
+      <div class="boost-name">${escapeHtml(prospect.prenom || '')} ${escapeHtml(prospect.nom || '')}</div>
+      <div class="boost-company">${escapeHtml(prospect.entreprise || '')}</div>
+      <span class="boost-stage boost-stage-${stage}">
+        ${escapeHtml(prospect.pipeline_stage_label || stageLabels[stage] || stage)}
+      </span>
+    </div>
 
-  // Event listeners
-  document.getElementById('boost-close').addEventListener('click', removePanel)
+    ${prospect.derniere_note ? `
+      <div class="boost-note-block">
+        <div class="boost-note-label">Derniere note</div>
+        <div class="boost-note-text">${escapeHtml(prospect.derniere_note.substring(0, 200))}${prospect.derniere_note.length > 200 ? '...' : ''}</div>
+      </div>
+    ` : ''}
 
-  document.getElementById('boost-generate-reply').addEventListener('click',
-    () => handleGenerateReply(prospect, senderEmail, subject, body))
+    ${prospect.prochaine_action_desc ? `
+      <div class="boost-note-block">
+        <div class="boost-note-label">Prochaine action</div>
+        <div class="boost-note-text">${escapeHtml(prospect.prochaine_action_desc)}</div>
+      </div>
+    ` : ''}
+
+    <div style="border-top:1px solid rgba(255,255,255,0.1); padding-top:12px; margin-top:8px;">
+      <div style="font-size:11px; color:#8fa8a2; font-weight:600; margin-bottom:8px;">Repondre a cet email</div>
+      ${modelSelectorHtml()}
+      <button class="boost-btn boost-btn-primary" id="boost-auto-reply">
+        \uD83E\uDD16 Generer automatiquement
+      </button>
+      <div style="margin-top:8px;">
+        <textarea id="boost-instruction" placeholder="Ex: dis-lui qu'on est dispo mardi..."
+          style="width:100%; padding:8px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:#f0f4f3; font-size:12px; resize:none; height:45px; font-family:inherit; box-sizing:border-box; -webkit-text-fill-color:#f0f4f3;"></textarea>
+        <button class="boost-btn boost-btn-primary" id="boost-instruct-reply" style="margin-top:4px;">
+          Rediger avec cette instruction
+        </button>
+      </div>
+    </div>
+
+    <div id="boost-reply-result"></div>
+
+    <div style="border-top:1px solid rgba(255,255,255,0.1); padding-top:8px; margin-top:12px;">
+      <button class="boost-btn boost-btn-secondary" id="boost-add-note">\uD83D\uDCDD Ajouter une note</button>
+      <button class="boost-btn boost-btn-secondary" id="boost-open-crm" style="margin-top:4px;">\uD83D\uDCC2 Ouvrir dans le CRM</button>
+    </div>
+    <div id="boost-note-area"></div>
+  `;
+
+  document.getElementById('boost-close').addEventListener('click', closePanel);
+
+  document.getElementById('boost-auto-reply').addEventListener('click',
+    () => generateReply(prospect.id, email, senderName, null));
+
+  document.getElementById('boost-instruct-reply').addEventListener('click', () => {
+    const instr = document.getElementById('boost-instruction').value;
+    if (instr.trim()) generateReply(prospect.id, email, senderName, instr);
+  });
+
+  document.getElementById('boost-instruction').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      document.getElementById('boost-instruct-reply').click();
+    }
+  });
 
   document.getElementById('boost-add-note').addEventListener('click',
-    () => handleAddNote(prospect))
+    () => showNoteInput(prospect.id));
 
   document.getElementById('boost-open-crm').addEventListener('click', async () => {
-    const crmUrl = await BoostConfig.getCrmUrl()
-    window.open(crmUrl + '/prospects/' + prospect.id, '_blank')
-  })
+    const url = await BoostConfig.getCrmUrl();
+    window.open(url + '/prospects/' + prospect.id, '_blank');
+  });
 }
 
-function showUnknownPanel(email) {
-  removePanel()
+// === Unknown contact ===
 
-  const panel = document.createElement('div')
-  panel.id = 'boost-crm-panel'
+function showUnknownContact(panel, email, name) {
+  const domain = (email || '').split('@')[1] || '';
+  const freeProviders = ['gmail.com','yahoo.com','yahoo.fr','hotmail.com','hotmail.fr','outlook.com','outlook.fr','live.com','live.fr','icloud.com','orange.fr','free.fr','sfr.fr','wanadoo.fr','laposte.net','protonmail.com','aol.com','msn.com','me.com','mail.com'];
+  let entrepriseHint = '';
+  if (domain && !freeProviders.includes(domain.toLowerCase())) {
+    const companyPart = domain.split('.')[0];
+    entrepriseHint = companyPart.charAt(0).toUpperCase() + companyPart.slice(1);
+  }
+
+  // Extract company from Gmail display name: "Celia TRAYNARD - DAVANTAGE"
+  const nameParts = (name || '').split(/[-\u2013|]/);
+  const companyFromName = nameParts.length > 1 ? nameParts[nameParts.length - 1].trim() : '';
+  if (companyFromName && !entrepriseHint) entrepriseHint = companyFromName;
+
+  const nameWords = (name || '').split(/[-\u2013|]/)[0].trim().split(/\s+/);
+  const firstName = nameWords[0] || '';
+  const lastName = nameWords.slice(1).join(' ') || '';
+
   panel.innerHTML = `
-    <div class="boost-panel boost-panel-small">
-      <div class="boost-panel-header">
-        <span class="boost-logo">\u26A1</span>
-        <span class="boost-title">Boost CRM</span>
-        <button class="boost-close" id="boost-close">\u2715</button>
-      </div>
-      <div class="boost-unknown">
-        <div class="boost-unknown-text">Contact inconnu</div>
-        <div class="boost-unknown-email">${email}</div>
+    <div class="boost-header">
+      <span>\u26A1 Boost CRM</span>
+      <button class="boost-close" id="boost-close">\u2715</button>
+    </div>
+
+    <div class="boost-unknown">
+      <div class="boost-unknown-text">Contact non enregistre</div>
+      <div class="boost-unknown-email">${escapeHtml(email)}</div>
+      ${name ? `<div style="font-size:13px; color:#f0f4f3; font-weight:600; margin-top:2px;">${escapeHtml(name)}</div>` : ''}
+    </div>
+
+    <div class="boost-buttons">
+      <button class="boost-btn boost-btn-primary" id="boost-add-prospect">\u2795 Ajouter au CRM</button>
+    </div>
+    <div id="boost-add-form" style="display:none;"></div>
+
+    <div style="border-top:1px solid rgba(255,255,255,0.1); padding-top:12px; margin-top:12px;">
+      <div style="font-size:11px; color:#8fa8a2; font-weight:600; margin-bottom:8px;">Repondre a cet email</div>
+      ${modelSelectorHtml()}
+      <button class="boost-btn boost-btn-secondary" id="boost-auto-reply">
+        \uD83E\uDD16 Generer automatiquement
+      </button>
+      <div style="margin-top:8px;">
+        <textarea id="boost-instruction" placeholder="Ex: dis-lui qu'on est dispo mardi..."
+          style="width:100%; padding:8px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:#f0f4f3; font-size:12px; resize:none; height:45px; font-family:inherit; box-sizing:border-box; -webkit-text-fill-color:#f0f4f3;"></textarea>
+        <button class="boost-btn boost-btn-primary" id="boost-instruct-reply" style="margin-top:4px;">
+          Rediger avec cette instruction
+        </button>
       </div>
     </div>
-  `
+    <div id="boost-reply-result"></div>
+  `;
 
-  const gmailMain = document.querySelector('[role="main"]')
-  if (gmailMain && gmailMain.parentElement) {
-    gmailMain.parentElement.appendChild(panel)
-  } else {
-    document.body.appendChild(panel)
-  }
+  document.getElementById('boost-close').addEventListener('click', closePanel);
 
-  document.getElementById('boost-close').addEventListener('click', removePanel)
+  document.getElementById('boost-add-prospect').addEventListener('click',
+    () => showAddForm(email, name, firstName, lastName, entrepriseHint));
+
+  document.getElementById('boost-auto-reply').addEventListener('click',
+    () => generateReply(null, email, name, null));
+
+  document.getElementById('boost-instruct-reply').addEventListener('click', () => {
+    const instr = document.getElementById('boost-instruction').value;
+    if (instr.trim()) generateReply(null, email, name, instr);
+  });
+
+  document.getElementById('boost-instruction').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      document.getElementById('boost-instruct-reply').click();
+    }
+  });
 }
 
-// === AI Reply Generation ===
+// === Generate reply (works with or without prospect_id) ===
 
-async function handleGenerateReply(prospect, email, subject, body) {
-  const replyArea = document.getElementById('boost-reply-area')
-  replyArea.style.display = 'block'
-  replyArea.innerHTML = '<div class="boost-loading">\u23F3 Generation en cours...</div>'
+async function generateReply(prospectId, email, senderName, instruction) {
+  const resultDiv = document.getElementById('boost-reply-result');
+  resultDiv.innerHTML = '<div class="boost-loading">\u23F3 Generation en cours...</div>';
 
-  const result = await BoostAPI.generateReply({
-    prospect_id: prospect.id,
+  const { subject, body } = getEmailContent();
+  const model = document.getElementById('boost-model')?.value || 'claude-sonnet-4-20250514';
+
+  const payload = {
+    prospect_id: prospectId,
     prospect_email: email,
+    sender_name: senderName || '',
     email_subject: subject,
     email_body: body,
-  })
+    instruction: instruction,
+    model: model,
+  };
+
+  console.log('[Boost CRM] generateReply payload:', JSON.stringify(payload).substring(0, 500));
+
+  const result = await BoostAPI.generateReply(payload);
+
+  console.log('[Boost CRM] generateReply result:', result.error || (result.reply || '').substring(0, 100));
 
   if (result.error) {
-    replyArea.innerHTML = `<div class="boost-error">Erreur : ${result.error}</div>`
-    return
+    resultDiv.innerHTML = `<div class="boost-error">Erreur : ${escapeHtml(result.error)}</div>`;
+    return;
   }
 
-  replyArea.innerHTML = `
-    <div class="boost-reply">
-      <div class="boost-reply-label">Reponse generee :</div>
-      <textarea class="boost-reply-text" id="boost-reply-text" rows="10">${escapeHtml(result.reply || '')}</textarea>
-      <div class="boost-reply-buttons">
-        <button class="boost-btn boost-btn-primary" id="boost-insert-reply">
-          Inserer dans Gmail
+  resultDiv.innerHTML = `
+    <div style="margin-top:8px;">
+      <textarea id="boost-reply-text" class="boost-reply-text" rows="10">${escapeHtml(result.reply || '')}</textarea>
+      <div style="display:flex; gap:6px; margin-top:6px;">
+        <button class="boost-btn boost-btn-primary" id="boost-copy" style="flex:1;">
+          Copier
         </button>
-        <button class="boost-btn boost-btn-secondary" id="boost-regenerate">
+        <button class="boost-btn boost-btn-secondary" id="boost-regen" style="flex:1;">
           Regenerer
         </button>
       </div>
     </div>
-  `
+  `;
 
-  document.getElementById('boost-insert-reply').addEventListener('click', insertReplyInGmail)
-  document.getElementById('boost-regenerate').addEventListener('click',
-    () => handleGenerateReply(prospect, email, subject, body))
+  document.getElementById('boost-copy').addEventListener('click', () => {
+    const text = document.getElementById('boost-reply-text').value;
+    navigator.clipboard.writeText(text);
+    const btn = document.getElementById('boost-copy');
+    btn.textContent = 'Copie \u2713';
+    setTimeout(() => { btn.textContent = 'Copier'; }, 2000);
+  });
+
+  document.getElementById('boost-regen').addEventListener('click',
+    () => generateReply(prospectId, email, senderName, instruction));
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div')
-  div.textContent = text
-  return div.innerHTML
-}
+// === Add to CRM form ===
 
-// === Insert reply into Gmail compose ===
+function showAddForm(email, name, firstName, lastName, entrepriseHint) {
+  const form = document.getElementById('boost-add-form');
+  form.style.display = 'block';
+  form.innerHTML = `
+    <div class="boost-form" style="margin-top:8px;">
+      <div class="boost-form-row">
+        <div class="boost-form-field">
+          <label>Prenom</label>
+          <input type="text" id="boost-fn" value="${escapeHtml(firstName)}">
+        </div>
+        <div class="boost-form-field">
+          <label>Nom</label>
+          <input type="text" id="boost-ln" value="${escapeHtml(lastName)}">
+        </div>
+      </div>
+      <div class="boost-form-field">
+        <label>Entreprise</label>
+        <input type="text" id="boost-comp" value="${escapeHtml(entrepriseHint)}">
+      </div>
+      <div class="boost-form-row" style="margin-top:4px;">
+        <button class="boost-btn boost-btn-primary" id="boost-save-prospect" style="flex:1;">Enregistrer</button>
+        <button class="boost-btn boost-btn-secondary" id="boost-cancel-add" style="flex:1;">Annuler</button>
+      </div>
+      <div id="boost-save-status" style="font-size:11px; margin-top:4px; text-align:center; min-height:16px;"></div>
+    </div>
+  `;
 
-function insertReplyInGmail() {
-  const replyText = document.getElementById('boost-reply-text').value
+  document.getElementById('boost-save-prospect').addEventListener('click', async () => {
+    const status = document.getElementById('boost-save-status');
+    status.innerHTML = '<span style="color:#fbbf24;">Enregistrement...</span>';
 
-  // Click Gmail's Reply button if compose area isn't open
-  const replyButton = document.querySelector('[data-tooltip="R\u00e9pondre"]')
-    || document.querySelector('[data-tooltip="Reply"]')
-    || document.querySelector('[aria-label="R\u00e9pondre"]')
-    || document.querySelector('[aria-label="Reply"]')
+    const result = await BoostAPI.createProspect({
+      prenom: document.getElementById('boost-fn').value.trim(),
+      nom: document.getElementById('boost-ln').value.trim(),
+      email: email,
+      entreprise: document.getElementById('boost-comp').value.trim(),
+      pipeline_stage: 'ciblage',
+      source: 'Gmail',
+    });
 
-  if (replyButton) {
-    replyButton.click()
-  }
-
-  // Wait for the compose area to open
-  setTimeout(() => {
-    const replyBox = document.querySelector('[role="textbox"][aria-label*="R\u00e9pondre"]')
-      || document.querySelector('[role="textbox"][aria-label*="Reply"]')
-      || document.querySelector('[role="textbox"][g_editable="true"]')
-      || document.querySelector('.editable[contenteditable="true"]')
-      || document.querySelector('[contenteditable="true"][aria-label]')
-
-    if (replyBox) {
-      replyBox.focus()
-      replyBox.innerHTML = replyText
-        .split('\n')
-        .map(line => `<div>${line || '<br>'}</div>`)
-        .join('')
-
-      // Trigger input event so Gmail detects the change
-      replyBox.dispatchEvent(new Event('input', { bubbles: true }))
-
-      // Visual feedback
-      const insertBtn = document.getElementById('boost-insert-reply')
-      if (insertBtn) {
-        insertBtn.textContent = '\u2713 Insere !'
-        insertBtn.disabled = true
-        insertBtn.style.background = '#22c55e'
-      }
+    if (result.error) {
+      status.innerHTML = `<span style="color:#ef4444;">${escapeHtml(result.error)}</span>`;
     } else {
-      // Fallback: copy to clipboard
-      navigator.clipboard.writeText(replyText).then(() => {
-        const insertBtn = document.getElementById('boost-insert-reply')
-        if (insertBtn) {
-          insertBtn.textContent = '\u2713 Copie dans le presse-papier'
-          insertBtn.disabled = true
-        }
-      }).catch(() => {
-        alert('Impossible de trouver le champ de reponse Gmail. Copiez le texte manuellement.')
-      })
+      status.innerHTML = '<span style="color:#22c55e;">Enregistre \u2713</span>';
+      setTimeout(() => loadProspectPanel(email, name), 1000);
     }
-  }, 600)
+  });
+
+  document.getElementById('boost-cancel-add').addEventListener('click', () => {
+    form.style.display = 'none';
+  });
 }
 
-// === Note handling ===
+// === Note input ===
 
-function handleAddNote(prospect) {
-  const noteArea = document.getElementById('boost-note-area')
-  noteArea.style.display = 'block'
-  noteArea.innerHTML = `
-    <div class="boost-note-input">
-      <textarea class="boost-note-textarea" id="boost-note-input"
-        rows="3" placeholder="Ajouter une note..."></textarea>
-      <div class="boost-note-buttons">
-        <button class="boost-btn boost-btn-primary" id="boost-save-note">
-          Sauvegarder
-        </button>
-        <button class="boost-btn boost-btn-secondary" id="boost-cancel-note">
-          Annuler
-        </button>
+function showNoteInput(prospectId) {
+  const area = document.getElementById('boost-note-area');
+  area.innerHTML = `
+    <div style="margin-top:8px;">
+      <textarea id="boost-note-text" class="boost-note-textarea" rows="3" placeholder="Ajouter une note..."></textarea>
+      <div style="display:flex; gap:6px; margin-top:4px;">
+        <button class="boost-btn boost-btn-primary" id="boost-save-note" style="flex:1;">Sauvegarder</button>
+        <button class="boost-btn boost-btn-secondary" id="boost-cancel-note" style="flex:1;">Annuler</button>
       </div>
     </div>
-  `
+  `;
 
   document.getElementById('boost-save-note').addEventListener('click', async () => {
-    const note = document.getElementById('boost-note-input').value
-    if (!note.trim()) return
-
-    const btn = document.getElementById('boost-save-note')
-    btn.disabled = true
-    btn.textContent = 'Sauvegarde...'
-
-    const result = await BoostAPI.addNote(prospect.id, note)
+    const note = document.getElementById('boost-note-text').value;
+    if (!note.trim()) return;
+    const btn = document.getElementById('boost-save-note');
+    btn.disabled = true;
+    btn.textContent = 'Sauvegarde...';
+    const result = await BoostAPI.addNote(prospectId, note);
     if (!result.error) {
-      noteArea.innerHTML = '<div class="boost-success">\u2713 Note sauvegardee</div>'
-      setTimeout(() => { noteArea.style.display = 'none' }, 2000)
+      area.innerHTML = '<div class="boost-success">\u2713 Note sauvegardee</div>';
+      setTimeout(() => { area.innerHTML = ''; }, 2000);
     } else {
-      noteArea.innerHTML = `<div class="boost-error">Erreur : ${result.error}</div>`
+      area.innerHTML = `<div class="boost-error">Erreur : ${escapeHtml(result.error)}</div>`;
     }
-  })
+  });
 
   document.getElementById('boost-cancel-note').addEventListener('click', () => {
-    noteArea.style.display = 'none'
-  })
+    area.innerHTML = '';
+  });
 }
-
-// === Main observer ===
-
-const observer = new MutationObserver(async () => {
-  const sender = extractSenderEmail()
-  if (!sender || sender.email === lastProcessedEmail) return
-
-  lastProcessedEmail = sender.email
-
-  // Small delay to let the email body render
-  await new Promise(r => setTimeout(r, 500))
-
-  const subject = extractSubject()
-  const body = extractLastMessageBody()
-
-  // Look up prospect in CRM
-  const result = await BoostAPI.findProspectByEmail(sender.email)
-
-  if (result.found) {
-    showProspectPanel(result.prospect, sender.email, subject, body)
-  } else {
-    showUnknownPanel(sender.email)
-  }
-})
-
-observer.observe(document.body, {
-  childList: true,
-  subtree: true,
-})

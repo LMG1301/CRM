@@ -1,383 +1,317 @@
-// Boost CRM — LinkedIn Content Script
-// Auto-detects LinkedIn profiles and shows a capture panel
+console.log('BOOST CRM: LinkedIn content script loaded');
 
-let boostLinkedInInitialized = false
-let lastProfileUrl = null
+// === State ===
+let currentUrl = '';
+let panelOpen = false;
 
-function isProfilePage() {
-  return window.location.pathname.startsWith('/in/')
+// === Tab injection (always visible on right edge) ===
+function injectTab() {
+  if (document.getElementById('boost-crm-tab')) return;
+  const tab = document.createElement('div');
+  tab.id = 'boost-crm-tab';
+  tab.textContent = '\u26A1 CRM';
+  tab.addEventListener('click', togglePanel);
+  document.body.appendChild(tab);
 }
 
-function extractProfileData() {
-  const data = { source: 'LinkedIn' }
-
-  // LinkedIn URL (clean, no query params)
-  data.linkedin = window.location.href.split('?')[0]
-
-  // === Name from h1 (most reliable) ===
-  const h1 = document.querySelector('h1')
-  if (h1) {
-    const fullName = h1.textContent.trim()
-    const parts = fullName.split(/\s+/)
-    if (parts.length >= 2) {
-      data.prenom = parts[0]
-      data.nom = parts.slice(1).join(' ')
-    } else if (fullName) {
-      data.nom = fullName
-    }
+function togglePanel() {
+  if (panelOpen) {
+    closePanel();
+  } else {
+    openPanel();
   }
-
-  // === Headline (job title) from DOM ===
-  const headlineEl = document.querySelector('div.text-body-medium')
-    || document.querySelector('.pv-text-details__left-panel div.text-body-medium')
-    || document.querySelector('[data-generated-suggestion-target] + div')
-  if (headlineEl) {
-    const headline = headlineEl.textContent.trim()
-    if (headline) data.fonction = headline
-  }
-
-  // === Fallback: document.title ===
-  const title = document.title || ''
-  if (title.includes('LinkedIn')) {
-    const withoutLinkedin = title.replace(/\s*[|]\s*LinkedIn\s*$/, '').trim()
-    const dashMatch = withoutLinkedin.match(/^(.+?)\s+[\-\u2013\u2014]\s+(.+)$/)
-    if (dashMatch) {
-      if (!data.prenom && !data.nom) {
-        const parts = dashMatch[1].trim().split(/\s+/)
-        if (parts.length >= 2) {
-          data.prenom = parts[0]
-          data.nom = parts.slice(1).join(' ')
-        } else {
-          data.nom = dashMatch[1].trim()
-        }
-      }
-      if (!data.fonction && dashMatch[2]) {
-        data.fonction = dashMatch[2].trim()
-      }
-    }
-  }
-
-  // === Location from meta description ===
-  const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content') || ''
-  if (metaDesc) {
-    const metaParts = metaDesc.split(/\s*[·]\s*/)
-    for (let i = 2; i < metaParts.length; i++) {
-      const part = metaParts[i].trim()
-      if (part && !/^\d/.test(part) && !/relation|connection|follower|profil|Voir/i.test(part)) {
-        data.localisation = part
-        break
-      }
-    }
-  }
-
-  // === Company extraction (multiple strategies) ===
-
-  // Strategy A: Company links in top profile section
-  const expLinks = document.querySelectorAll(
-    '.pv-text-details__right-panel a[href*="/company/"],'
-    + ' .inline-show-more-text a[href*="/company/"],'
-    + ' .experience-group-position a[href*="/company/"]'
-  )
-  for (const link of expLinks) {
-    const text = link.textContent.trim()
-    if (text && text.length > 1 && text.length < 100) {
-      data.entreprise = text
-      break
-    }
-  }
-
-  // Strategy B: Visible company link in top 800px
-  if (!data.entreprise) {
-    const allCompanyLinks = document.querySelectorAll('a[href*="/company/"]')
-    for (const link of allCompanyLinks) {
-      const rect = link.getBoundingClientRect()
-      if (rect.top > 0 && rect.top < 800 && rect.width > 0 && rect.height > 0) {
-        const text = link.textContent.trim()
-        if (text && text.length > 1 && text.length < 100
-          && !/LinkedIn|Voir|See |Show /i.test(text)) {
-          data.entreprise = text
-          break
-        }
-      }
-    }
-  }
-
-  // Strategy C: Parse headline for company
-  if (!data.entreprise && data.fonction) {
-    const headline = data.fonction
-    const chez = headline.match(/\bchez\s+(.+?)(?:\s*[|]|$)/i)
-    const at = headline.match(/\bat\s+(.+?)(?:\s*[|]|$)/i)
-    const arobase = headline.match(/\s+@\s+(.+?)(?:\s*[|]|$)/i)
-    const dashSep = headline.match(/\s+[\-\u2013\u2014]\s+(.+?)(?:\s*[|]|$)/)
-
-    if (chez) {
-      data.entreprise = chez[1].trim()
-      data.fonction = headline.replace(/\s*\bchez\s+.+$/i, '').trim()
-    } else if (at) {
-      data.entreprise = at[1].trim()
-      data.fonction = headline.replace(/\s*\bat\s+.+$/i, '').trim()
-    } else if (arobase) {
-      data.entreprise = arobase[1].trim()
-      data.fonction = headline.replace(/\s*@\s+.+$/i, '').trim()
-    } else if (dashSep) {
-      data.entreprise = dashSep[1].trim()
-      data.fonction = headline.replace(/\s*[\-\u2013\u2014]\s+.+$/, '').trim()
-    }
-  }
-
-  // Strategy D: meta description fallback
-  if (!data.entreprise && metaDesc) {
-    const metaParts = metaDesc.split(/\s*[·]\s*/)
-    if (metaParts.length >= 2) {
-      const metaHeadline = metaParts[1].trim()
-      const chezMeta = metaHeadline.match(/\bchez\s+(.+?)(?:\s*[|]|$)/i)
-      const atMeta = metaHeadline.match(/\bat\s+(.+?)(?:\s*[|]|$)/i)
-      if (chezMeta) data.entreprise = chezMeta[1].trim()
-      else if (atMeta) data.entreprise = atMeta[1].trim()
-    }
-  }
-
-  return data
 }
 
-// Check if prospect already exists in CRM
-async function checkExistingProspect(data) {
-  if (data.linkedin) {
-    const result = await BoostAPI.lookupProspect(null, null)
-    // Try by LinkedIn URL — use the lookup endpoint with email fallback
+function openPanel() {
+  let panel = document.getElementById('boost-crm-panel');
+  if (panel) {
+    panel.classList.remove('hidden');
+  } else {
+    // Scrape and create
+    const data = scrapeProfile();
+    if (!data.name) {
+      // Not on a profile page, show empty state
+      createEmptyPanel();
+    } else {
+      createLinkedInPanel(data);
+    }
   }
-  // Try by name + company
-  if (data.nom) {
-    const result = await BoostAPI.lookupProspect(null, data.nom)
-    if (result.found) return result.prospect
-  }
-  return null
+  panelOpen = true;
+  const tab = document.getElementById('boost-crm-tab');
+  if (tab) tab.style.display = 'none';
+}
+
+function closePanel() {
+  const panel = document.getElementById('boost-crm-panel');
+  if (panel) panel.classList.add('hidden');
+  panelOpen = false;
+  const tab = document.getElementById('boost-crm-tab');
+  if (tab) tab.style.display = 'flex';
 }
 
 function removePanel() {
-  const existing = document.getElementById('boost-crm-panel')
-  if (existing) existing.remove()
+  const existing = document.getElementById('boost-crm-panel');
+  if (existing) existing.remove();
+  panelOpen = false;
+  const tab = document.getElementById('boost-crm-tab');
+  if (tab) tab.style.display = 'flex';
 }
 
-function showAlreadyInCRM(prospect) {
-  removePanel()
+// === Profile detection ===
+function isOnProfile() {
+  return !!window.location.pathname.match(/\/in\/[^/]+/);
+}
 
-  const name = [prospect.prenom, prospect.nom].filter(Boolean).join(' ')
-  const stage = prospect.pipeline_stage || 'ciblage'
-  const stageLabels = {
-    ciblage: 'Ciblage', touch_1: 'Touch 1', touch_2: 'Touch 2', touch_3: 'Touch 3',
-    nurturing: 'Nurturing', repondu: 'Repondu', call_decouverte: 'Call decouverte',
-    devis: 'Devis', client: 'Client', refuse: 'Refuse', bounced: 'Bounced',
+// Watch URL changes (LinkedIn SPA)
+const urlObserver = new MutationObserver(() => {
+  if (window.location.href !== currentUrl) {
+    currentUrl = window.location.href;
+    // Remove old panel when navigating
+    removePanel();
+  }
+});
+urlObserver.observe(document.body, { childList: true, subtree: true });
+
+// === Company scraping (clean, avoids DOM concatenation) ===
+function scrapeCompany() {
+  // PRIORITE 1 : le lien company avec data-field (logo experience)
+  const sideCompany = document.querySelector(
+    'a[href*="/company/"][data-field="experience_company_logo"]'
+  );
+  if (sideCompany) {
+    const text = sideCompany.querySelector('span')?.innerText
+      || sideCompany.innerText;
+    if (text?.trim()) return text.trim().split('\n')[0];
   }
 
-  const panel = document.createElement('div')
-  panel.id = 'boost-crm-panel'
-  panel.innerHTML = `
-    <div class="boost-panel">
-      <div class="boost-panel-header">
-        <span class="boost-logo">\u26A1</span>
-        <span class="boost-title">Boost CRM</span>
-        <button class="boost-close" id="boost-close">\u2715</button>
-      </div>
-      <div class="boost-prospect-info">
-        <div class="boost-name">${name}</div>
-        <div class="boost-company">${prospect.entreprise || ''}</div>
-        <span class="boost-stage boost-stage-${stage}">
-          ${stageLabels[stage] || stage}
-        </span>
-      </div>
-      <div style="text-align:center; padding:8px 0; color:#22c55e; font-size:13px; font-weight:600;">
-        \u2713 Deja dans le CRM
-      </div>
-      <div class="boost-buttons">
-        <button class="boost-btn boost-btn-primary" id="boost-open-crm">
-          Ouvrir dans le CRM
-        </button>
-      </div>
-    </div>
-  `
-  document.body.appendChild(panel)
+  // PRIORITE 2 : liens /company/ dans la premiere section (header profil)
+  // Prendre le PREMIER span avec texte court et propre
+  const companyLinks = document.querySelectorAll(
+    'section:first-of-type a[href*="/company/"]'
+  );
+  for (const link of companyLinks) {
+    const spans = link.querySelectorAll('span');
+    for (const span of spans) {
+      const t = span.innerText?.trim();
+      if (t && t.length > 1 && t.length < 60 && !t.match(/^\d+$/)) {
+        return t.split('\n')[0];
+      }
+    }
+  }
 
-  document.getElementById('boost-close').addEventListener('click', removePanel)
-  document.getElementById('boost-open-crm').addEventListener('click', async () => {
-    const crmUrl = await BoostConfig.getCrmUrl()
-    window.open(crmUrl + '/prospects/' + prospect.id, '_blank')
-  })
+  // PRIORITE 3 : texte a cote du premier logo company
+  const logos = document.querySelectorAll('img[alt*="logo"]');
+  for (const logo of logos) {
+    const parent = logo.closest('a[href*="/company/"]');
+    if (parent) {
+      const t = parent.innerText?.trim();
+      if (t && t.length > 1 && t.length < 60) return t.split('\n')[0];
+    }
+  }
+
+  // PRIORITE 4 : extraire depuis le headline
+  const headline = document.querySelector('.text-body-medium')?.innerText || '';
+  const match = headline.match(/(?:at|chez|@)\s+(.+?)(?:\s*[|]|$)/i);
+  if (match) return match[1].trim();
+
+  return '';
 }
 
-function showCapturePanel(data) {
-  removePanel()
+function scrapeProfile() {
+  // NAME
+  const nameEl = document.querySelector('h1.text-heading-xlarge')
+    || document.querySelector('h1');
+  const fullName = nameEl?.innerText?.trim() || '';
 
-  const panel = document.createElement('div')
-  panel.id = 'boost-crm-panel'
-  panel.innerHTML = `
-    <div class="boost-panel">
-      <div class="boost-panel-header">
-        <span class="boost-logo">\u26A1</span>
-        <span class="boost-title">Boost CRM</span>
-        <button class="boost-close" id="boost-close">\u2715</button>
-      </div>
-      <div class="boost-form">
-        <div class="boost-form-row">
-          <div class="boost-form-field">
-            <label>Prenom</label>
-            <input type="text" id="boost-prenom" value="${data.prenom || ''}">
-          </div>
-          <div class="boost-form-field">
-            <label>Nom</label>
-            <input type="text" id="boost-nom" value="${data.nom || ''}">
-          </div>
-        </div>
-        <div class="boost-form-field">
-          <label>Entreprise</label>
-          <input type="text" id="boost-entreprise" value="${data.entreprise || ''}">
-        </div>
-        <div class="boost-form-field">
-          <label>Fonction</label>
-          <input type="text" id="boost-fonction" value="${data.fonction || ''}">
-        </div>
-        <div class="boost-form-field">
-          <label>Email</label>
-          <input type="email" id="boost-email" value="${data.email || ''}">
-        </div>
-        <div class="boost-form-field">
-          <label>Telephone</label>
-          <input type="tel" id="boost-telephone" value="${data.telephone || ''}">
-        </div>
-        <div class="boost-form-field">
-          <label>LinkedIn</label>
-          <input type="text" id="boost-linkedin" value="${data.linkedin || ''}" readonly style="opacity:0.7;">
-        </div>
-        <div class="boost-form-field">
-          <label>Localisation</label>
-          <input type="text" id="boost-localisation" value="${data.localisation || ''}">
-        </div>
-        <div class="boost-form-field">
-          <label>Stage pipeline</label>
-          <select id="boost-pipeline-stage">
-            <option value="ciblage">Ciblage</option>
-            <option value="touch_1">Touch 1</option>
-            <option value="nurturing">Nurturing</option>
-          </select>
-        </div>
-      </div>
-      <div class="boost-buttons">
-        <button class="boost-btn boost-btn-primary" id="boost-save">
-          Enregistrer dans le CRM
-        </button>
-      </div>
-      <div id="boost-status" style="display:none;"></div>
-    </div>
-  `
-  document.body.appendChild(panel)
+  // HEADLINE
+  const headlineEl = document.querySelector('.text-body-medium.break-words')
+    || document.querySelector('div.text-body-medium');
+  const headline = headlineEl?.innerText?.trim() || '';
 
-  document.getElementById('boost-close').addEventListener('click', removePanel)
-  document.getElementById('boost-save').addEventListener('click', handleSave)
+  // COMPANY (aggressive)
+  const company = scrapeCompany();
+
+  // TITLE: extract from headline
+  let title = headline;
+  if (headline && company) {
+    // Remove company from headline to get just the title
+    const separators = [
+      { regex: /^(.+?)\s+chez\s+.+$/i, titleIdx: 1 },
+      { regex: /^(.+?)\s+at\s+.+$/i, titleIdx: 1 },
+      { regex: /^(.+?)\s+@\s+.+$/i, titleIdx: 1 },
+      { regex: /^(.+?)\s*\|\s*.+$/, titleIdx: 1 },
+      { regex: /^(.+?)\s+[-\u2013\u2014]\s+.+$/, titleIdx: 1 },
+    ];
+    for (const sep of separators) {
+      const match = headline.match(sep.regex);
+      if (match) {
+        title = match[sep.titleIdx].trim();
+        break;
+      }
+    }
+  }
+
+  // LOCATION
+  const locationEl = document.querySelector('.text-body-small.inline.t-black--light.break-words')
+    || document.querySelector('span.text-body-small[class*="t-black--light"]');
+  const location = locationEl?.innerText?.trim() || '';
+
+  // LINKEDIN URL
+  const linkedinUrl = window.location.href.split('?')[0];
+
+  // Split name
+  const nameParts = fullName.split(/\s+/);
+  const firstName = nameParts[0] || '';
+  const lastName = nameParts.slice(1).join(' ') || '';
+
+  return {
+    name: fullName,
+    firstName,
+    lastName,
+    company,
+    title,
+    location,
+    linkedinUrl,
+    headline,
+  };
 }
 
-async function handleSave() {
-  const btn = document.getElementById('boost-save')
-  const status = document.getElementById('boost-status')
-  btn.disabled = true
-  btn.textContent = 'Enregistrement...'
+// === Panel creation ===
+function createEmptyPanel() {
+  removePanel();
+  const panel = document.createElement('div');
+  panel.id = 'boost-crm-panel';
+  panel.innerHTML = `
+    <div class="boost-header">
+      <span>\u26A1 Boost CRM</span>
+      <button class="boost-close" id="boost-close">\u2715</button>
+    </div>
+    <div style="text-align:center; padding:20px 0; color:#8fa8a2;">
+      Naviguez vers un profil LinkedIn pour capturer un prospect.
+    </div>
+  `;
+  document.body.appendChild(panel);
+  document.getElementById('boost-close').addEventListener('click', closePanel);
+}
 
-  const prospect = {
-    prenom: document.getElementById('boost-prenom').value.trim(),
-    nom: document.getElementById('boost-nom').value.trim(),
-    entreprise: document.getElementById('boost-entreprise').value.trim(),
-    fonction: document.getElementById('boost-fonction').value.trim(),
-    email: document.getElementById('boost-email').value.trim(),
-    telephone: document.getElementById('boost-telephone').value.trim(),
+function createLinkedInPanel(data) {
+  removePanel();
+
+  const panel = document.createElement('div');
+  panel.id = 'boost-crm-panel';
+  panel.innerHTML = `
+    <div class="boost-header">
+      <span>\u26A1 Boost CRM</span>
+      <button class="boost-close" id="boost-close">\u2715</button>
+    </div>
+
+    <div class="boost-form" id="boost-form-body">
+      <div class="boost-row">
+        <div class="boost-field">
+          <label>Prenom</label>
+          <input type="text" id="boost-firstname" value="${escapeAttr(data.firstName)}">
+        </div>
+        <div class="boost-field">
+          <label>Nom</label>
+          <input type="text" id="boost-lastname" value="${escapeAttr(data.lastName)}">
+        </div>
+      </div>
+
+      <div class="boost-field">
+        <label>Entreprise</label>
+        <input type="text" id="boost-company" value="${escapeAttr(data.company)}">
+      </div>
+
+      <div class="boost-field">
+        <label>Fonction</label>
+        <input type="text" id="boost-title" value="${escapeAttr(data.title)}">
+      </div>
+
+      <div class="boost-field">
+        <label>Email</label>
+        <input type="text" id="boost-email" placeholder="email@exemple.com">
+      </div>
+
+      <div class="boost-field">
+        <label>Telephone</label>
+        <input type="text" id="boost-phone" placeholder="+33 6 ...">
+      </div>
+
+      <div class="boost-field">
+        <label>LinkedIn</label>
+        <input type="text" id="boost-linkedin" value="${escapeAttr(data.linkedinUrl)}" readonly>
+      </div>
+
+      <div class="boost-field">
+        <label>Localisation</label>
+        <input type="text" id="boost-location" value="${escapeAttr(data.location)}">
+      </div>
+
+      <div class="boost-field">
+        <label>Stage pipeline</label>
+        <select id="boost-stage">
+          <option value="ciblage" selected>Ciblage</option>
+          <option value="contacte">Contacte</option>
+          <option value="repondu">Repondu</option>
+        </select>
+      </div>
+
+      <button class="boost-btn-save" id="boost-save">
+        Enregistrer dans le CRM
+      </button>
+
+      <div id="boost-status"></div>
+    </div>
+  `;
+
+  document.body.appendChild(panel);
+  panelOpen = true;
+  const tab = document.getElementById('boost-crm-tab');
+  if (tab) tab.style.display = 'none';
+
+  document.getElementById('boost-close').addEventListener('click', closePanel);
+  document.getElementById('boost-save').addEventListener('click', saveProspect);
+}
+
+function escapeAttr(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function saveProspect() {
+  const statusEl = document.getElementById('boost-status');
+  statusEl.innerHTML = '<span style="color:#fbbf24;">Enregistrement...</span>';
+
+  const btn = document.getElementById('boost-save');
+  btn.disabled = true;
+
+  const data = {
+    prenom: document.getElementById('boost-firstname').value.trim(),
+    nom: document.getElementById('boost-lastname').value.trim(),
+    entreprise: document.getElementById('boost-company').value.trim(),
+    fonction: document.getElementById('boost-title').value.trim(),
+    email: document.getElementById('boost-email').value.trim() || null,
+    telephone: document.getElementById('boost-phone').value.trim() || null,
     linkedin_url: document.getElementById('boost-linkedin').value.trim(),
-    localisation: document.getElementById('boost-localisation').value.trim(),
-    pipeline_stage: document.getElementById('boost-pipeline-stage').value,
+    localisation: document.getElementById('boost-location').value.trim(),
+    pipeline_stage: document.getElementById('boost-stage').value,
     source: 'LinkedIn',
-  }
+  };
 
-  if (!prospect.nom && !prospect.entreprise && !prospect.email) {
-    status.style.display = 'block'
-    status.className = 'boost-error'
-    status.textContent = 'Remplissez au moins un champ: nom, entreprise ou email'
-    btn.disabled = false
-    btn.textContent = 'Enregistrer dans le CRM'
-    return
-  }
-
-  const result = await BoostAPI.createProspect(prospect)
+  const result = await BoostAPI.createProspect(data);
 
   if (result.error) {
-    status.style.display = 'block'
-    status.className = 'boost-error'
-    status.textContent = result.error
+    statusEl.innerHTML = `<span style="color:#ef4444;">Erreur : ${result.error}</span>`;
+    btn.disabled = false;
   } else if (result.status === 'duplicate') {
-    status.style.display = 'block'
-    status.className = 'boost-warning'
-    status.textContent = result.message || 'Ce prospect existe deja'
-    if (result.crm_url) {
-      setTimeout(() => window.open(result.crm_url, '_blank'), 1500)
-    }
+    statusEl.innerHTML = `<span style="color:#fbbf24;">${result.message || 'Prospect deja existant'}</span>`;
+    btn.disabled = false;
   } else {
-    status.style.display = 'block'
-    status.className = 'boost-success'
-    status.textContent = '\u2713 ' + (result.message || 'Prospect enregistre !')
-    if (result.crm_url) {
-      const link = document.createElement('a')
-      link.href = result.crm_url
-      link.target = '_blank'
-      link.textContent = ' Ouvrir dans le CRM \u2192'
-      link.style.cssText = 'color:#4ade80; text-decoration:underline; margin-left:4px; font-size:12px;'
-      status.appendChild(link)
-    }
+    statusEl.innerHTML = '<span style="color:#22c55e;">Enregistre \u2713</span>';
+    btn.textContent = 'Enregistre \u2713';
+    btn.style.background = '#22c55e';
   }
-
-  btn.disabled = false
-  btn.textContent = 'Enregistrer dans le CRM'
 }
 
-// Main: detect profile and show panel
-async function initLinkedIn() {
-  if (!isProfilePage()) {
-    removePanel()
-    return
-  }
-
-  const currentUrl = window.location.href.split('?')[0]
-  if (currentUrl === lastProfileUrl) return
-  lastProfileUrl = currentUrl
-
-  // Wait for page content to load
-  await new Promise(r => setTimeout(r, 1500))
-
-  const data = extractProfileData()
-  if (!data.nom && !data.prenom) return
-
-  // Check if already in CRM
-  const password = await BoostConfig.getPassword()
-  if (password) {
-    try {
-      const result = await BoostAPI.lookupProspect(null, data.nom)
-      if (result.found) {
-        showAlreadyInCRM(result.prospect)
-        return
-      }
-    } catch {
-      // Lookup failed, show capture form anyway
-    }
-  }
-
-  showCapturePanel(data)
-}
-
-// Watch for SPA navigation (LinkedIn is a SPA)
-let lastUrl = window.location.href
-const urlObserver = new MutationObserver(() => {
-  if (window.location.href !== lastUrl) {
-    lastUrl = window.location.href
-    setTimeout(initLinkedIn, 1000)
-  }
-})
-
-urlObserver.observe(document.body, { childList: true, subtree: true })
-
-// Initial run
-setTimeout(initLinkedIn, 2000)
+// === Init ===
+injectTab();

@@ -27,9 +27,11 @@ const BoostAPI = {
     }
   },
 
-  // Chercher un prospect par email
-  async findProspectByEmail(email) {
-    return this.fetch(`/api/prospects/by-email?email=${encodeURIComponent(email)}`)
+  // Chercher un prospect par email (+ nom pour fuzzy matching)
+  async findProspectByEmail(email, name) {
+    const params = new URLSearchParams({ email })
+    if (name) params.set('name', name)
+    return this.fetch(`/api/prospects/by-email?${params}`)
   },
 
   // Chercher un prospect par nom (lookup existant)
