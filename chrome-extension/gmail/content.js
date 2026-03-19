@@ -26,26 +26,62 @@ function debounce(fn, ms) {
 // === Email detection ===
 
 function getSenderInfo() {
-  // Prefer .gD[email] (Gmail sender element) as it's more reliable
-  const senders = document.querySelectorAll('.gD[email]');
-  let el = null;
-  if (senders.length === 1) {
-    el = senders[0];
-  } else if (senders.length > 1) {
-    // Pick the visible one
-    for (const s of senders) {
-      const rect = s.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) { el = s; break; }
-    }
-    if (!el) el = senders[0];
-  }
-  // Fallback
-  if (!el) el = document.querySelector('[data-message-id] [email]');
+  // Get the connected user's email to EXCLUDE it
+  const myEmail = (
+    document.querySelector('[data-email]')?.getAttribute('data-email') || ''
+  ).toLowerCase();
 
-  const email = el?.getAttribute('email') || '';
-  const name = el?.getAttribute('name') || el?.textContent?.trim() || '';
-  console.log('[Boost CRM] getSenderInfo:', email, name);
-  return { email, name };
+  let senderEmail = '';
+  let senderName = '';
+
+  // Strategy 1: .gD[email] elements (Gmail sender headers in opened emails)
+  const gds = document.querySelectorAll('.gD[email]');
+  for (const el of gds) {
+    const email = (el.getAttribute('email') || '').toLowerCase();
+    if (!email) continue;
+    if (isOwnEmail(email, myEmail)) continue;
+    senderEmail = email;
+    senderName = el.getAttribute('name') || el.textContent?.trim() || '';
+    break;
+  }
+
+  // Strategy 2: any [email] attribute in message headers
+  if (!senderEmail) {
+    const allEls = document.querySelectorAll('[data-message-id] [email]');
+    for (const el of allEls) {
+      const email = (el.getAttribute('email') || '').toLowerCase();
+      if (!email) continue;
+      if (isOwnEmail(email, myEmail)) continue;
+      senderEmail = email;
+      senderName = el.getAttribute('name') || el.textContent?.trim() || '';
+      break;
+    }
+  }
+
+  // Strategy 3: broader search across all [email] attributes
+  if (!senderEmail) {
+    const allEls = document.querySelectorAll('[email]');
+    for (const el of allEls) {
+      const email = (el.getAttribute('email') || '').toLowerCase();
+      if (!email) continue;
+      if (isOwnEmail(email, myEmail)) continue;
+      senderEmail = email;
+      senderName = el.getAttribute('name') || el.textContent?.trim() || '';
+      break;
+    }
+  }
+
+  console.log('[Boost CRM] getSenderInfo: myEmail=' + myEmail + ' sender=' + senderEmail + ' name=' + senderName);
+  return { email: senderEmail, name: senderName };
+}
+
+function isOwnEmail(email, myEmail) {
+  if (!email) return false;
+  if (myEmail && email === myEmail) return true;
+  if (email.includes('boostinc.com')) return true;
+  if (email.includes('boost-crm')) return true;
+  if (email.includes('louis.matar')) return true;
+  return false;
 }
 
 function getEmailContent() {
@@ -395,14 +431,18 @@ function showAddForm(email, name, firstName, lastName, entrepriseHint) {
     const status = document.getElementById('boost-save-status');
     status.innerHTML = '<span style="color:#fbbf24;">Enregistrement...</span>';
 
-    const result = await BoostAPI.createProspect({
+    const prospectData = {
       prenom: document.getElementById('boost-fn').value.trim(),
       nom: document.getElementById('boost-ln').value.trim(),
       email: email,
       entreprise: document.getElementById('boost-comp').value.trim(),
       pipeline_stage: 'ciblage',
       source: 'Gmail',
-    });
+    };
+    console.log('[Boost CRM] saving prospect:', prospectData);
+
+    const result = await BoostAPI.createProspect(prospectData);
+    console.log('[Boost CRM] save result:', JSON.stringify(result).substring(0, 300));
 
     if (result.error) {
       status.innerHTML = `<span style="color:#ef4444;">${escapeHtml(result.error)}</span>`;
