@@ -35,6 +35,52 @@ export async function GET(request: NextRequest) {
   let prospect = null
   let matchType = ''
 
+  // === Level 0: Name-only search (no email provided) ===
+  if (!email && name) {
+    const searchTerm = name.split(/\s*[-\u2013\u2014|]\s*/)[0].trim()
+
+    // Search by entreprise
+    const { data: byCompany } = await supabase
+      .from('prospects')
+      .select(PROSPECT_FIELDS)
+      .ilike('entreprise', `%${searchTerm}%`)
+      .limit(1)
+    if (byCompany && byCompany.length > 0) {
+      prospect = byCompany[0]
+      matchType = 'name_only_company'
+    }
+
+    // Search by nom or prenom
+    if (!prospect) {
+      const { data: byName } = await supabase
+        .from('prospects')
+        .select(PROSPECT_FIELDS)
+        .or(`nom.ilike.%${searchTerm}%,prenom.ilike.%${searchTerm}%`)
+        .limit(1)
+      if (byName && byName.length > 0) {
+        prospect = byName[0]
+        matchType = 'name_only_name'
+      }
+    }
+
+    // If multi-word, try prenom + nom
+    if (!prospect) {
+      const parts = searchTerm.split(/\s+/).filter(p => p.length > 1)
+      if (parts.length >= 2) {
+        const { data } = await supabase
+          .from('prospects')
+          .select(PROSPECT_FIELDS)
+          .ilike('prenom', `%${parts[0]}%`)
+          .ilike('nom', `%${parts.slice(1).join(' ')}%`)
+          .limit(1)
+        if (data && data.length > 0) {
+          prospect = data[0]
+          matchType = 'name_only_fullname'
+        }
+      }
+    }
+  }
+
   // === Level 1: Exact email match (case insensitive) ===
   if (email) {
     const { data } = await supabase

@@ -254,7 +254,23 @@ async function searchContact() {
   if (isEmail) params.set('email', input);
   else params.set('name', input);
 
-  const r = await crmFetch('/api/prospects/by-email?' + params);
+  const endpoint = '/api/prospects/by-email?' + params;
+  console.log('[Boost] searching:', endpoint);
+
+  let r;
+  try {
+    r = await crmFetch(endpoint);
+    console.log('[Boost] result:', JSON.stringify(r).substring(0, 300));
+  } catch (e) {
+    console.error('[Boost] fetch error:', e);
+    resultEl.innerHTML = '<div class="status status-err">Erreur reseau : ' + esc(e.message) + '</div>';
+    return;
+  }
+
+  if (r.error) {
+    resultEl.innerHTML = '<div class="status status-err">' + esc(r.error) + '</div>';
+    return;
+  }
 
   if (r.found) {
     const p = r.prospect;
