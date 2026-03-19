@@ -1,21 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Boost CRM",
-  "version": "2.0.0",
-  "description": "CRM assistant: capture prospects on LinkedIn, reply with AI on Gmail",
+  "version": "3.0.0",
+  "description": "Assistant commercial IA avec contexte CRM",
   "permissions": [
-    "storage",
+    "sidePanel",
     "activeTab",
-    "scripting"
+    "storage"
   ],
-  "host_permissions": [
-    "https://www.linkedin.com/*",
-    "https://mail.google.com/*",
-    "https://boost-crm-six.vercel.app/*",
-    "http://localhost:3000/*"
-  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "action": {
-    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -27,18 +23,13 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-      "matches": ["https://www.linkedin.com/*"],
-      "js": ["shared/config.js", "shared/api.js", "linkedin/content.js"],
-      "css": ["styles.css"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://mail.google.com/*"],
-      "js": ["shared/config.js", "shared/api.js", "gmail/content.js"],
-      "css": ["styles.css", "gmail/styles.css"],
+      "matches": ["https://www.linkedin.com/in/*"],
+      "js": ["linkedin-scraper.js"],
       "run_at": "document_idle"
     }
   ]
