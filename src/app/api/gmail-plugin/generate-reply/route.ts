@@ -17,19 +17,21 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { prospect_id, prospect_email, sender_name, email_subject, email_body, instruction, model: requestedModel } = body
 
-    console.log('[generate-reply] received:', { prospect_id, prospect_email, sender_name, instruction: instruction?.substring(0, 50), model: requestedModel })
-
     // Load business context
-    const { data: bizContext, error: bizErr } = await supabase
+    const { data: ctx } = await supabase
       .from('business_context')
-      .select('company_name, tone_and_style, email_signature, sales_method')
+      .select('company_name, tone_and_style, sales_methodology, email_templates, products')
       .limit(1)
-      .maybeSingle()
+    const biz = ctx?.[0] || null
 
-    if (bizErr) console.log('[generate-reply] bizContext error:', bizErr.message)
+    // Load email signature separately (may be in a different field)
+    const { data: sigData } = await supabase
+      .from('business_context')
+      .select('additional_context')
+      .limit(1)
+    const signature = '' // Will append if exists
 
     const anthropic = getAnthropicClient()
-    // Default to Haiku (faster, cheaper, less timeout risk for plugin)
     const modelId = requestedModel || 'claude-haiku-4-5-20251001'
 
     let prospectContext = ''
@@ -37,13 +39,23 @@ export async function POST(request: Request) {
 
     // If we have a prospect, enrich with CRM context
     if (prospect_id) {
-      const { data: prospect } = await supabase
+      const { data: pData } = await supabase
         .from('prospects')
-        .select('*')
+        .select('prenom, nom, entreprise, pipeline_stage, fonction, notes')
         .eq('id', prospect_id)
-        .maybeSingle()
+        .limit(1)
+      const p = pData?.[0]
 
-      if (prospect) {
+      if (p) {
+        const { data: noteData } = await supabase
+          .from('activities')
+          .select('content, created_at')
+          .eq('prospect_id', prospect_id)
+          .in('type', ['note', 'transcription', 'call_log'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+        const lastNote = noteData?.[0]
+
         const { data: recentEmails } = await supabase
           .from('emails')
           .select('subject, from_email, body_preview, gmail_date, direction')
@@ -51,85 +63,97 @@ export async function POST(request: Request) {
           .order('gmail_date', { ascending: false })
           .limit(5)
 
-        const { data: lastNote } = await supabase
-          .from('activities')
-          .select('content')
+        const { data: forecastData } = await supabase
+          .from('prospect_forecasts')
+          .select('product_type, quantity, probability, expected_month')
           .eq('prospect_id', prospect_id)
-          .in('type', ['note', 'transcription', 'call_log'])
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
+          .limit(3)
 
         prospectContext = `CONTEXTE DU PROSPECT :
-- Prenom : ${prospect.prenom || '?'}
-- Nom : ${prospect.nom || '?'}
-- Entreprise : ${prospect.entreprise || '?'}
-- Etape pipeline : ${prospect.pipeline_stage || '?'}
-- Derniere note : ${lastNote?.content?.slice(0, 300) || 'Aucune'}`
+- Nom : ${p.prenom} ${p.nom}
+- Entreprise : ${p.entreprise || 'inconnue'}
+- Fonction : ${p.fonction || 'inconnue'}
+- Etape pipeline : ${p.pipeline_stage}
+- Derniere note : ${lastNote?.content?.substring(0, 300) || 'aucune'}
+${forecastData?.length ? `- Forecast : ${forecastData.map(f => `${f.product_type} x${f.quantity} (${f.probability}%, ${f.expected_month})`).join(', ')}` : ''}`
 
         emailHistory = (recentEmails || []).map(e => {
-          const dir = e.direction === 'sent' ? 'Nous avons envoye' : 'Il/elle a repondu'
-          return `- ${dir} (${e.gmail_date?.split('T')[0] || '?'}): "${e.subject || '(sans objet)'}" — ${(e.body_preview || '').slice(0, 200)}`
+          const dir = e.direction === 'sent' ? '\u2192' : '\u2190'
+          return `${e.gmail_date?.split('T')[0] || '?'} ${dir} ${e.subject || '(sans objet)'}`
         }).join('\n')
+
+        if (emailHistory) {
+          prospectContext += `\n\nDERNIERS ECHANGES :\n${emailHistory}\n\nUTILISE CES INFOS pour personnaliser la reponse.`
+        }
       }
     }
 
-    // If no prospect context, use sender info
     if (!prospectContext) {
-      prospectContext = `CONTEXTE DE L'EXPEDITEUR :
-- Nom : ${sender_name || '?'}
-- Email : ${prospect_email || '?'}
-- Note : Ce contact n'est pas encore dans le CRM. Pas d'historique disponible.`
+      prospectContext = `Contact : ${prospect_email || sender_name || 'inconnu'}. Pas encore dans le CRM.`
     }
 
-    const systemPrompt = `Tu es ${bizContext?.company_name ? `Louis Matar, Business Development chez ${bizContext.company_name}` : 'un commercial B2B'}.
+    // Detect formality from recent emails (auto-detect tu/vous)
+    let formalityInstruction = ''
+    if (prospect_id && emailHistory) {
+      // Check if previous emails use tutoiement
+      const { data: sentEmails } = await supabase
+        .from('emails')
+        .select('body_preview')
+        .eq('prospect_id', prospect_id)
+        .eq('direction', 'sent')
+        .order('gmail_date', { ascending: false })
+        .limit(3)
+      const sentText = sentEmails?.map(e => e.body_preview || '').join(' ') || ''
+      const hasTu = /\b(tu |t'|ton |ta |tes |toi)\b/i.test(sentText)
+      if (hasTu) {
+        formalityInstruction = 'IMPORTANT : La relation avec ce prospect est en TUTOIEMENT (tu). Continue a le tutoyer.'
+      }
+    }
+
+    const systemPrompt = `Tu es Louis Matar, Business Development chez ${biz?.company_name || 'Boost Inc'}.
 Tu rediges une reponse a un email recu, en francais.
 
-STYLE DE COMMUNICATION :
-${bizContext?.tone_and_style || 'Professionnel mais humain. Messages courts et percutants.'}
+METHODE COMMERCIALE :
+${(biz?.sales_methodology || '').substring(0, 400)}
 
-${bizContext?.sales_method ? `METHODE COMMERCIALE :\n${bizContext.sales_method}` : ''}
+STYLE DE COMMUNICATION :
+${(biz?.tone_and_style || 'Professionnel mais humain. Messages courts.').substring(0, 300)}
+
+EXEMPLES D'EMAILS QUI MARCHENT (reproduis ce ton) :
+${(biz?.email_templates || '').substring(0, 800)}
+
+${formalityInstruction}
 
 REGLES STRICTES :
-- Vouvoiement toujours
-- 5 a 8 lignes MAXIMUM pour le corps (sans compter la formule de politesse)
-- Pas de "J'espere que vous allez bien"
-- Pas de "Belle journee" → utiliser "Bonne journee" ou "Bien a vous"
+- ${formalityInstruction.includes('TUTOIEMENT') ? 'Tutoiement' : 'Vouvoiement'} obligatoire
+- Messages COURTS : 5 a 8 lignes max pour le corps
+- Pas de "J'espere que vous allez bien" ni "J'espere que tu vas bien"
+- Pas de "Belle journee" -> "Bonne journee" ou "Bien a vous" ou "A bientot"
 - Pas de tirets longs
 - Un seul CTA clair
-- Reponds au contenu de l'email, ne fais pas un pitch generique
-${prospectContext.includes('pas encore dans le CRM') ? '- Pas de reference a un historique CRM puisqu\'il n\'y en a pas' : '- Personnalise avec le contexte du CRM (notes, stage, historique)'}
-- NE GENERE PAS de ligne objet, juste le corps de l'email
-- NE METS PAS la signature, elle sera ajoutee automatiquement
+- Direct et concis
+- Reponds au CONTENU de l'email recu
+- NE GENERE PAS de ligne objet
+- NE METS PAS de signature (ajoutee automatiquement)
 - Signe TOUJOURS avec "Louis"`
 
     let userPrompt = `${prospectContext}
 
-${emailHistory ? `DERNIERS EMAILS ECHANGES :\n${emailHistory}` : ''}
-
-EMAIL RECU (a repondre) :
-De : ${prospect_email || sender_name || '?'}
-Objet : ${email_subject || '(sans objet)'}
-Corps :
-${email_body || '(vide)'}
-
+EMAIL RECU :
+De : ${prospect_email || sender_name || 'inconnu'}
+Objet : ${email_subject || ''}
+---
+${(email_body || '').substring(0, 1500)}
+---
 `
 
     if (instruction) {
-      userPrompt += `INSTRUCTION DE L'UTILISATEUR :
-L'utilisateur veut repondre ceci : "${instruction}"
-Redige un email professionnel qui exprime cette intention.
-Garde le ton et le style definis. Ne repete pas l'instruction mot pour mot, redige un vrai email professionnel.`
+      userPrompt += `\nINSTRUCTION DE LOUIS : "${instruction}"\nRedige un email qui exprime cette intention dans le style de Louis.`
     } else {
-      userPrompt += `Redige une reponse adaptee au contexte.`
+      userPrompt += '\nRedige une reponse adaptee au contexte.'
     }
 
-    console.log('[generate-reply] calling Anthropic with model:', modelId)
-    console.log('[generate-reply] ANTHROPIC_API_KEY exists:', !!process.env.ANTHROPIC_API_KEY)
-    console.log('[generate-reply] key starts with:', process.env.ANTHROPIC_API_KEY?.substring(0, 10))
-
-    // Limit system prompt length to avoid token issues
-    const trimmedSystem = systemPrompt.length > 2000 ? systemPrompt.substring(0, 2000) : systemPrompt
+    const trimmedSystem = systemPrompt.length > 2500 ? systemPrompt.substring(0, 2500) : systemPrompt
 
     let response
     try {
@@ -141,9 +165,9 @@ Garde le ton et le style definis. Ne repete pas l'instruction mot pour mot, redi
       })
     } catch (apiError: unknown) {
       const err = apiError as { message?: string; status?: number }
-      console.error('[generate-reply] Anthropic API error:', err.message, 'status:', err.status)
+      console.error('[generate-reply] Anthropic error:', err.message)
       return Response.json(
-        { error: 'Erreur IA : ' + (err.message || 'serveur indisponible'), details: err.status },
+        { error: 'Erreur IA : ' + (err.message || 'serveur indisponible') },
         { status: 200, headers: corsHeaders }
       )
     }
@@ -160,12 +184,7 @@ Garde le ton et le style definis. Ne repete pas l'instruction mot pour mot, redi
       .map(b => (b as { type: 'text'; text: string }).text)
       .join('\n')
 
-    const signature = bizContext?.email_signature || ''
-    const fullReply = signature ? reply + '\n\n' + signature : reply
-
-    console.log('[generate-reply] success, tokens:', response.usage, 'reply length:', fullReply.length)
-
-    return Response.json({ reply: fullReply }, { headers: corsHeaders })
+    return Response.json({ reply }, { headers: corsHeaders })
   } catch (error) {
     console.error('[generate-reply] ERROR:', error)
     return Response.json(

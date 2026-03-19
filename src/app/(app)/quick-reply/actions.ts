@@ -3,113 +3,79 @@
 import { supabase } from '@/lib/supabase'
 import { getAnthropicClient } from '@/lib/anthropic'
 
-const PROSPECT_FIELDS = 'id, prenom, nom, entreprise, fonction, pipeline_stage, email, email_pro, telephone, localisation'
-
 export async function searchProspect(query: string) {
   if (!query.trim()) return { found: false as const }
 
   const isEmail = query.includes('@')
   const term = query.trim().toLowerCase()
 
-  let prospect = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let prospect: any = null
 
   if (isEmail) {
-    // Search by email
-    const { data: d1 } = await supabase
-      .from('prospects')
-      .select(PROSPECT_FIELDS)
-      .ilike('email', term)
-      .limit(1)
-      .maybeSingle()
-    prospect = d1
+    const { data: d1 } = await supabase.from('prospects').select('*').ilike('email', term).limit(1)
+    prospect = d1?.[0] || null
 
     if (!prospect) {
-      const { data: d2 } = await supabase
-        .from('prospects')
-        .select(PROSPECT_FIELDS)
-        .ilike('email_pro', term)
-        .limit(1)
-        .maybeSingle()
-      prospect = d2
+      const { data: d2 } = await supabase.from('prospects').select('*').ilike('email_pro', term).limit(1)
+      prospect = d2?.[0] || null
     }
 
-    // Search in emails table
     if (!prospect) {
-      const { data: emailRec } = await supabase
-        .from('emails')
-        .select('prospect_id')
+      const { data: emailRec } = await supabase.from('emails').select('prospect_id')
         .or(`from_email.ilike.${term},to_email.ilike.${term}`)
-        .not('prospect_id', 'is', null)
-        .limit(1)
-        .maybeSingle()
-      if (emailRec?.prospect_id) {
-        const { data } = await supabase
-          .from('prospects')
-          .select(PROSPECT_FIELDS)
-          .eq('id', emailRec.prospect_id)
-          .maybeSingle()
-        prospect = data
+        .not('prospect_id', 'is', null).limit(1)
+      if (emailRec?.[0]?.prospect_id) {
+        const { data } = await supabase.from('prospects').select('*').eq('id', emailRec[0].prospect_id).limit(1)
+        prospect = data?.[0] || null
       }
     }
   } else {
-    // Search by company name
-    const { data: d1 } = await supabase
-      .from('prospects')
-      .select(PROSPECT_FIELDS)
-      .ilike('entreprise', `%${term}%`)
-      .limit(1)
-    if (d1 && d1.length > 0) prospect = d1[0]
+    // Company
+    const { data: d1 } = await supabase.from('prospects').select('*').ilike('entreprise', `%${term}%`).limit(1)
+    prospect = d1?.[0] || null
 
-    // Search by nom/prenom
+    // Name
     if (!prospect) {
-      const { data: d2 } = await supabase
-        .from('prospects')
-        .select(PROSPECT_FIELDS)
-        .or(`nom.ilike.%${term}%,prenom.ilike.%${term}%`)
-        .limit(1)
-      if (d2 && d2.length > 0) prospect = d2[0]
+      const { data: d2 } = await supabase.from('prospects').select('*')
+        .or(`nom.ilike.%${term}%,prenom.ilike.%${term}%`).limit(1)
+      prospect = d2?.[0] || null
     }
 
-    // Multi-word: try prenom + nom
+    // Multi-word
     if (!prospect) {
       const parts = term.split(/\s+/).filter(p => p.length > 1)
       if (parts.length >= 2) {
-        const { data } = await supabase
-          .from('prospects')
-          .select(PROSPECT_FIELDS)
-          .ilike('prenom', `%${parts[0]}%`)
-          .ilike('nom', `%${parts.slice(1).join(' ')}%`)
-          .limit(1)
-        if (data && data.length > 0) prospect = data[0]
+        const { data } = await supabase.from('prospects').select('*')
+          .ilike('prenom', `%${parts[0]}%`).ilike('nom', `%${parts.slice(1).join(' ')}%`).limit(1)
+        prospect = data?.[0] || null
       }
     }
   }
 
   if (!prospect) return { found: false as const }
 
-  // Enrich with last note + stage label
-  const [noteResult, stageResult] = await Promise.all([
-    supabase
-      .from('activities')
-      .select('content')
-      .eq('prospect_id', prospect.id)
-      .in('type', ['note', 'transcription', 'call_log'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('pipeline_stages')
-      .select('label')
-      .eq('name', prospect.pipeline_stage)
-      .maybeSingle(),
-  ])
+  // Enrich
+  const { data: noteData } = await supabase.from('activities').select('content')
+    .eq('prospect_id', prospect.id).in('type', ['note', 'transcription', 'call_log'])
+    .order('created_at', { ascending: false }).limit(1)
+
+  const { data: stageData } = await supabase.from('pipeline_stages').select('label')
+    .eq('name', prospect.pipeline_stage).limit(1)
 
   return {
     found: true as const,
     prospect: {
-      ...prospect,
-      pipeline_stage_label: stageResult.data?.label || prospect.pipeline_stage,
-      derniere_note: noteResult.data?.content || null,
+      id: prospect.id,
+      prenom: prospect.prenom,
+      nom: prospect.nom,
+      entreprise: prospect.entreprise,
+      email: prospect.email,
+      email_pro: prospect.email_pro,
+      fonction: prospect.fonction,
+      pipeline_stage: prospect.pipeline_stage,
+      pipeline_stage_label: stageData?.[0]?.label || prospect.pipeline_stage,
+      derniere_note: noteData?.[0]?.content || null,
     },
   }
 }
@@ -121,86 +87,79 @@ export async function generateQuickReply(
   instruction: string | null,
   model: string
 ) {
-  const { data: bizContext } = await supabase
-    .from('business_context')
-    .select('company_name, tone_and_style, email_signature, sales_method')
-    .limit(1)
-    .maybeSingle()
+  const { data: ctxData } = await supabase.from('business_context')
+    .select('company_name, tone_and_style, sales_methodology, email_templates, products').limit(1)
+  const biz = ctxData?.[0] || null
 
   const anthropic = getAnthropicClient()
   const modelId = model || 'claude-haiku-4-5-20251001'
 
   let prospectContext = ''
-  let emailHistory = ''
+  let formalityInstruction = ''
 
   if (prospectId) {
-    const { data: prospect } = await supabase
-      .from('prospects')
-      .select('*')
-      .eq('id', prospectId)
-      .maybeSingle()
+    const { data: pData } = await supabase.from('prospects')
+      .select('prenom, nom, entreprise, pipeline_stage, fonction, notes')
+      .eq('id', prospectId).limit(1)
+    const p = pData?.[0]
 
-    if (prospect) {
-      const { data: recentEmails } = await supabase
-        .from('emails')
-        .select('subject, from_email, body_preview, gmail_date, direction')
-        .eq('prospect_id', prospectId)
-        .order('gmail_date', { ascending: false })
-        .limit(5)
+    if (p) {
+      const { data: noteData } = await supabase.from('activities').select('content')
+        .eq('prospect_id', prospectId).in('type', ['note', 'transcription', 'call_log'])
+        .order('created_at', { ascending: false }).limit(1)
 
-      const { data: lastNote } = await supabase
-        .from('activities')
-        .select('content')
-        .eq('prospect_id', prospectId)
-        .in('type', ['note', 'transcription', 'call_log'])
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+      const { data: recentEmails } = await supabase.from('emails')
+        .select('subject, gmail_date, direction')
+        .eq('prospect_id', prospectId).order('gmail_date', { ascending: false }).limit(5)
+
+      const { data: forecastData } = await supabase.from('prospect_forecasts')
+        .select('product_type, quantity, probability, expected_month')
+        .eq('prospect_id', prospectId).limit(3)
 
       prospectContext = `CONTEXTE DU PROSPECT :
-- Prenom : ${prospect.prenom || '?'}
-- Nom : ${prospect.nom || '?'}
-- Entreprise : ${prospect.entreprise || '?'}
-- Etape pipeline : ${prospect.pipeline_stage || '?'}
-- Derniere note : ${lastNote?.content?.slice(0, 300) || 'Aucune'}`
+- Nom : ${p.prenom} ${p.nom}
+- Entreprise : ${p.entreprise || 'inconnue'}
+- Fonction : ${p.fonction || 'inconnue'}
+- Etape : ${p.pipeline_stage}
+- Note : ${noteData?.[0]?.content?.substring(0, 300) || 'aucune'}
+${forecastData?.length ? `- Forecast : ${forecastData.map(f => `${f.product_type} x${f.quantity} (${f.probability}%)`).join(', ')}` : ''}
+${recentEmails?.length ? `\nDERNIERS ECHANGES :\n${recentEmails.map(e => `${e.gmail_date?.split('T')[0] || '?'} ${e.direction === 'sent' ? '\u2192' : '\u2190'} ${e.subject}`).join('\n')}` : ''}`
 
-      emailHistory = (recentEmails || []).map(e => {
-        const dir = e.direction === 'sent' ? 'Nous avons envoye' : 'Il/elle a repondu'
-        return `- ${dir} (${e.gmail_date?.split('T')[0] || '?'}): "${e.subject || '(sans objet)'}"`
-      }).join('\n')
+      // Auto-detect tutoiement
+      const { data: sentEmails } = await supabase.from('emails').select('body_preview')
+        .eq('prospect_id', prospectId).eq('direction', 'sent')
+        .order('gmail_date', { ascending: false }).limit(3)
+      const sentText = sentEmails?.map(e => e.body_preview || '').join(' ') || ''
+      if (/\b(tu |t'|ton |ta |tes |toi)\b/i.test(sentText)) {
+        formalityInstruction = 'IMPORTANT : Relation en TUTOIEMENT. Continue a tutoyer.'
+      }
     }
   }
 
   if (!prospectContext) {
-    prospectContext = `CONTEXTE : Contact ${prospectEmail || 'inconnu'}. Pas encore dans le CRM.`
+    prospectContext = `Contact : ${prospectEmail || 'inconnu'}. Pas dans le CRM.`
   }
 
-  const systemPrompt = `Tu es ${bizContext?.company_name ? `Louis Matar, Business Development chez ${bizContext.company_name}` : 'un commercial B2B'}.
-Tu rediges une reponse a un email recu, en francais.
+  const systemPrompt = `Tu es Louis Matar, Business Development chez ${biz?.company_name || 'Boost Inc'}.
 
-STYLE : ${bizContext?.tone_and_style || 'Professionnel mais humain. Messages courts.'}
-${bizContext?.sales_method ? `METHODE : ${bizContext.sales_method}` : ''}
+METHODE : ${(biz?.sales_methodology || '').substring(0, 400)}
+STYLE : ${(biz?.tone_and_style || 'Professionnel, court, humain.').substring(0, 300)}
+EXEMPLES : ${(biz?.email_templates || '').substring(0, 800)}
+${formalityInstruction}
 
-REGLES : vouvoiement, 5-8 lignes max, pas de "Belle journee", CTA clair, corps uniquement, signe "Louis".`
+REGLES : ${formalityInstruction.includes('TUTOIEMENT') ? 'tutoiement' : 'vouvoiement'}, 5-8 lignes, pas de "Belle journee", CTA clair, corps uniquement, signe "Louis".`
 
-  let userPrompt = `${prospectContext}
-${emailHistory ? `\nDERNIERS EMAILS :\n${emailHistory}` : ''}
-
-EMAIL RECU de ${prospectEmail || '?'} :
-${emailBody || '(vide)'}
-
-`
-
+  let userPrompt = `${prospectContext}\n\nEMAIL RECU de ${prospectEmail || '?'} :\n${(emailBody || '').substring(0, 1500)}\n\n`
   if (instruction) {
-    userPrompt += `INSTRUCTION : "${instruction}". Redige un email pro qui exprime cette intention.`
+    userPrompt += `INSTRUCTION : "${instruction}". Redige un email pro.`
   } else {
-    userPrompt += `Redige une reponse adaptee.`
+    userPrompt += 'Redige une reponse adaptee.'
   }
 
   const response = await anthropic.messages.create({
     model: modelId,
     max_tokens: 800,
-    system: systemPrompt,
+    system: systemPrompt.substring(0, 2500),
     messages: [{ role: 'user', content: userPrompt }],
   })
 
@@ -209,6 +168,5 @@ ${emailBody || '(vide)'}
     .map(b => (b as { type: 'text'; text: string }).text)
     .join('\n')
 
-  const signature = bizContext?.email_signature || ''
-  return { reply: signature ? reply + '\n\n' + signature : reply }
+  return { reply }
 }

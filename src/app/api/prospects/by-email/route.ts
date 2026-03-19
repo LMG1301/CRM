@@ -7,285 +7,178 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-const PROSPECT_FIELDS = 'id, prenom, nom, entreprise, fonction, pipeline_stage, email, email_pro, telephone, localisation'
-
-const FREE_PROVIDERS = new Set([
-  'gmail.com','yahoo.com','yahoo.fr','hotmail.com','hotmail.fr',
-  'outlook.com','outlook.fr','live.com','live.fr','icloud.com',
-  'orange.fr','free.fr','sfr.fr','wanadoo.fr','laposte.net',
-  'protonmail.com','aol.com','msn.com','me.com','mail.com',
-])
-
 export async function OPTIONS() {
   return new Response(null, { status: 200, headers: corsHeaders })
 }
 
 export async function GET(request: NextRequest) {
   try {
-  const email = request.nextUrl.searchParams.get('email')?.toLowerCase()?.trim() || undefined
-  const name = request.nextUrl.searchParams.get('name')?.trim() || undefined
-  const debug = request.nextUrl.searchParams.get('debug') === '1'
+    const email = request.nextUrl.searchParams.get('email')?.toLowerCase()?.trim() || ''
+    const name = request.nextUrl.searchParams.get('name')?.trim() || ''
 
-  if (!email && !name) {
-    return Response.json({ found: false }, { headers: corsHeaders })
-  }
-
-  console.log('[by-email] search:', { email, name })
-
-  const domain = email?.split('@')[1]?.toLowerCase() || ''
-  const isFreeProvider = FREE_PROVIDERS.has(domain)
-  const domainCompany = domain ? domain.split('.')[0] : ''
-
-  let prospect = null
-  let matchType = ''
-  const debugLog: string[] = []
-
-  // === Level 0: Name-only search (no email provided) ===
-  if (!email && name) {
-    const searchTerm = name.split(/\s*[-\u2013\u2014|]\s*/)[0].trim()
-
-    // Search by entreprise
-    const { data: byCompany } = await supabase
-      .from('prospects')
-      .select(PROSPECT_FIELDS)
-      .ilike('entreprise', `%${searchTerm}%`)
-      .limit(1)
-    if (byCompany && byCompany.length > 0) {
-      prospect = byCompany[0]
-      matchType = 'name_only_company'
+    if (!email && !name) {
+      return Response.json({ found: false }, { headers: corsHeaders })
     }
 
-    // Search by nom or prenom
-    if (!prospect) {
-      const { data: byName } = await supabase
-        .from('prospects')
-        .select(PROSPECT_FIELDS)
-        .or(`nom.ilike.%${searchTerm}%,prenom.ilike.%${searchTerm}%`)
-        .limit(1)
-      if (byName && byName.length > 0) {
-        prospect = byName[0]
-        matchType = 'name_only_name'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let prospect: any = null
+    let matchType = ''
+
+    // === Level 1: Exact email match ===
+    if (email) {
+      const { data } = await supabase
+        .from('prospects').select('*')
+        .ilike('email', email).limit(1)
+      prospect = data?.[0] || null
+      if (prospect) matchType = 'email_exact'
+    }
+
+    // === Level 1b: email_pro match ===
+    if (!prospect && email) {
+      const { data } = await supabase
+        .from('prospects').select('*')
+        .ilike('email_pro', email).limit(1)
+      prospect = data?.[0] || null
+      if (prospect) matchType = 'email_pro_exact'
+    }
+
+    // === Level 2: emails table ===
+    if (!prospect && email) {
+      const { data } = await supabase
+        .from('emails').select('prospect_id')
+        .or(`from_email.ilike.${email},to_email.ilike.${email}`)
+        .not('prospect_id', 'is', null).limit(1)
+      if (data?.[0]?.prospect_id) {
+        const { data: p } = await supabase
+          .from('prospects').select('*')
+          .eq('id', data[0].prospect_id).limit(1)
+        prospect = p?.[0] || null
+        if (prospect) matchType = 'emails_table'
       }
     }
 
-    // If multi-word, try prenom + nom
-    if (!prospect) {
-      const parts = searchTerm.split(/\s+/).filter(p => p.length > 1)
-      if (parts.length >= 2) {
+    // === Level 3: Same email domain ===
+    if (!prospect && email) {
+      const domain = email.split('@')[1]
+      const skip = ['gmail.com', 'hotmail.com', 'yahoo.com', 'outlook.com', 'orange.fr', 'free.fr', 'sfr.fr', 'live.com', 'icloud.com', 'wanadoo.fr', 'laposte.net', 'protonmail.com']
+      if (domain && !skip.includes(domain)) {
         const { data } = await supabase
-          .from('prospects')
-          .select(PROSPECT_FIELDS)
-          .ilike('prenom', `%${parts[0]}%`)
-          .ilike('nom', `%${parts.slice(1).join(' ')}%`)
-          .limit(1)
-        if (data && data.length > 0) {
+          .from('prospects').select('*')
+          .ilike('email', `%@${domain}`).limit(1)
+        if (!data?.[0]) {
+          const { data: d2 } = await supabase
+            .from('prospects').select('*')
+            .ilike('email_pro', `%@${domain}`).limit(1)
+          prospect = d2?.[0] || null
+        } else {
           prospect = data[0]
-          matchType = 'name_only_fullname'
         }
+        if (prospect) matchType = 'email_domain'
       }
     }
-  }
 
-  // === Level 1: Exact email match (case insensitive) ===
-  if (email) {
-    // Try email field first
-    const { data: d1, error: e1 } = await supabase
-      .from('prospects')
-      .select(PROSPECT_FIELDS)
-      .ilike('email', email)
-      .limit(1)
-      .maybeSingle()
-    debugLog.push(`L1a email=${email} found=${!!d1} err=${e1?.message || 'none'}`)
-    if (d1) {
-      prospect = d1
-      matchType = 'email_exact'
-    }
-    // Then email_pro
-    if (!prospect) {
-      const { data: d2, error: e2 } = await supabase
-        .from('prospects')
-        .select(PROSPECT_FIELDS)
-        .ilike('email_pro', email)
-        .limit(1)
-        .maybeSingle()
-      debugLog.push(`L1b email_pro=${email} found=${!!d2} err=${e2?.message || 'none'}`)
-      if (d2) {
-        prospect = d2
-        matchType = 'email_pro_exact'
-      }
-    }
-  }
-
-  // === Level 2: Search in emails table (from_email / to_email) ===
-  if (!prospect && email) {
-    const { data: emailRecord } = await supabase
-      .from('emails')
-      .select('prospect_id')
-      .or(`from_email.ilike.${email},to_email.ilike.${email}`)
-      .not('prospect_id', 'is', null)
-      .limit(1)
-      .maybeSingle()
-
-    if (emailRecord?.prospect_id) {
-      const { data } = await supabase
-        .from('prospects')
-        .select(PROSPECT_FIELDS)
-        .eq('id', emailRecord.prospect_id)
-        .maybeSingle()
-      if (data) {
-        prospect = data
-        matchType = 'emails_table'
-      }
-    }
-  }
-
-  // === Level 3: Same email domain (skip for free providers) ===
-  if (!prospect && !isFreeProvider && domain) {
-    const { data } = await supabase
-      .from('prospects')
-      .select(PROSPECT_FIELDS)
-      .or(`email.ilike.%@${domain},email_pro.ilike.%@${domain}`)
-      .limit(1)
-      .maybeSingle()
-    if (data) {
-      prospect = data
-      matchType = 'email_domain'
-    }
-  }
-
-  // === Level 4: Match by sender name ===
-  if (!prospect && name) {
-    // Clean name: "Karine SCHROEDER - DAVANTAGE" → extract name part
-    const cleanName = name.split(/\s*[-\u2013\u2014|]\s*/)[0].trim()
-    const parts = cleanName.split(/\s+/).filter(p => p.length > 1)
-
-    if (parts.length >= 2) {
-      const first = parts[0]
-      const last = parts.slice(1).join(' ')
-
-      // Try prenom + nom
-      const { data } = await supabase
-        .from('prospects')
-        .select(PROSPECT_FIELDS)
-        .ilike('prenom', `%${first}%`)
-        .ilike('nom', `%${last}%`)
-        .limit(1)
-        .maybeSingle()
-      if (data) {
-        prospect = data
-        matchType = 'name'
-      }
-
-      // Try reversed
-      if (!prospect) {
-        const { data: reversed } = await supabase
-          .from('prospects')
-          .select(PROSPECT_FIELDS)
-          .ilike('prenom', `%${last}%`)
-          .ilike('nom', `%${first}%`)
-          .limit(1)
-          .maybeSingle()
-        if (reversed) {
-          prospect = reversed
-          matchType = 'name_reversed'
-        }
-      }
-
-      // Try just last name (broader)
-      if (!prospect) {
-        const { data: byLastName } = await supabase
-          .from('prospects')
-          .select(PROSPECT_FIELDS)
-          .ilike('nom', `%${last}%`)
+    // === Level 4: Search by name ===
+    if (!prospect && name) {
+      const words = name.replace(/[^a-zA-Z\u00C0-\u00FF\s]/g, '').split(/\s+/).filter(w => w.length > 2)
+      for (const word of words) {
+        const { data } = await supabase
+          .from('prospects').select('*')
+          .or(`nom.ilike.%${word}%,prenom.ilike.%${word}%`)
           .limit(5)
-        if (byLastName && byLastName.length > 0) {
-          // If only one match, use it; if multiple, try to match first name too
-          if (byLastName.length === 1) {
-            prospect = byLastName[0]
-            matchType = 'name_last_only'
-          } else {
-            const match = byLastName.find(p =>
-              p.prenom?.toLowerCase().includes(first.toLowerCase())
+        if (data?.length === 1) {
+          prospect = data[0]
+          matchType = 'name_single'
+          break
+        }
+        if (data && data.length > 1) {
+          const other = words.find(w => w !== word)
+          if (other) {
+            const match = data.find(p =>
+              p.nom?.toLowerCase().includes(other.toLowerCase()) ||
+              p.prenom?.toLowerCase().includes(other.toLowerCase()) ||
+              p.entreprise?.toLowerCase().includes(other.toLowerCase())
             )
             if (match) {
               prospect = match
-              matchType = 'name_fuzzy'
+              matchType = 'name_refined'
+              break
             }
           }
         }
       }
     }
-  }
 
-  // === Level 5: Company from sender display name ===
-  if (!prospect && name) {
-    const nameParts = name.split(/\s*[-\u2013\u2014|]\s*/).map(p => p.trim())
-    if (nameParts.length > 1) {
-      const companyPart = nameParts[nameParts.length - 1]
-      if (companyPart.length > 2) {
+    // === Level 5: Company from display name ===
+    if (!prospect && name) {
+      const parts = name.split(/[-\u2013|,]/).map(p => p.trim()).filter(p => p.length > 2)
+      for (const part of parts) {
         const { data } = await supabase
-          .from('prospects')
-          .select(PROSPECT_FIELDS)
-          .ilike('entreprise', `%${companyPart}%`)
-          .limit(1)
-          .maybeSingle()
-        if (data) {
-          prospect = data
+          .from('prospects').select('*')
+          .ilike('entreprise', `%${part}%`).limit(1)
+        if (data?.[0]) {
+          prospect = data[0]
           matchType = 'company_from_name'
+          break
         }
       }
     }
-  }
 
-  // === Level 6: Match by domain → company name ===
-  if (!prospect && !isFreeProvider && domainCompany && domainCompany.length > 2) {
-    const { data } = await supabase
-      .from('prospects')
-      .select(PROSPECT_FIELDS)
-      .ilike('entreprise', `%${domainCompany}%`)
-      .limit(1)
-      .maybeSingle()
-    if (data) {
-      prospect = data
-      matchType = 'company_domain'
+    // === Level 6: Domain → company ===
+    if (!prospect && email) {
+      const domainName = email.split('@')[1]?.split('.')[0]
+      if (domainName && domainName.length > 2) {
+        const { data } = await supabase
+          .from('prospects').select('*')
+          .ilike('entreprise', `%${domainName}%`).limit(1)
+        prospect = data?.[0] || null
+        if (prospect) matchType = 'company_domain'
+      }
     }
-  }
 
-  if (!prospect) {
-    console.log('[by-email] not found, matchType:', matchType)
-    return Response.json({ found: false, ...(debug ? { debug: debugLog } : {}) }, { headers: corsHeaders })
-  }
+    // === Level 0: Name-only search (enterprise + name) ===
+    if (!prospect && !email && name) {
+      const { data: d1 } = await supabase
+        .from('prospects').select('*')
+        .ilike('entreprise', `%${name}%`).limit(1)
+      prospect = d1?.[0] || null
+      if (prospect) matchType = 'name_only_company'
+    }
 
-  console.log('[by-email] found:', matchType, prospect.id)
+    if (!prospect) {
+      return Response.json({ found: false }, { headers: corsHeaders })
+    }
 
-  // Enrich with last note + pipeline label
-  const [noteResult, stageResult] = await Promise.all([
-    supabase
-      .from('activities')
-      .select('content')
+    // Enrich: last note
+    const { data: noteData } = await supabase
+      .from('activities').select('content')
       .eq('prospect_id', prospect.id)
       .in('type', ['note', 'transcription', 'call_log'])
       .order('created_at', { ascending: false })
       .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('pipeline_stages')
-      .select('label')
+
+    // Enrich: stage label
+    const { data: stageData } = await supabase
+      .from('pipeline_stages').select('label')
       .eq('name', prospect.pipeline_stage)
-      .maybeSingle(),
-  ])
+      .limit(1)
 
-  return Response.json({
-    found: true,
-    match_type: matchType,
-    prospect: {
-      ...prospect,
-      pipeline_stage_label: stageResult.data?.label || prospect.pipeline_stage,
-      derniere_note: noteResult.data?.content || null,
-    },
-    ...(debug ? { debug: debugLog } : {}),
-  }, { headers: corsHeaders })
-
+    return Response.json({
+      found: true,
+      match_type: matchType,
+      prospect: {
+        id: prospect.id,
+        prenom: prospect.prenom,
+        nom: prospect.nom,
+        entreprise: prospect.entreprise,
+        email: prospect.email,
+        email_pro: prospect.email_pro,
+        fonction: prospect.fonction,
+        pipeline_stage: prospect.pipeline_stage,
+        pipeline_stage_label: stageData?.[0]?.label || prospect.pipeline_stage,
+        description_prochaine_action: prospect.description_prochaine_action,
+        derniere_note: noteData?.[0]?.content?.substring(0, 300) || null,
+      }
+    }, { headers: corsHeaders })
   } catch (error) {
     console.error('[by-email] ERROR:', error)
     return Response.json({ found: false, error: (error as Error).message }, { headers: corsHeaders })
