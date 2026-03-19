@@ -21,12 +21,16 @@ export async function OPTIONS() {
 }
 
 export async function GET(request: NextRequest) {
-  const email = request.nextUrl.searchParams.get('email')?.toLowerCase()?.trim()
-  const name = request.nextUrl.searchParams.get('name')?.trim()
+  try {
+  const email = request.nextUrl.searchParams.get('email')?.toLowerCase()?.trim() || undefined
+  const name = request.nextUrl.searchParams.get('name')?.trim() || undefined
+  const debug = request.nextUrl.searchParams.get('debug') === '1'
 
   if (!email && !name) {
     return Response.json({ found: false }, { headers: corsHeaders })
   }
+
+  console.log('[by-email] search:', { email, name })
 
   const domain = email?.split('@')[1]?.toLowerCase() || ''
   const isFreeProvider = FREE_PROVIDERS.has(domain)
@@ -34,6 +38,7 @@ export async function GET(request: NextRequest) {
 
   let prospect = null
   let matchType = ''
+  const debugLog: string[] = []
 
   // === Level 0: Name-only search (no email provided) ===
   if (!email && name) {
@@ -83,15 +88,30 @@ export async function GET(request: NextRequest) {
 
   // === Level 1: Exact email match (case insensitive) ===
   if (email) {
-    const { data } = await supabase
+    // Try email field first, then email_pro (avoid .or() parsing issues)
+    const { data: d1, error: e1 } = await supabase
       .from('prospects')
       .select(PROSPECT_FIELDS)
-      .or(`email.ilike.${email},email_pro.ilike.${email}`)
+      .ilike('email', email)
       .limit(1)
       .maybeSingle()
-    if (data) {
-      prospect = data
+    if (e1) console.log('[by-email] L1a error:', e1.message)
+    if (d1) {
+      prospect = d1
       matchType = 'email_exact'
+    }
+    if (!prospect) {
+      const { data: d2, error: e2 } = await supabase
+        .from('prospects')
+        .select(PROSPECT_FIELDS)
+        .ilike('email_pro', email)
+        .limit(1)
+        .maybeSingle()
+      if (e2) console.log('[by-email] L1b error:', e2.message)
+      if (d2) {
+        prospect = d2
+        matchType = 'email_pro_exact'
+      }
     }
   }
 
@@ -231,8 +251,11 @@ export async function GET(request: NextRequest) {
   }
 
   if (!prospect) {
-    return Response.json({ found: false }, { headers: corsHeaders })
+    console.log('[by-email] not found, matchType:', matchType)
+    return Response.json({ found: false, ...(debug ? { debug: debugLog } : {}) }, { headers: corsHeaders })
   }
+
+  console.log('[by-email] found:', matchType, prospect.id)
 
   // Enrich with last note + pipeline label
   const [noteResult, stageResult] = await Promise.all([
@@ -259,5 +282,11 @@ export async function GET(request: NextRequest) {
       pipeline_stage_label: stageResult.data?.label || prospect.pipeline_stage,
       derniere_note: noteResult.data?.content || null,
     },
+    ...(debug ? { debug: debugLog } : {}),
   }, { headers: corsHeaders })
+
+  } catch (error) {
+    console.error('[by-email] ERROR:', error)
+    return Response.json({ found: false, error: (error as Error).message }, { headers: corsHeaders })
+  }
 }
