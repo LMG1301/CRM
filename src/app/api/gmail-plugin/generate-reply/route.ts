@@ -29,8 +29,8 @@ export async function POST(request: Request) {
     if (bizErr) console.log('[generate-reply] bizContext error:', bizErr.message)
 
     const anthropic = getAnthropicClient()
-    // Use requested model or default to sonnet
-    const modelId = requestedModel || 'claude-sonnet-4-20250514'
+    // Default to Haiku (faster, cheaper, less timeout risk for plugin)
+    const modelId = requestedModel || 'claude-haiku-4-5-20251001'
 
     let prospectContext = ''
     let emailHistory = ''
@@ -125,13 +125,28 @@ Garde le ton et le style definis. Ne repete pas l'instruction mot pour mot, redi
     }
 
     console.log('[generate-reply] calling Anthropic with model:', modelId)
+    console.log('[generate-reply] ANTHROPIC_API_KEY exists:', !!process.env.ANTHROPIC_API_KEY)
+    console.log('[generate-reply] key starts with:', process.env.ANTHROPIC_API_KEY?.substring(0, 10))
 
-    const response = await anthropic.messages.create({
-      model: modelId,
-      max_tokens: 1000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    })
+    // Limit system prompt length to avoid token issues
+    const trimmedSystem = systemPrompt.length > 2000 ? systemPrompt.substring(0, 2000) : systemPrompt
+
+    let response
+    try {
+      response = await anthropic.messages.create({
+        model: modelId,
+        max_tokens: 800,
+        system: trimmedSystem,
+        messages: [{ role: 'user', content: userPrompt }],
+      })
+    } catch (apiError: unknown) {
+      const err = apiError as { message?: string; status?: number }
+      console.error('[generate-reply] Anthropic API error:', err.message, 'status:', err.status)
+      return Response.json(
+        { error: 'Erreur IA : ' + (err.message || 'serveur indisponible'), details: err.status },
+        { status: 200, headers: corsHeaders }
+      )
+    }
 
     logApiUsage({
       endpoint: 'gmail-plugin-generate-reply',
@@ -148,14 +163,14 @@ Garde le ton et le style definis. Ne repete pas l'instruction mot pour mot, redi
     const signature = bizContext?.email_signature || ''
     const fullReply = signature ? reply + '\n\n' + signature : reply
 
-    console.log('[generate-reply] success, reply length:', fullReply.length)
+    console.log('[generate-reply] success, tokens:', response.usage, 'reply length:', fullReply.length)
 
     return Response.json({ reply: fullReply }, { headers: corsHeaders })
   } catch (error) {
     console.error('[generate-reply] ERROR:', error)
     return Response.json(
       { error: (error as Error).message || 'Erreur serveur' },
-      { status: 500, headers: corsHeaders }
+      { status: 200, headers: corsHeaders }
     )
   }
 }
