@@ -1,0 +1,173 @@
+/* Boost CRM — Shared styles (LinkedIn + Gmail) */
+
+.boost-panel {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  width: 320px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  background: #132926;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: #f0f4f3;
+  z-index: 10000;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+.boost-panel-small {
+  max-height: 120px;
+}
+
+.boost-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.boost-logo { font-size: 18px; }
+.boost-title { font-weight: 600; font-size: 14px; flex: 1; }
+.boost-close {
+  background: none; border: none; color: #8fa8a2;
+  cursor: pointer; font-size: 16px; padding: 4px;
+}
+.boost-close:hover { color: #f0f4f3; }
+
+/* Prospect info */
+.boost-prospect-info { margin-bottom: 12px; }
+.boost-name { font-weight: 600; font-size: 15px; }
+.boost-company { color: #8fa8a2; font-size: 12px; margin-top: 2px; }
+
+.boost-stage {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+.boost-stage-ciblage { background: rgba(107,114,128,0.2); color: #9ca3af; }
+.boost-stage-touch_1, .boost-stage-touch_2, .boost-stage-touch_3 { background: rgba(59,7,100,0.3); color: #d8b4fe; }
+.boost-stage-contacte { background: rgba(24,99,220,0.2); color: #60a5fa; }
+.boost-stage-repondu { background: rgba(251,191,36,0.2); color: #fbbf24; }
+.boost-stage-nurturing { background: rgba(251,191,36,0.15); color: #fbbf24; }
+.boost-stage-call_decouverte { background: rgba(34,197,94,0.2); color: #22c55e; }
+.boost-stage-devis { background: rgba(34,197,94,0.2); color: #22c55e; }
+.boost-stage-closing { background: rgba(234,179,8,0.2); color: #eab308; }
+.boost-stage-onboarding { background: rgba(245,158,11,0.2); color: #f59e0b; }
+.boost-stage-client { background: rgba(16,185,129,0.2); color: #10b981; }
+.boost-stage-refuse { background: rgba(239,68,68,0.15); color: #fca5a5; }
+.boost-stage-bounced { background: rgba(239,68,68,0.15); color: #fca5a5; }
+
+/* Notes & actions */
+.boost-note, .boost-action {
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.boost-note-label, .boost-action-label {
+  font-size: 11px; color: #8fa8a2; margin-bottom: 4px; font-weight: 600;
+}
+.boost-note-text, .boost-action-text { font-size: 12px; line-height: 1.4; }
+
+/* Buttons */
+.boost-buttons { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+
+.boost-btn {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+.boost-btn-primary { background: #1863DC; color: white; }
+.boost-btn-primary:hover { background: #1454b8; }
+.boost-btn-primary:disabled { background: #555; cursor: not-allowed; }
+.boost-btn-secondary { background: rgba(255,255,255,0.08); color: #f0f4f3; }
+.boost-btn-secondary:hover { background: rgba(255,255,255,0.15); }
+
+/* Reply area */
+.boost-reply { margin-top: 12px; }
+.boost-reply-label { font-size: 11px; color: #8fa8a2; margin-bottom: 6px; font-weight: 600; }
+.boost-reply-text {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: #f0f4f3;
+  padding: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.boost-reply-buttons { display: flex; gap: 6px; margin-top: 8px; }
+.boost-reply-buttons .boost-btn { flex: 1; }
+
+/* Note input */
+.boost-note-textarea {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: #f0f4f3;
+  padding: 8px;
+  font-size: 13px;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.boost-note-input { margin-top: 12px; }
+.boost-note-buttons { display: flex; gap: 6px; margin-top: 6px; }
+.boost-note-buttons .boost-btn { flex: 1; }
+
+/* Form (LinkedIn capture) */
+.boost-form { margin-bottom: 8px; }
+.boost-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.boost-form-field { margin-bottom: 8px; }
+.boost-form-field label {
+  display: block;
+  font-size: 11px;
+  color: #8fa8a2;
+  margin-bottom: 3px;
+}
+.boost-form-field input,
+.boost-form-field select {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  color: #f0f4f3;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+.boost-form-field input:focus,
+.boost-form-field select:focus {
+  border-color: #1863DC;
+}
+.boost-form-field input::placeholder { color: rgba(255,255,255,0.25); }
+.boost-form-field select option { background: #132926; color: #f0f4f3; }
+
+/* Status messages */
+.boost-loading { text-align: center; padding: 20px; color: #8fa8a2; }
+.boost-error { color: #ef4444; padding: 10px; background: rgba(239,68,68,0.1); border-radius: 6px; font-size: 12px; margin-top: 8px; }
+.boost-warning { color: #fbbf24; padding: 10px; background: rgba(251,191,36,0.1); border-radius: 6px; font-size: 12px; margin-top: 8px; }
+.boost-success { color: #22c55e; padding: 10px; text-align: center; font-size: 12px; margin-top: 8px; }
+
+/* Unknown contact */
+.boost-unknown { text-align: center; padding: 8px 0; }
+.boost-unknown-text { color: #8fa8a2; font-size: 12px; }
+.boost-unknown-email { font-size: 11px; color: #666; margin-top: 4px; }

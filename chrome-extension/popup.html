@@ -5,299 +5,125 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      width: 360px;
+      width: 280px;
+      padding: 16px;
+      background: #132926;
+      color: #f0f4f3;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #1a2e2a;
-      color: #e8f0ee;
       font-size: 13px;
     }
 
-    /* Header */
     .header {
-      background: #243d37;
-      padding: 12px 16px;
       display: flex;
       align-items: center;
       gap: 8px;
-      border-bottom: 1px solid #2d4f46;
+      margin-bottom: 16px;
     }
-    .header svg { flex-shrink: 0; }
-    .header h1 { font-size: 15px; font-weight: 600; }
+    .header-logo { font-size: 20px; }
+    .header-title { font-size: 16px; font-weight: 600; }
 
-    /* Sections */
-    .section {
-      padding: 12px 16px;
-      border-bottom: 1px solid #2d4f46;
-    }
-    .section-title {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: #8aad9e;
-      margin-bottom: 8px;
+    .subtitle {
+      font-size: 12px;
+      color: #8fa8a2;
+      margin-bottom: 12px;
     }
 
-    /* Form */
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .status-dot.connected { background: #22c55e; }
+    .status-dot.disconnected { background: #ef4444; }
+
     .field {
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .field label {
       display: block;
       font-size: 11px;
-      color: #8aad9e;
-      margin-bottom: 3px;
+      color: #8fa8a2;
+      margin-bottom: 4px;
     }
-    .field input, .field select {
+    .field input {
       width: 100%;
-      padding: 7px 10px;
-      background: #14231f;
-      border: 1px solid #2d4f46;
-      border-radius: 6px;
-      color: #e8f0ee;
-      font-size: 13px;
+      padding: 6px 8px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 4px;
+      color: #f0f4f3;
+      font-size: 12px;
       outline: none;
+      box-sizing: border-box;
     }
-    .field input:focus, .field select:focus {
-      border-color: #4ade80;
-    }
-    .field input::placeholder {
-      color: #5a7d72;
-    }
-    .row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
+    .field input:focus { border-color: #1863DC; }
 
-    /* Buttons */
     .btn {
       width: 100%;
-      padding: 10px;
+      padding: 8px;
+      background: #1863DC;
+      color: white;
       border: none;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 600;
+      border-radius: 6px;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
+      font-size: 13px;
+      font-weight: 500;
     }
-    .btn-primary {
-      background: #4ade80;
-      color: #14231f;
-    }
-    .btn-primary:hover { background: #22c55e; }
-    .btn-primary:disabled {
-      background: #2d4f46;
+    .btn:hover { background: #1454b8; }
+
+    .footer {
+      margin-top: 12px;
+      font-size: 11px;
       color: #5a7d72;
-      cursor: not-allowed;
-    }
-    .btn-secondary {
-      background: #243d37;
-      color: #8aad9e;
-      border: 1px solid #2d4f46;
-    }
-    .btn-secondary:hover { background: #2d4f46; }
-    .btn-small {
-      padding: 6px 12px;
-      font-size: 12px;
-      width: auto;
+      text-align: center;
+      line-height: 1.5;
     }
 
-    /* Status */
-    .status {
-      padding: 8px 12px;
-      border-radius: 6px;
+    .save-feedback {
       font-size: 12px;
-      margin-top: 8px;
+      color: #22c55e;
+      text-align: center;
+      margin-top: 6px;
       display: none;
     }
-    .status.success {
-      display: block;
-      background: #14532d;
-      color: #4ade80;
-      border: 1px solid #166534;
-    }
-    .status.error {
-      display: block;
-      background: #450a0a;
-      color: #fca5a5;
-      border: 1px solid #7f1d1d;
-    }
-    .status.warning {
-      display: block;
-      background: #451a03;
-      color: #fbbf24;
-      border: 1px solid #78350f;
-    }
-    .status.info {
-      display: block;
-      background: #1e3a5f;
-      color: #93c5fd;
-      border: 1px solid #1e40af;
-    }
-    .status.ai-suggest {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: #14332a;
-      color: #4ade80;
-      border: 1px solid #166534;
-      font-size: 11px;
-      line-height: 1.4;
-    }
-    .status.ai-suggest .btn-accept {
-      background: #4ade80;
-      color: #14231f;
-      border: none;
-      border-radius: 4px;
-      padding: 3px 8px;
-      font-size: 10px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .status.ai-suggest .btn-accept:hover { background: #22c55e; }
-    .crm-link {
-      display: inline-block;
-      color: #4ade80;
-      text-decoration: underline;
-      cursor: pointer;
-      margin-top: 4px;
-      font-size: 12px;
-    }
-    .crm-link:hover { color: #22c55e; }
-
-    /* Settings */
-    .settings-toggle {
-      font-size: 11px;
-      color: #5a7d72;
-      cursor: pointer;
-      text-align: center;
-      padding: 8px;
-    }
-    .settings-toggle:hover { color: #8aad9e; }
-    #settings-panel { display: none; }
-    #settings-panel.open { display: block; }
-
-    /* Empty state */
-    .empty-state {
-      text-align: center;
-      padding: 24px 16px;
-      color: #5a7d72;
-    }
-    .empty-state p { margin-bottom: 8px; }
-
-    /* Loading */
-    .spinner {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid #14231f;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin 0.6s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div class="header">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2">
-      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-    </svg>
-    <h1>Boost CRM</h1>
+    <span class="header-logo">&#9889;</span>
+    <span class="header-title">Boost CRM</span>
   </div>
 
-  <!-- Main form -->
-  <div id="main-view">
-    <div id="extract-section" class="section" style="display:none;">
-      <div class="section-title">Prospect detecte</div>
-      <div class="row">
-        <div class="field">
-          <label>Prenom</label>
-          <input id="f-prenom" placeholder="Jean">
-        </div>
-        <div class="field">
-          <label>Nom</label>
-          <input id="f-nom" placeholder="Dupont">
-        </div>
-      </div>
-      <div class="field">
-        <label>Entreprise</label>
-        <input id="f-entreprise" placeholder="Acme Inc.">
-      </div>
-      <div class="field">
-        <label>Fonction</label>
-        <input id="f-fonction" placeholder="Directeur commercial">
-      </div>
-      <div class="row">
-        <div class="field">
-          <label>Email</label>
-          <input id="f-email" type="email" placeholder="jean@exemple.com">
-        </div>
-        <div class="field">
-          <label>Telephone</label>
-          <input id="f-telephone" type="tel" placeholder="+33 6 ...">
-        </div>
-      </div>
-      <div class="field">
-        <label>LinkedIn</label>
-        <input id="f-linkedin" placeholder="https://linkedin.com/in/...">
-      </div>
-      <div class="field">
-        <label>Localisation</label>
-        <input id="f-localisation" placeholder="Paris, France">
-      </div>
-      <div class="field">
-        <label>Stage pipeline</label>
-        <select id="f-pipeline_stage">
-          <option value="ciblage">Ciblage</option>
-          <option value="touch_1">Touch 1</option>
-          <option value="nurturing">Nurturing</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Source</label>
-        <input id="f-source" value="Extension Chrome">
-      </div>
+  <div class="subtitle">Extension active sur LinkedIn et Gmail</div>
 
-      <!-- AI suggestion banner -->
-      <div id="ai-suggestion" class="status" style="display:none; cursor:default;"></div>
-
-      <button id="btn-save" class="btn btn-primary">
-        Enregistrer dans le CRM
-      </button>
-      <div id="save-status" class="status"></div>
-    </div>
-
-    <div id="empty-section" class="section">
-      <div class="empty-state">
-        <p>Ouvre un profil LinkedIn ou un email Gmail,<br>puis clique sur l'icone Boost CRM.</p>
-        <button id="btn-extract" class="btn btn-secondary btn-small" style="margin: 8px auto;">
-          Capturer cette page
-        </button>
-      </div>
-    </div>
+  <div class="status-row">
+    <span class="status-dot" id="status-dot"></span>
+    <span id="status-text">Connexion...</span>
   </div>
 
-  <!-- Settings -->
-  <div class="settings-toggle" id="settings-toggle">Parametres</div>
-  <div id="settings-panel" class="section">
-    <div class="field">
-      <label>URL du CRM</label>
-      <input id="s-url" placeholder="https://boost-crm-six.vercel.app">
-    </div>
-    <div class="field">
-      <label>Mot de passe CRM</label>
-      <input id="s-password" type="password" placeholder="Votre mot de passe">
-    </div>
-    <button id="btn-save-settings" class="btn btn-secondary btn-small" style="margin-top: 4px;">
-      Sauvegarder
-    </button>
-    <div id="settings-status" class="status"></div>
+  <div class="field">
+    <label>URL du CRM</label>
+    <input type="text" id="crmUrl" placeholder="http://localhost:3000">
+  </div>
+
+  <div class="field">
+    <label>Mot de passe CRM</label>
+    <input type="password" id="crmPassword" placeholder="Votre mot de passe">
+  </div>
+
+  <button class="btn" id="save">Sauvegarder</button>
+  <div class="save-feedback" id="save-feedback">Sauvegarde &#10003;</div>
+
+  <div class="footer">
+    LinkedIn : capture de prospects<br>
+    Gmail : reponse IA avec contexte CRM
   </div>
 
   <script src="popup.js"></script>

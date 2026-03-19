@@ -175,6 +175,24 @@ export async function POST(request: Request) {
         .eq('id', enrollment_id)
     }
 
+    // Generate next step email immediately (so it appears for review)
+    if (nextIndex < steps.length) {
+      try {
+        const origin = new URL(request.url).origin
+        console.log('Triggering generation of next step', nextIndex + 1, '...')
+        const genRes = await fetch(`${origin}/api/sequences/process-step`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enrollment_id }),
+        })
+        const genData = await genRes.json()
+        console.log('Next step generation result:', JSON.stringify(genData))
+      } catch (genErr) {
+        console.log('Warning: failed to generate next step email:', (genErr as Error).message)
+        // Non-blocking: cron will pick it up later
+      }
+    }
+
     console.log('=== APPROVE SUCCESS — step', pendingEmail.step_position, '===')
     return Response.json({ sent: true, step: pendingEmail.step_position })
   } catch (error) {

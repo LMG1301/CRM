@@ -1,0 +1,5 @@
+/* Gmail-specific overrides */
+/* Keep panel from overlapping Gmail's compose window */
+#boost-crm-panel .boost-panel {
+  top: 70px;
+}

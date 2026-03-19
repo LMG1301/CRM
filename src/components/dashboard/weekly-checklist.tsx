@@ -19,9 +19,9 @@ import { WEEKLY_TASK_CATEGORY_LABELS, WEEKLY_TASK_CATEGORY_ICONS } from '@/lib/t
 import {
   getWeeklyTasks,
   addWeeklyTask,
-  toggleWeeklyTask,
   deleteWeeklyTask,
 } from '@/lib/actions'
+import { supabase } from '@/lib/supabase'
 
 // ─── Helpers ───
 
@@ -143,12 +143,22 @@ export function WeeklyChecklist() {
 
   const handleToggle = async (task: WeeklyTask) => {
     setTogglingId(task.id)
+    const newCompleted = !task.completed
+    // Optimistic update first — no server action to avoid Next.js page revalidation
+    setTasks(prev =>
+      prev.map(t => (t.id === task.id ? { ...t, completed: newCompleted } : t))
+    )
     try {
-      await toggleWeeklyTask(task.id, !task.completed)
-      setTasks(prev =>
-        prev.map(t => (t.id === task.id ? { ...t, completed: !t.completed } : t))
-      )
+      const { error: dbErr } = await supabase
+        .from('weekly_tasks')
+        .update({ completed: newCompleted, updated_at: new Date().toISOString() })
+        .eq('id', task.id)
+      if (dbErr) throw new Error(dbErr.message)
     } catch (err) {
+      // Revert optimistic update on error
+      setTasks(prev =>
+        prev.map(t => (t.id === task.id ? { ...t, completed: task.completed } : t))
+      )
       setError(err instanceof Error ? err.message : 'Erreur')
     } finally {
       setTogglingId(null)
@@ -237,7 +247,7 @@ export function WeeklyChecklist() {
           <CardTitle className="text-base">Checklist semaine — S{getISOWeekNumber(currentMonday)}</CardTitle>
           {totalCount > 0 && (
             <Badge variant="secondary" className="text-xs">
-              {completedCount}/{totalCount}
+              {completedCount}/{totalCount} terminées
             </Badge>
           )}
         </div>
@@ -305,7 +315,9 @@ export function WeeklyChecklist() {
                       {group.tasks.map(task => (
                         <div
                           key={task.id}
-                          className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/[0.03] group"
+                          className={`flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/[0.03] group transition-opacity ${
+                            task.completed ? 'opacity-50' : ''
+                          }`}
                         >
                           {/* Checkbox */}
                           <button
