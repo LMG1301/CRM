@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { getDashboardStats, getActionsDuJour, getPendingReviewEmails, getStages } from '@/lib/actions'
 import { KpiCards } from '@/components/dashboard/kpi-cards'
 import { ActionsToday } from '@/components/dashboard/actions-today'
@@ -25,6 +26,14 @@ export default async function DashboardPage() {
             Vue d&apos;ensemble de votre activite commerciale
           </p>
         </div>
+
+        {/* Mobile quick-reply button */}
+        <Link
+          href="/quick-reply"
+          className="mb-6 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3.5 text-base font-semibold text-white hover:bg-blue-700 md:hidden"
+        >
+          <span>&#9889;</span> Reponse rapide
+        </Link>
 
         {/* KPI Cards */}
         <section className="mb-8">

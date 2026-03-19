@@ -34,6 +34,7 @@ const navItems = [
   { label: "Stats", href: "/stats", icon: BarChart3 },
   { label: "Contenus", href: "/contenus", icon: FileText },
   { label: "Import", href: "/import", icon: Upload },
+  { label: "Reponse rapide", href: "/quick-reply", icon: Zap },
   { label: "Assistant IA", href: "/assistant", icon: Bot },
   { label: "Parametres", href: "/settings", icon: Settings },
 ];
