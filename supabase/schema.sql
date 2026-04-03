@@ -252,12 +252,15 @@ CREATE TABLE IF NOT EXISTS deployments (
   prospect_id uuid REFERENCES prospects(id) ON DELETE SET NULL,
   quantity integer NOT NULL DEFAULT 1,
   product text NOT NULL CHECK (product IN ('screenkit', 'smart_fridge', 'smart_freezer', 'boostbar', 'autre')),
-  hardware_revenue numeric(10,2) DEFAULT 0,
+  unit_price numeric(10,2) NOT NULL DEFAULT 0,
+  hardware_revenue numeric(10,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
   deployment_date date NOT NULL,
   source text NOT NULL DEFAULT 'manual' CHECK (source IN ('pipeline', 'manual')),
+  status text NOT NULL DEFAULT 'deployed' CHECK (status IN ('deployed', 'pending_installation')),
   forecast_id uuid REFERENCES prospect_forecasts(id) ON DELETE SET NULL,
   notes text,
-  created_at timestamptz DEFAULT now()
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_deployments_date ON deployments(deployment_date);

@@ -8,7 +8,6 @@ export async function GET() {
     .order('deployment_date', { ascending: true })
 
   if (error) {
-    // Table might not exist yet
     if (error.code === 'PGRST205') {
       return Response.json({ deployments: [], needsMigration: true })
     }
@@ -20,23 +19,10 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
-  const { client_name, prospect_id, quantity, product, hardware_revenue, deployment_date, source, forecast_id, notes } = body
+  const { client_name, prospect_id, quantity, product, unit_price, deployment_date, source, status, forecast_id, notes } = body
 
-  if (!client_name || !quantity || !product || !deployment_date) {
-    return Response.json({ error: 'Champs requis: client_name, quantity, product, deployment_date' }, { status: 400 })
-  }
-
-  // Check for duplicate if pipeline-sourced (prevent double entry)
-  if (source === 'pipeline' && forecast_id) {
-    const { data: existing } = await supabase
-      .from('deployments')
-      .select('id')
-      .eq('forecast_id', forecast_id)
-      .limit(1)
-
-    if (existing && existing.length > 0) {
-      return Response.json({ deployment: existing[0], duplicate: true })
-    }
+  if (!client_name || !quantity || !product || !deployment_date || unit_price == null) {
+    return Response.json({ error: 'Champs requis: client_name, quantity, product, unit_price, deployment_date' }, { status: 400 })
   }
 
   const { data, error } = await supabase
@@ -46,12 +32,39 @@ export async function POST(request: NextRequest) {
       prospect_id: prospect_id || null,
       quantity: Number(quantity),
       product,
-      hardware_revenue: Number(hardware_revenue) || 0,
+      unit_price: Number(unit_price),
       deployment_date,
       source: source || 'manual',
+      status: status || 'deployed',
       forecast_id: forecast_id || null,
       notes: notes || null,
     })
+    .select()
+    .single()
+
+  if (error) return Response.json({ error: error.message }, { status: 500 })
+  return Response.json({ deployment: data })
+}
+
+export async function PUT(request: NextRequest) {
+  const body = await request.json()
+  const { id, client_name, quantity, product, unit_price, deployment_date, status, notes } = body
+
+  if (!id) return Response.json({ error: 'id requis' }, { status: 400 })
+
+  const updates: Record<string, unknown> = {}
+  if (client_name !== undefined) updates.client_name = client_name
+  if (quantity !== undefined) updates.quantity = Number(quantity)
+  if (product !== undefined) updates.product = product
+  if (unit_price !== undefined) updates.unit_price = Number(unit_price)
+  if (deployment_date !== undefined) updates.deployment_date = deployment_date
+  if (status !== undefined) updates.status = status
+  if (notes !== undefined) updates.notes = notes || null
+
+  const { data, error } = await supabase
+    .from('deployments')
+    .update(updates)
+    .eq('id', id)
     .select()
     .single()
 

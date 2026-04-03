@@ -3,6 +3,15 @@
 /** Software MRR per deployed machine (EUR/month/machine) - Vendlive Cloud license */
 export const SOFTWARE_MRR_PER_UNIT = 47
 
+/** Default unit prices per product type (EUR HT) */
+export const PRODUCT_DEFAULT_PRICES: Record<string, number> = {
+  screenkit: 3500,
+  smart_fridge: 5850,
+  smart_freezer: 5850,
+  boostbar: 2625,
+  autre: 0,
+}
+
 /** Report period options */
 export type ReportPeriod = 'Q1' | 'Q2' | 'Q3' | 'Q4' | 'S1' | 'S2' | 'annual'
 
