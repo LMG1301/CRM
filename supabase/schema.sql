@@ -241,3 +241,28 @@ CREATE INDEX IF NOT EXISTS idx_machines_entreprise ON client_machines(entreprise
 
 ALTER TABLE client_machines ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all on client_machines" ON client_machines FOR ALL USING (true) WITH CHECK (true);
+
+-- =============================================
+-- DEPLOYMENTS (signed/deployed machines - pipeline + manual)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS deployments (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  client_name text NOT NULL,
+  prospect_id uuid REFERENCES prospects(id) ON DELETE SET NULL,
+  quantity integer NOT NULL DEFAULT 1,
+  product text NOT NULL CHECK (product IN ('screenkit', 'smart_fridge', 'smart_freezer', 'boostbar', 'autre')),
+  hardware_revenue numeric(10,2) DEFAULT 0,
+  deployment_date date NOT NULL,
+  source text NOT NULL DEFAULT 'manual' CHECK (source IN ('pipeline', 'manual')),
+  forecast_id uuid REFERENCES prospect_forecasts(id) ON DELETE SET NULL,
+  notes text,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_deployments_date ON deployments(deployment_date);
+CREATE INDEX IF NOT EXISTS idx_deployments_client ON deployments(client_name);
+CREATE INDEX IF NOT EXISTS idx_deployments_forecast ON deployments(forecast_id);
+
+ALTER TABLE deployments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on deployments" ON deployments FOR ALL USING (true) WITH CHECK (true);

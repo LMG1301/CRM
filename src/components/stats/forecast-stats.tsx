@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Loader2, ChevronDown, ChevronRight, CheckCircle2, Download, FileText } from 'lucide-react'
+import { useState, useEffect, useMemo, useCallback, Fragment } from 'react'
+import { Loader2, ChevronDown, ChevronRight, CheckCircle2, Download, FileText, Plus, X } from 'lucide-react'
 import type { ProspectForecast, ForecastProductType } from '@/lib/types'
 import { FORECAST_PRODUCT_LABELS, FORECAST_PROBABILITY_OPTIONS } from '@/lib/types'
-import { SOFTWARE_MRR_PER_UNIT, type ReportPeriod, REPORT_PERIOD_LABELS, getReportPeriodMonths, getReportPeriodLabel } from '@/lib/forecast-config'
+import { SOFTWARE_MRR_PER_UNIT, type ReportPeriod, REPORT_PERIOD_LABELS } from '@/lib/forecast-config'
 
 // ─── Constants ───
 
@@ -16,6 +16,14 @@ const FRENCH_MONTHS = [
 const FRENCH_MONTHS_SHORT = [
   'Jan', 'Fev', 'Mar', 'Avr', 'Mai', 'Jun',
   'Jul', 'Aou', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+
+const PRODUCT_OPTIONS = [
+  { value: 'screenkit', label: 'ScreenKit' },
+  { value: 'smart_fridge', label: 'Smart Fridge' },
+  { value: 'smart_freezer', label: 'Smart Freezer' },
+  { value: 'boostbar', label: 'BoostBar' },
+  { value: 'autre', label: 'Autre' },
 ]
 
 const PRODUCT_FILTERS: Array<{ value: ForecastProductType | 'all'; label: string }> = [
@@ -35,6 +43,8 @@ const PERIOD_FILTERS: Array<{ value: PeriodFilter; label: string }> = [
   { value: '12months', label: '12 mois' },
 ]
 
+// ─── Number formatting (shared utility — FR convention: space as thousand sep) ───
+
 const numberFmt = new Intl.NumberFormat('fr-FR')
 
 const currencyFmt = new Intl.NumberFormat('fr-FR', {
@@ -42,6 +52,11 @@ const currencyFmt = new Intl.NumberFormat('fr-FR', {
   currency: 'EUR',
   maximumFractionDigits: 0,
 })
+
+function fmtCur(val: number): string { return currencyFmt.format(val) }
+function fmtNum(val: number): string { return numberFmt.format(val) }
+
+// ─── Date helpers ───
 
 function formatMonth(monthStr: string): string {
   const [year, month] = monthStr.split('-').map(Number)
@@ -73,29 +88,28 @@ function getPeriodStart(): Date {
 function isInPeriod(monthStr: string, period: PeriodFilter): boolean {
   const [year, month] = monthStr.split('-').map(Number)
   const date = new Date(year, month - 1, 1)
-  const start = getPeriodStart()
-  const end = getPeriodEnd(period)
-  return date >= start && date < end
+  return date >= getPeriodStart() && date < getPeriodEnd(period)
 }
 
-// Generate month keys for current year (YYYY-MM format)
 function getCurrentYearMonths(): string[] {
   const year = new Date().getFullYear()
-  return Array.from({ length: 12 }, (_, i) => {
-    const m = String(i + 1).padStart(2, '0')
-    return `${year}-${m}`
-  })
+  return Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`)
 }
 
 // ─── Types ───
 
-interface ClientMachineData {
+interface Deployment {
   id: string
-  prospect_id: string
-  entreprise: string | null
-  machine_type: string
+  client_name: string
+  prospect_id: string | null
   quantity: number
-  installed_at: string | null
+  product: string
+  hardware_revenue: number
+  deployment_date: string
+  source: 'pipeline' | 'manual'
+  forecast_id: string | null
+  notes: string | null
+  created_at: string
 }
 
 interface ClientAggRow {
@@ -107,25 +121,25 @@ interface ClientAggRow {
 }
 
 interface DeployedClientRow {
-  entreprise: string
+  clientName: string
   months: Record<string, number>
   totalMachines: number
   hardwareRevenue: Record<string, number>
   totalHardware: number
-  deals: Array<ProspectForecast & { prospect?: { prenom: string; nom: string; entreprise: string } }>
+  deployments: Deployment[]
 }
 
-// ─── Main Tabs ───
 type ForecastTab = 'forecast' | 'deployed'
-
-// ─── Sub-views for forecast tab ───
 type ForecastView = 'deal' | 'month' | 'client'
 
-// ─── Component ───
+// ═══════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════
 
 export function ForecastStats() {
   const [forecasts, setForecasts] = useState<ProspectForecast[]>([])
-  const [clientMachines, setClientMachines] = useState<ClientMachineData[]>([])
+  const [deployments, setDeployments] = useState<Deployment[]>([])
+  const [needsMigration, setNeedsMigration] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<ForecastTab>('forecast')
   const [productFilter, setProductFilter] = useState<ForecastProductType | 'all'>('all')
@@ -134,19 +148,36 @@ export function ForecastStats() {
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set())
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod | null>(null)
   const [generatingReport, setGeneratingReport] = useState(false)
+  const [showAddDeployment, setShowAddDeployment] = useState(false)
 
-  useEffect(() => {
+  const currentYear = new Date().getFullYear()
+  const currentYearMonths = useMemo(() => getCurrentYearMonths(), [])
+
+  // ─── Data fetching ───
+
+  const fetchData = useCallback(() => {
+    setLoading(true)
     Promise.all([
       fetch('/api/forecasts').then(r => r.json()),
-      fetch('/api/client-machines').then(r => r.json()).catch(() => ({ machines: [] })),
+      fetch('/api/deployments').then(r => r.json()).catch(() => ({ deployments: [] })),
     ])
-      .then(([forecastData, machineData]) => {
+      .then(([forecastData, deployData]) => {
         setForecasts(forecastData.forecasts || [])
-        setClientMachines(machineData.machines || [])
+        setDeployments(deployData.deployments || [])
+        if (deployData.needsMigration) setNeedsMigration(true)
         setLoading(false)
       })
       .catch(() => setLoading(false))
   }, [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  // Auto-sync pipeline -> deployments on first load
+  useEffect(() => {
+    if (!needsMigration && deployments !== null) {
+      fetch('/api/deployments/sync', { method: 'POST' }).catch(() => {})
+    }
+  }, [needsMigration]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Filtered forecast data ───
 
@@ -158,7 +189,6 @@ export function ForecastStats() {
     })
   }, [forecasts, productFilter, periodFilter])
 
-  // Summary stats
   const totalBrut = useMemo(() => filtered.reduce((s, f) => s + f.total_amount, 0), [filtered])
   const totalPondere = useMemo(
     () => filtered.reduce((s, f) => s + Math.round(f.total_amount * f.probability / 100), 0),
@@ -167,12 +197,10 @@ export function ForecastStats() {
   const totalQuantity = useMemo(() => filtered.reduce((s, f) => s + f.quantity, 0), [filtered])
   const dealCount = filtered.length
 
-  // ─── Monthly grouped data (for "Vue par mois" + Total Machines row) ───
+  // ─── Monthly data ───
 
   const monthlyData = useMemo(() => {
-    const grouped: Record<string, {
-      month: string; deals: number; totalBrut: number; totalPondere: number; totalMachines: number
-    }> = {}
+    const grouped: Record<string, { month: string; deals: number; totalBrut: number; totalPondere: number; totalMachines: number }> = {}
     for (const f of filtered) {
       if (!grouped[f.expected_month]) {
         grouped[f.expected_month] = { month: f.expected_month, deals: 0, totalBrut: 0, totalPondere: 0, totalMachines: 0 }
@@ -185,21 +213,16 @@ export function ForecastStats() {
     return Object.values(grouped).sort((a, b) => a.month.localeCompare(b.month))
   }, [filtered])
 
-  const maxMonthlyPondere = useMemo(
-    () => Math.max(...monthlyData.map(m => m.totalPondere), 1),
-    [monthlyData],
-  )
+  const maxMonthlyPondere = useMemo(() => Math.max(...monthlyData.map(m => m.totalPondere), 1), [monthlyData])
 
-  // ─── Client aggregation data (Feature 2) ───
+  // ─── Client aggregation ───
 
   const clientData = useMemo<ClientAggRow[]>(() => {
     const map = new Map<string, ClientAggRow>()
     for (const f of filtered) {
       const name = f.prospect?.entreprise || 'Sans entreprise'
       const key = name.toLowerCase().trim()
-      if (!map.has(key)) {
-        map.set(key, { entreprise: name, months: {}, totalMachines: 0, totalRevenue: 0, deals: [] })
-      }
+      if (!map.has(key)) map.set(key, { entreprise: name, months: {}, totalMachines: 0, totalRevenue: 0, deals: [] })
       const row = map.get(key)!
       row.months[f.expected_month] = (row.months[f.expected_month] || 0) + f.quantity
       row.totalMachines += f.quantity
@@ -209,95 +232,57 @@ export function ForecastStats() {
     return Array.from(map.values()).sort((a, b) => b.totalMachines - a.totalMachines)
   }, [filtered])
 
-  // Get all unique months for client view columns
   const clientViewMonths = useMemo(() => {
     const months = new Set<string>()
-    for (const c of clientData) {
-      for (const m of Object.keys(c.months)) months.add(m)
-    }
+    for (const c of clientData) for (const m of Object.keys(c.months)) months.add(m)
     return Array.from(months).sort()
   }, [clientData])
 
-  // ─── Deployed data (Feature 3) ───
-
-  const currentYearMonths = useMemo(() => getCurrentYearMonths(), [])
-  const currentYear = new Date().getFullYear()
-
-  // Signed deals (probability 100) for the current year
-  const signedDeals = useMemo(() => {
-    return forecasts.filter(f => {
-      if (f.probability !== 100) return false
-      const [year] = f.expected_month.split('-').map(Number)
-      return year === currentYear
-    })
-  }, [forecasts, currentYear])
+  // ─── Deployed data (from deployments table) ───
 
   const deployedClientData = useMemo<DeployedClientRow[]>(() => {
     const map = new Map<string, DeployedClientRow>()
-    for (const f of signedDeals) {
-      const name = f.prospect?.entreprise || 'Sans entreprise'
-      const key = name.toLowerCase().trim()
+    for (const d of deployments) {
+      const dateObj = new Date(d.deployment_date)
+      if (dateObj.getFullYear() !== currentYear) continue
+      const key = d.client_name.toLowerCase().trim()
       if (!map.has(key)) {
-        map.set(key, { entreprise: name, months: {}, totalMachines: 0, hardwareRevenue: {}, totalHardware: 0, deals: [] })
+        map.set(key, { clientName: d.client_name, months: {}, totalMachines: 0, hardwareRevenue: {}, totalHardware: 0, deployments: [] })
       }
       const row = map.get(key)!
-      // Use the expected_month (YYYY-MM format) - take first 7 chars
-      const monthKey = f.expected_month.substring(0, 7)
-      row.months[monthKey] = (row.months[monthKey] || 0) + f.quantity
-      row.totalMachines += f.quantity
-      row.hardwareRevenue[monthKey] = (row.hardwareRevenue[monthKey] || 0) + f.total_amount
-      row.totalHardware += f.total_amount
-      row.deals.push(f)
+      const mk = `${currentYear}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`
+      row.months[mk] = (row.months[mk] || 0) + d.quantity
+      row.totalMachines += d.quantity
+      row.hardwareRevenue[mk] = (row.hardwareRevenue[mk] || 0) + d.hardware_revenue
+      row.totalHardware += d.hardware_revenue
+      row.deployments.push(d)
     }
     return Array.from(map.values()).sort((a, b) => b.totalMachines - a.totalMachines)
-  }, [signedDeals])
+  }, [deployments, currentYear])
 
-  // Also include client_machines data (already installed machines)
-  const installedMachinesByMonth = useMemo(() => {
-    const map: Record<string, number> = {}
-    for (const m of clientMachines) {
-      if (!m.installed_at) continue
-      const date = new Date(m.installed_at)
-      if (date.getFullYear() !== currentYear) continue
-      const monthKey = `${currentYear}-${String(date.getMonth() + 1).padStart(2, '0')}`
-      map[monthKey] = (map[monthKey] || 0) + m.quantity
-    }
-    return map
-  }, [clientMachines, currentYear])
-
-  // Deployed summary rows
   const deployedSummary = useMemo(() => {
     const machines: Record<string, number> = {}
     const hardware: Record<string, number> = {}
     const softwareMRR: Record<string, number> = {}
 
-    // Combine signed deals + installed machines
     for (const month of currentYearMonths) {
-      const monthKey = month.substring(0, 7)
-      let machineCount = 0
-      let hardwareRev = 0
-
+      let machineCount = 0, hardwareRev = 0
       for (const client of deployedClientData) {
-        machineCount += client.months[monthKey] || 0
-        hardwareRev += client.hardwareRevenue[monthKey] || 0
+        machineCount += client.months[month] || 0
+        hardwareRev += client.hardwareRevenue[month] || 0
       }
-      // Add installed machines
-      machineCount += installedMachinesByMonth[monthKey] || 0
-
-      machines[monthKey] = machineCount
-      hardware[monthKey] = hardwareRev
+      machines[month] = machineCount
+      hardware[month] = hardwareRev
     }
 
-    // Compute cumulative software MRR
-    let cumulativeMachines = 0
+    let cumulative = 0
     for (const month of currentYearMonths) {
-      const monthKey = month.substring(0, 7)
-      cumulativeMachines += machines[monthKey] || 0
-      softwareMRR[monthKey] = cumulativeMachines * SOFTWARE_MRR_PER_UNIT
+      cumulative += machines[month] || 0
+      softwareMRR[month] = cumulative * SOFTWARE_MRR_PER_UNIT
     }
 
-    return { machines, hardware, softwareMRR, cumulativeMachines }
-  }, [currentYearMonths, deployedClientData, installedMachinesByMonth])
+    return { machines, hardware, softwareMRR, cumulativeMachines: cumulative }
+  }, [currentYearMonths, deployedClientData])
 
   // ─── Helpers ───
 
@@ -316,13 +301,10 @@ export function ForecastStats() {
   function toggleClient(name: string) {
     setExpandedClients(prev => {
       const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
+      if (next.has(name)) next.delete(name); else next.add(name)
       return next
     })
   }
-
-  // ─── Report Generation (Feature 4) ───
 
   const generateReport = useCallback(async (period: ReportPeriod) => {
     setGeneratingReport(true)
@@ -332,7 +314,7 @@ export function ForecastStats() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ period, year: currentYear }),
       })
-      if (!res.ok) throw new Error('Erreur generation')
+      if (!res.ok) throw new Error('Generation error')
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -340,14 +322,28 @@ export function ForecastStats() {
       a.download = `Forecast_${period}_${currentYear}.pdf`
       a.click()
       URL.revokeObjectURL(url)
-    } catch (err) {
-      console.error('Report generation error:', err)
+    } catch {
       alert('Erreur lors de la generation du rapport')
     } finally {
       setGeneratingReport(false)
       setReportPeriod(null)
     }
   }, [currentYear])
+
+  const handleAddDeployment = useCallback(async (form: {
+    client_name: string; quantity: number; product: string
+    hardware_revenue: number; deployment_date: string; notes: string
+  }) => {
+    const res = await fetch('/api/deployments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...form, source: 'manual' }),
+    })
+    if (res.ok) {
+      setShowAddDeployment(false)
+      fetchData()
+    }
+  }, [fetchData])
 
   // ─── Render ───
 
@@ -366,15 +362,11 @@ export function ForecastStats() {
         <h3 className="text-sm font-bold uppercase tracking-wider text-white/40">
           Forecast — Pipeline commercial
         </h3>
-
-        {/* Main tabs: Forecast | Deployed */}
         <div className="flex gap-1.5">
           <button
             onClick={() => setActiveTab('forecast')}
             className={`rounded-lg px-4 py-2 text-[12px] font-semibold transition-colors flex items-center gap-1.5 ${
-              activeTab === 'forecast'
-                ? 'bg-white/10 text-white'
-                : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
+              activeTab === 'forecast' ? 'bg-white/10 text-white' : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
             }`}
           >
             <FileText className="h-3.5 w-3.5" />
@@ -383,9 +375,7 @@ export function ForecastStats() {
           <button
             onClick={() => setActiveTab('deployed')}
             className={`rounded-lg px-4 py-2 text-[12px] font-semibold transition-colors flex items-center gap-1.5 ${
-              activeTab === 'deployed'
-                ? 'bg-emerald-500/20 text-emerald-400'
-                : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
+              activeTab === 'deployed' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
             }`}
           >
             <CheckCircle2 className="h-3.5 w-3.5" />
@@ -395,250 +385,123 @@ export function ForecastStats() {
       </div>
 
       {activeTab === 'forecast' ? (
-        <ForecastTabContent
-          filtered={filtered}
-          monthlyData={monthlyData}
-          clientData={clientData}
-          clientViewMonths={clientViewMonths}
-          totalBrut={totalBrut}
-          totalPondere={totalPondere}
-          totalQuantity={totalQuantity}
-          dealCount={dealCount}
-          maxMonthlyPondere={maxMonthlyPondere}
-          productFilter={productFilter}
-          setProductFilter={setProductFilter}
-          periodFilter={periodFilter}
-          setPeriodFilter={setPeriodFilter}
-          viewMode={viewMode}
-          setViewMode={setViewMode}
-          expandedClients={expandedClients}
-          toggleClient={toggleClient}
-          getProbaOption={getProbaOption}
-          getMonthBorderColor={getMonthBorderColor}
-          reportPeriod={reportPeriod}
-          setReportPeriod={setReportPeriod}
-          generatingReport={generatingReport}
-          generateReport={generateReport}
-          currentYear={currentYear}
-        />
+        <>
+          {/* Filters */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-1.5">
+              {PRODUCT_FILTERS.map(pf => (
+                <button key={pf.value} onClick={() => setProductFilter(pf.value)}
+                  className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+                    productFilter === pf.value ? 'bg-white/10 text-white' : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
+                  }`}>{pf.label}</button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {PERIOD_FILTERS.map(pf => (
+                <button key={pf.value} onClick={() => setPeriodFilter(pf.value)}
+                  className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+                    periodFilter === pf.value ? 'bg-white/10 text-white' : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
+                  }`}>{pf.label}</button>
+              ))}
+              {/* Report Export */}
+              <div className="relative ml-2">
+                <button onClick={() => setReportPeriod(reportPeriod ? null : 'Q1')} disabled={generatingReport}
+                  className="rounded-lg px-3 py-1.5 text-[11px] font-semibold bg-brand-accent/20 text-blue-400 hover:bg-brand-accent/30 transition-colors flex items-center gap-1.5 disabled:opacity-50">
+                  {generatingReport ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                  Exporter le rapport
+                </button>
+                {reportPeriod !== null && !generatingReport && (
+                  <div className="absolute right-0 top-full mt-1 z-50 rounded-xl border border-white/[0.08] bg-[#132926] p-3 shadow-xl min-w-[200px]">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-2">Periode</div>
+                    {(Object.keys(REPORT_PERIOD_LABELS) as ReportPeriod[]).map(p => (
+                      <button key={p} onClick={() => generateReport(p)}
+                        className="block w-full text-left rounded-lg px-3 py-2 text-[12px] text-white/70 hover:bg-white/[0.06] hover:text-white transition-colors">
+                        {REPORT_PERIOD_LABELS[p]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Summary Cards */}
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+            <SummaryCard label="Pipeline brut" value={fmtCur(totalBrut)} sub="Total non pondere" />
+            <SummaryCard label="Pipeline pondere" value={fmtCur(totalPondere)} sub="Ajuste par probabilite" />
+            <SummaryCard label="Deals" value={String(dealCount)} sub="En forecast" />
+            <SummaryCard label="Total Machines" value={fmtNum(totalQuantity)} sub="Unites en pipeline" />
+          </div>
+
+          {/* View toggle */}
+          <div className="flex gap-1.5">
+            {([
+              { key: 'deal' as const, label: 'Vue par deal' },
+              { key: 'month' as const, label: 'Vue par mois' },
+              { key: 'client' as const, label: 'Vue par client' },
+            ]).map(v => (
+              <button key={v.key} onClick={() => setViewMode(v.key)}
+                className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+                  viewMode === v.key ? 'bg-white/10 text-white' : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
+                }`}>{v.label}</button>
+            ))}
+          </div>
+
+          {/* Tables */}
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] overflow-x-auto">
+            {viewMode === 'deal' ? (
+              <DealTable filtered={filtered} totalBrut={totalBrut} totalPondere={totalPondere} totalQuantity={totalQuantity} getProbaOption={getProbaOption} />
+            ) : viewMode === 'month' ? (
+              <MonthTable monthlyData={monthlyData} filtered={filtered} totalBrut={totalBrut} totalPondere={totalPondere} totalQuantity={totalQuantity} getMonthBorderColor={getMonthBorderColor} />
+            ) : (
+              <ClientTable clientData={clientData} clientViewMonths={clientViewMonths} expandedClients={expandedClients} toggleClient={toggleClient} getProbaOption={getProbaOption} />
+            )}
+          </div>
+        </>
       ) : (
-        <DeployedTabContent
+        <DeployedTab
           deployedClientData={deployedClientData}
           currentYearMonths={currentYearMonths}
           deployedSummary={deployedSummary}
           expandedClients={expandedClients}
           toggleClient={toggleClient}
           currentYear={currentYear}
+          needsMigration={needsMigration}
+          showAddDeployment={showAddDeployment}
+          setShowAddDeployment={setShowAddDeployment}
+          onAddDeployment={handleAddDeployment}
         />
       )}
     </div>
   )
 }
 
-// ═══════════════════════════════════════════════════════════════
-// FORECAST TAB
-// ═══════════════════════════════════════════════════════════════
+// ─── Small reusable ───
 
-function ForecastTabContent({
-  filtered, monthlyData, clientData, clientViewMonths,
-  totalBrut, totalPondere, totalQuantity, dealCount,
-  maxMonthlyPondere,
-  productFilter, setProductFilter,
-  periodFilter, setPeriodFilter,
-  viewMode, setViewMode,
-  expandedClients, toggleClient,
-  getProbaOption, getMonthBorderColor,
-  reportPeriod, setReportPeriod,
-  generatingReport, generateReport,
-  currentYear,
-}: {
-  filtered: ProspectForecast[]
-  monthlyData: Array<{ month: string; deals: number; totalBrut: number; totalPondere: number; totalMachines: number }>
-  clientData: ClientAggRow[]
-  clientViewMonths: string[]
-  totalBrut: number
-  totalPondere: number
-  totalQuantity: number
-  dealCount: number
-  maxMonthlyPondere: number
-  productFilter: ForecastProductType | 'all'
-  setProductFilter: (v: ForecastProductType | 'all') => void
-  periodFilter: PeriodFilter
-  setPeriodFilter: (v: PeriodFilter) => void
-  viewMode: ForecastView
-  setViewMode: (v: ForecastView) => void
-  expandedClients: Set<string>
-  toggleClient: (name: string) => void
-  getProbaOption: (p: number) => { value: number; label: string; color: string; emoji: string }
-  getMonthBorderColor: (p: number) => string
-  reportPeriod: ReportPeriod | null
-  setReportPeriod: (v: ReportPeriod | null) => void
-  generatingReport: boolean
-  generateReport: (p: ReportPeriod) => void
-  currentYear: number
-}) {
+function SummaryCard({ label, value, sub, emerald }: { label: string; value: string; sub: string; emerald?: boolean }) {
   return (
-    <>
-      {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-1.5">
-          {PRODUCT_FILTERS.map(pf => (
-            <button
-              key={pf.value}
-              onClick={() => setProductFilter(pf.value)}
-              className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
-                productFilter === pf.value
-                  ? 'bg-white/10 text-white'
-                  : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
-              }`}
-            >
-              {pf.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap gap-1.5 items-center">
-          {PERIOD_FILTERS.map(pf => (
-            <button
-              key={pf.value}
-              onClick={() => setPeriodFilter(pf.value)}
-              className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
-                periodFilter === pf.value
-                  ? 'bg-white/10 text-white'
-                  : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
-              }`}
-            >
-              {pf.label}
-            </button>
-          ))}
-
-          {/* Report Export Button */}
-          <div className="relative ml-2">
-            <button
-              onClick={() => setReportPeriod(reportPeriod ? null : 'Q1')}
-              disabled={generatingReport}
-              className="rounded-lg px-3 py-1.5 text-[11px] font-semibold bg-brand-accent/20 text-blue-400 hover:bg-brand-accent/30 transition-colors flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {generatingReport ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-              Exporter le rapport
-            </button>
-            {reportPeriod !== null && !generatingReport && (
-              <div className="absolute right-0 top-full mt-1 z-50 rounded-xl border border-white/[0.08] bg-[#132926] p-3 shadow-xl min-w-[200px]">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-2">Periode</div>
-                {(Object.keys(REPORT_PERIOD_LABELS) as ReportPeriod[]).map(p => (
-                  <button
-                    key={p}
-                    onClick={() => generateReport(p)}
-                    className="block w-full text-left rounded-lg px-3 py-2 text-[12px] text-white/70 hover:bg-white/[0.06] hover:text-white transition-colors"
-                  >
-                    {REPORT_PERIOD_LABELS[p]}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Pipeline brut</div>
-          <div className="text-2xl font-bold">{currencyFmt.format(totalBrut)}</div>
-          <div className="mt-0.5 text-[11px] text-white/30">Total non pondere</div>
-        </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Pipeline pondere</div>
-          <div className="text-2xl font-bold">{currencyFmt.format(totalPondere)}</div>
-          <div className="mt-0.5 text-[11px] text-white/30">Ajuste par probabilite</div>
-        </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Deals</div>
-          <div className="text-2xl font-bold">{dealCount}</div>
-          <div className="mt-0.5 text-[11px] text-white/30">En forecast</div>
-        </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Total Machines</div>
-          <div className="text-2xl font-bold">{numberFmt.format(totalQuantity)}</div>
-          <div className="mt-0.5 text-[11px] text-white/30">Unites en pipeline</div>
-        </div>
-      </div>
-
-      {/* View toggle */}
-      <div className="flex gap-1.5">
-        {[
-          { key: 'deal' as const, label: 'Vue par deal' },
-          { key: 'month' as const, label: 'Vue par mois' },
-          { key: 'client' as const, label: 'Vue par client' },
-        ].map(v => (
-          <button
-            key={v.key}
-            onClick={() => setViewMode(v.key)}
-            className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
-              viewMode === v.key
-                ? 'bg-white/10 text-white'
-                : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'
-            }`}
-          >
-            {v.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tables */}
-      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] overflow-x-auto">
-        {viewMode === 'deal' ? (
-          <DealTable
-            filtered={filtered}
-            totalBrut={totalBrut}
-            totalPondere={totalPondere}
-            totalQuantity={totalQuantity}
-            getProbaOption={getProbaOption}
-          />
-        ) : viewMode === 'month' ? (
-          <MonthTable
-            monthlyData={monthlyData}
-            filtered={filtered}
-            totalBrut={totalBrut}
-            totalPondere={totalPondere}
-            totalQuantity={totalQuantity}
-            getMonthBorderColor={getMonthBorderColor}
-          />
-        ) : (
-          <ClientTable
-            clientData={clientData}
-            clientViewMonths={clientViewMonths}
-            expandedClients={expandedClients}
-            toggleClient={toggleClient}
-            getProbaOption={getProbaOption}
-          />
-        )}
-      </div>
-    </>
+    <div className={`rounded-xl border p-4 ${emerald ? 'border-emerald-500/20 bg-emerald-500/[0.05]' : 'border-white/[0.08] bg-white/[0.03]'}`}>
+      <div className={`text-[11px] font-semibold uppercase tracking-wider mb-1 ${emerald ? 'text-emerald-400/60' : 'text-white/40'}`}>{label}</div>
+      <div className={`text-2xl font-bold ${emerald ? 'text-emerald-400' : ''}`}>{value}</div>
+      <div className={`mt-0.5 text-[11px] ${emerald ? 'text-emerald-400/40' : 'text-white/30'}`}>{sub}</div>
+    </div>
   )
 }
 
-// ─── Deal Table (original + Total Machines row) ───
+// ═══════════════════════════════════════════════════════════════
+// DEAL TABLE
+// ═══════════════════════════════════════════════════════════════
 
-function DealTable({
-  filtered, totalBrut, totalPondere, totalQuantity, getProbaOption,
-}: {
-  filtered: ProspectForecast[]
-  totalBrut: number
-  totalPondere: number
-  totalQuantity: number
+function DealTable({ filtered, totalBrut, totalPondere, totalQuantity, getProbaOption }: {
+  filtered: ProspectForecast[]; totalBrut: number; totalPondere: number; totalQuantity: number
   getProbaOption: (p: number) => { value: number; label: string; color: string; emoji: string }
 }) {
   return (
     <table className="w-full text-left">
       <thead>
         <tr className="border-b border-white/[0.08]">
-          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40">Prospect</th>
-          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40">Entreprise</th>
-          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40">Produit</th>
-          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 text-right">Qty</th>
-          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 text-right">Prix unit.</th>
-          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 text-right">Total</th>
+          {['Prospect', 'Entreprise', 'Produit'].map(h => <th key={h} className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40">{h}</th>)}
+          {['Qty', 'Prix unit.', 'Total'].map(h => <th key={h} className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 text-right">{h}</th>)}
           <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40">Proba</th>
           <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40">Mois</th>
           <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 text-right">Weighted</th>
@@ -646,11 +509,7 @@ function DealTable({
       </thead>
       <tbody>
         {filtered.length === 0 ? (
-          <tr>
-            <td colSpan={9} className="px-4 py-8 text-center text-xs text-white/30">
-              Aucun forecast pour cette periode
-            </td>
-          </tr>
+          <tr><td colSpan={9} className="px-4 py-8 text-center text-xs text-white/30">Aucun forecast pour cette periode</td></tr>
         ) : (
           <>
             {filtered.map(f => {
@@ -658,52 +517,28 @@ function DealTable({
               const weighted = Math.round(f.total_amount * f.probability / 100)
               return (
                 <tr key={f.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                  <td className="px-4 py-2.5 text-[13px] font-medium">
-                    {f.prospect ? `${f.prospect.prenom} ${f.prospect.nom}` : '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-[13px] text-white/60">
-                    {f.prospect?.entreprise || '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-[13px]">
-                    {FORECAST_PRODUCT_LABELS[f.product_type] || f.product_type}
-                  </td>
+                  <td className="px-4 py-2.5 text-[13px] font-medium">{f.prospect ? `${f.prospect.prenom} ${f.prospect.nom}` : '—'}</td>
+                  <td className="px-4 py-2.5 text-[13px] text-white/60">{f.prospect?.entreprise || '—'}</td>
+                  <td className="px-4 py-2.5 text-[13px]">{FORECAST_PRODUCT_LABELS[f.product_type] || f.product_type}</td>
                   <td className="px-4 py-2.5 text-[13px] text-right">{f.quantity}</td>
-                  <td className="px-4 py-2.5 text-[13px] text-right">{currencyFmt.format(f.unit_price)}</td>
-                  <td className="px-4 py-2.5 text-[13px] text-right font-medium">{currencyFmt.format(f.total_amount)}</td>
-                  <td className="px-4 py-2.5 text-[13px]">
-                    <span style={{ color: proba.color }}>
-                      {proba.emoji} {f.probability}% {proba.label}
-                    </span>
-                  </td>
+                  <td className="px-4 py-2.5 text-[13px] text-right">{fmtCur(f.unit_price)}</td>
+                  <td className="px-4 py-2.5 text-[13px] text-right font-medium">{fmtCur(f.total_amount)}</td>
+                  <td className="px-4 py-2.5 text-[13px]"><span style={{ color: proba.color }}>{proba.emoji} {f.probability}% {proba.label}</span></td>
                   <td className="px-4 py-2.5 text-[13px] text-white/60">{formatMonth(f.expected_month)}</td>
-                  <td className="px-4 py-2.5 text-[13px] text-right font-medium">{currencyFmt.format(weighted)}</td>
+                  <td className="px-4 py-2.5 text-[13px] text-right font-medium">{fmtCur(weighted)}</td>
                 </tr>
               )
             })}
-
-            {/* Total Machines Row */}
             <tr className="border-t border-white/[0.12] bg-white/[0.02]">
-              <td colSpan={3} className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50">
-                Total Machines
-              </td>
-              <td className="px-4 py-3 text-[13px] text-right font-bold">
-                {numberFmt.format(totalQuantity)}
-              </td>
+              <td colSpan={3} className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50">Total Machines</td>
+              <td className="px-4 py-3 text-[13px] text-right font-bold">{fmtNum(totalQuantity)}</td>
               <td colSpan={5} />
             </tr>
-
-            {/* Weighted Revenue Row */}
             <tr className="border-t border-white/[0.08] bg-white/[0.02]">
-              <td colSpan={5} className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50">
-                Total Revenus
-              </td>
-              <td className="px-4 py-3 text-[13px] text-right font-bold">
-                {currencyFmt.format(totalBrut)}
-              </td>
+              <td colSpan={5} className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50">Total Revenus</td>
+              <td className="px-4 py-3 text-[13px] text-right font-bold">{fmtCur(totalBrut)}</td>
               <td colSpan={2} />
-              <td className="px-4 py-3 text-[13px] text-right font-bold">
-                {currencyFmt.format(totalPondere)}
-              </td>
+              <td className="px-4 py-3 text-[13px] text-right font-bold">{fmtCur(totalPondere)}</td>
             </tr>
           </>
         )}
@@ -712,16 +547,13 @@ function DealTable({
   )
 }
 
-// ─── Month Table (with Total Machines row — Feature 1) ───
+// ═══════════════════════════════════════════════════════════════
+// MONTH TABLE
+// ═══════════════════════════════════════════════════════════════
 
-function MonthTable({
-  monthlyData, filtered, totalBrut, totalPondere, totalQuantity, getMonthBorderColor,
-}: {
+function MonthTable({ monthlyData, filtered, totalBrut, totalPondere, totalQuantity, getMonthBorderColor }: {
   monthlyData: Array<{ month: string; deals: number; totalBrut: number; totalPondere: number; totalMachines: number }>
-  filtered: ProspectForecast[]
-  totalBrut: number
-  totalPondere: number
-  totalQuantity: number
+  filtered: ProspectForecast[]; totalBrut: number; totalPondere: number; totalQuantity: number
   getMonthBorderColor: (p: number) => string
 }) {
   return (
@@ -737,49 +569,27 @@ function MonthTable({
       </thead>
       <tbody>
         {monthlyData.length === 0 ? (
-          <tr>
-            <td colSpan={5} className="px-4 py-8 text-center text-xs text-white/30">
-              Aucun forecast pour cette periode
-            </td>
-          </tr>
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-xs text-white/30">Aucun forecast pour cette periode</td></tr>
         ) : (
           <>
             {monthlyData.map(m => (
-              <tr
-                key={m.month}
-                className="border-b border-white/[0.04] hover:bg-white/[0.02]"
-                style={{ borderLeftWidth: 3, borderLeftColor: getMonthBorderColor(m.totalPondere) }}
-              >
+              <tr key={m.month} className="border-b border-white/[0.04] hover:bg-white/[0.02]" style={{ borderLeftWidth: 3, borderLeftColor: getMonthBorderColor(m.totalPondere) }}>
                 <td className="px-4 py-2.5 text-[13px] font-medium">{formatMonth(m.month)}</td>
                 <td className="px-4 py-2.5 text-[13px] text-right">{m.deals}</td>
-                <td className="px-4 py-2.5 text-[13px] text-right font-medium">{numberFmt.format(m.totalMachines)}</td>
-                <td className="px-4 py-2.5 text-[13px] text-right font-medium">{currencyFmt.format(m.totalBrut)}</td>
-                <td className="px-4 py-2.5 text-[13px] text-right font-medium">{currencyFmt.format(m.totalPondere)}</td>
+                <td className="px-4 py-2.5 text-[13px] text-right font-medium">{fmtNum(m.totalMachines)}</td>
+                <td className="px-4 py-2.5 text-[13px] text-right font-medium">{fmtCur(m.totalBrut)}</td>
+                <td className="px-4 py-2.5 text-[13px] text-right font-medium">{fmtCur(m.totalPondere)}</td>
               </tr>
             ))}
-
-            {/* Total Machines Row */}
             <tr className="border-t border-white/[0.12] bg-white/[0.03]">
-              <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50">
-                Total Machines
-              </td>
-              <td />
-              <td className="px-4 py-3 text-[13px] text-right font-bold">
-                {numberFmt.format(totalQuantity)}
-              </td>
-              <td />
-              <td />
+              <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50">Total Machines</td>
+              <td /><td className="px-4 py-3 text-[13px] text-right font-bold">{fmtNum(totalQuantity)}</td><td /><td />
             </tr>
-
-            {/* Total Revenue Row */}
             <tr className="border-t border-white/[0.08] bg-white/[0.02]">
-              <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50">
-                Total Revenus
-              </td>
-              <td className="px-4 py-3 text-[13px] text-right font-bold">{filtered.length}</td>
-              <td />
-              <td className="px-4 py-3 text-[13px] text-right font-bold">{currencyFmt.format(totalBrut)}</td>
-              <td className="px-4 py-3 text-[13px] text-right font-bold">{currencyFmt.format(totalPondere)}</td>
+              <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50">Total Revenus</td>
+              <td className="px-4 py-3 text-[13px] text-right font-bold">{filtered.length}</td><td />
+              <td className="px-4 py-3 text-[13px] text-right font-bold">{fmtCur(totalBrut)}</td>
+              <td className="px-4 py-3 text-[13px] text-right font-bold">{fmtCur(totalPondere)}</td>
             </tr>
           </>
         )}
@@ -788,28 +598,19 @@ function MonthTable({
   )
 }
 
-// ─── Client Aggregation Table (Feature 2) ───
+// ═══════════════════════════════════════════════════════════════
+// CLIENT TABLE (Feature 2)
+// ═══════════════════════════════════════════════════════════════
 
-function ClientTable({
-  clientData, clientViewMonths, expandedClients, toggleClient, getProbaOption,
-}: {
-  clientData: ClientAggRow[]
-  clientViewMonths: string[]
-  expandedClients: Set<string>
-  toggleClient: (name: string) => void
-  getProbaOption: (p: number) => { value: number; label: string; color: string; emoji: string }
+function ClientTable({ clientData, clientViewMonths, expandedClients, toggleClient, getProbaOption }: {
+  clientData: ClientAggRow[]; clientViewMonths: string[]; expandedClients: Set<string>
+  toggleClient: (name: string) => void; getProbaOption: (p: number) => { value: number; label: string; color: string; emoji: string }
 }) {
-  // Grand totals per month
   const monthTotals = useMemo(() => {
     const totals: Record<string, number> = {}
-    for (const c of clientData) {
-      for (const [m, qty] of Object.entries(c.months)) {
-        totals[m] = (totals[m] || 0) + qty
-      }
-    }
+    for (const c of clientData) for (const [m, qty] of Object.entries(c.months)) totals[m] = (totals[m] || 0) + qty
     return totals
   }, [clientData])
-
   const grandTotalMachines = clientData.reduce((s, c) => s + c.totalMachines, 0)
   const grandTotalRevenue = clientData.reduce((s, c) => s + c.totalRevenue, 0)
 
@@ -817,57 +618,56 @@ function ClientTable({
     <table className="w-full text-left">
       <thead>
         <tr className="border-b border-white/[0.08]">
-          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 sticky left-0 bg-white/[0.03] min-w-[180px]">
-            Client
-          </th>
-          {clientViewMonths.map(m => (
-            <th key={m} className="px-3 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 text-center min-w-[60px]">
-              {formatMonthShort(m)}
-            </th>
-          ))}
+          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 sticky left-0 bg-white/[0.03] min-w-[180px]">Client</th>
+          {clientViewMonths.map(m => <th key={m} className="px-3 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 text-center min-w-[60px]">{formatMonthShort(m)}</th>)}
           <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 text-right">Total</th>
           <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white/40 text-right">Rev. pond.</th>
         </tr>
       </thead>
       <tbody>
         {clientData.length === 0 ? (
-          <tr>
-            <td colSpan={clientViewMonths.length + 3} className="px-4 py-8 text-center text-xs text-white/30">
-              Aucun forecast pour cette periode
-            </td>
-          </tr>
+          <tr><td colSpan={clientViewMonths.length + 3} className="px-4 py-8 text-center text-xs text-white/30">Aucun forecast pour cette periode</td></tr>
         ) : (
           <>
-            {clientData.map(client => {
-              const isExpanded = expandedClients.has(client.entreprise)
-              return (
-                <ClientRow
-                  key={client.entreprise}
-                  client={client}
-                  months={clientViewMonths}
-                  isExpanded={isExpanded}
-                  onToggle={() => toggleClient(client.entreprise)}
-                  getProbaOption={getProbaOption}
-                />
-              )
-            })}
-
-            {/* Grand Total Row */}
+            {clientData.map(client => (
+              <Fragment key={client.entreprise}>
+                <tr className="border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer" onClick={() => toggleClient(client.entreprise)}>
+                  <td className="px-4 py-2.5 text-[13px] font-semibold sticky left-0 bg-transparent">
+                    <span className="flex items-center gap-1.5">
+                      {expandedClients.has(client.entreprise) ? <ChevronDown className="h-3.5 w-3.5 text-white/40" /> : <ChevronRight className="h-3.5 w-3.5 text-white/40" />}
+                      {client.entreprise}
+                      <span className="text-[11px] text-white/30 font-normal">({client.deals.length} deals)</span>
+                    </span>
+                  </td>
+                  {clientViewMonths.map(m => (
+                    <td key={m} className="px-3 py-2.5 text-[13px] text-center">
+                      {client.months[m] ? <span className="font-medium">{client.months[m]}</span> : <span className="text-white/10">—</span>}
+                    </td>
+                  ))}
+                  <td className="px-4 py-2.5 text-[13px] text-right font-bold">{fmtNum(client.totalMachines)}</td>
+                  <td className="px-4 py-2.5 text-[13px] text-right font-medium">{fmtCur(client.totalRevenue)}</td>
+                </tr>
+                {expandedClients.has(client.entreprise) && client.deals.map(f => {
+                  const proba = getProbaOption(f.probability)
+                  return (
+                    <tr key={f.id} className="bg-white/[0.01] border-b border-white/[0.02]">
+                      <td className="pl-10 pr-4 py-2 text-[12px] text-white/50 sticky left-0">
+                        {f.prospect ? `${f.prospect.prenom} ${f.prospect.nom}` : '—'}
+                        <span className="ml-2 text-[11px]">{FORECAST_PRODUCT_LABELS[f.product_type]} · {f.quantity} u.</span>
+                      </td>
+                      {clientViewMonths.map(m => <td key={m} className="px-3 py-2 text-[12px] text-center text-white/30">{f.expected_month === m ? f.quantity : ''}</td>)}
+                      <td className="px-4 py-2 text-[12px] text-right text-white/40">{fmtCur(f.total_amount)}</td>
+                      <td className="px-4 py-2 text-[12px] text-right"><span style={{ color: proba.color }}>{proba.emoji} {f.probability}%</span></td>
+                    </tr>
+                  )
+                })}
+              </Fragment>
+            ))}
             <tr className="border-t-2 border-white/[0.12] bg-white/[0.03]">
-              <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50 sticky left-0 bg-white/[0.03]">
-                Total Machines
-              </td>
-              {clientViewMonths.map(m => (
-                <td key={m} className="px-3 py-3 text-[13px] text-center font-bold">
-                  {monthTotals[m] || ''}
-                </td>
-              ))}
-              <td className="px-4 py-3 text-[13px] text-right font-bold">
-                {numberFmt.format(grandTotalMachines)}
-              </td>
-              <td className="px-4 py-3 text-[13px] text-right font-bold">
-                {currencyFmt.format(grandTotalRevenue)}
-              </td>
+              <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-white/50 sticky left-0 bg-white/[0.03]">Total Machines</td>
+              {clientViewMonths.map(m => <td key={m} className="px-3 py-3 text-[13px] text-center font-bold">{monthTotals[m] || ''}</td>)}
+              <td className="px-4 py-3 text-[13px] text-right font-bold">{fmtNum(grandTotalMachines)}</td>
+              <td className="px-4 py-3 text-[13px] text-right font-bold">{fmtCur(grandTotalRevenue)}</td>
             </tr>
           </>
         )}
@@ -876,233 +676,140 @@ function ClientTable({
   )
 }
 
-function ClientRow({
-  client, months, isExpanded, onToggle, getProbaOption,
-}: {
-  client: ClientAggRow
-  months: string[]
-  isExpanded: boolean
-  onToggle: () => void
-  getProbaOption: (p: number) => { value: number; label: string; color: string; emoji: string }
-}) {
-  return (
-    <>
-      <tr
-        className="border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer"
-        onClick={onToggle}
-      >
-        <td className="px-4 py-2.5 text-[13px] font-semibold sticky left-0 bg-transparent">
-          <span className="flex items-center gap-1.5">
-            {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-white/40" /> : <ChevronRight className="h-3.5 w-3.5 text-white/40" />}
-            {client.entreprise}
-            <span className="text-[11px] text-white/30 font-normal">({client.deals.length} deals)</span>
-          </span>
-        </td>
-        {months.map(m => (
-          <td key={m} className="px-3 py-2.5 text-[13px] text-center">
-            {client.months[m] ? <span className="font-medium">{client.months[m]}</span> : <span className="text-white/10">—</span>}
-          </td>
-        ))}
-        <td className="px-4 py-2.5 text-[13px] text-right font-bold">{numberFmt.format(client.totalMachines)}</td>
-        <td className="px-4 py-2.5 text-[13px] text-right font-medium">{currencyFmt.format(client.totalRevenue)}</td>
-      </tr>
-
-      {/* Expanded deal rows */}
-      {isExpanded && client.deals.map(f => {
-        const proba = getProbaOption(f.probability)
-        return (
-          <tr key={f.id} className="bg-white/[0.01] border-b border-white/[0.02]">
-            <td className="pl-10 pr-4 py-2 text-[12px] text-white/50 sticky left-0">
-              {f.prospect ? `${f.prospect.prenom} ${f.prospect.nom}` : '—'}
-              <span className="ml-2 text-[11px]">
-                {FORECAST_PRODUCT_LABELS[f.product_type]} · {f.quantity} u.
-              </span>
-            </td>
-            {months.map(m => (
-              <td key={m} className="px-3 py-2 text-[12px] text-center text-white/30">
-                {f.expected_month === m ? f.quantity : ''}
-              </td>
-            ))}
-            <td className="px-4 py-2 text-[12px] text-right text-white/40">{currencyFmt.format(f.total_amount)}</td>
-            <td className="px-4 py-2 text-[12px] text-right">
-              <span style={{ color: proba.color }}>{proba.emoji} {f.probability}%</span>
-            </td>
-          </tr>
-        )
-      })}
-    </>
-  )
-}
-
 // ═══════════════════════════════════════════════════════════════
-// DEPLOYED TAB (Feature 3)
+// DEPLOYED TAB (Feature 3) - reads from deployments table
 // ═══════════════════════════════════════════════════════════════
 
-function DeployedTabContent({
-  deployedClientData, currentYearMonths, deployedSummary, expandedClients, toggleClient, currentYear,
-}: {
-  deployedClientData: DeployedClientRow[]
-  currentYearMonths: string[]
-  deployedSummary: {
-    machines: Record<string, number>
-    hardware: Record<string, number>
-    softwareMRR: Record<string, number>
-    cumulativeMachines: number
-  }
-  expandedClients: Set<string>
-  toggleClient: (name: string) => void
-  currentYear: number
+function DeployedTab({ deployedClientData, currentYearMonths, deployedSummary, expandedClients, toggleClient, currentYear, needsMigration, showAddDeployment, setShowAddDeployment, onAddDeployment }: {
+  deployedClientData: DeployedClientRow[]; currentYearMonths: string[]
+  deployedSummary: { machines: Record<string, number>; hardware: Record<string, number>; softwareMRR: Record<string, number>; cumulativeMachines: number }
+  expandedClients: Set<string>; toggleClient: (name: string) => void; currentYear: number; needsMigration: boolean
+  showAddDeployment: boolean; setShowAddDeployment: (v: boolean) => void
+  onAddDeployment: (form: { client_name: string; quantity: number; product: string; hardware_revenue: number; deployment_date: string; notes: string }) => void
 }) {
   const ytdMachines = Object.values(deployedSummary.machines).reduce((s, v) => s + v, 0)
   const ytdHardware = Object.values(deployedSummary.hardware).reduce((s, v) => s + v, 0)
-  const lastMonthKey = currentYearMonths[currentYearMonths.length - 1]?.substring(0, 7)
+  const lastMonthKey = currentYearMonths[currentYearMonths.length - 1]
   const ytdSoftwareMRR = deployedSummary.softwareMRR[lastMonthKey] || 0
+
+  if (needsMigration) {
+    return (
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-6 text-center">
+        <p className="text-sm text-amber-400 mb-2">La table &quot;deployments&quot; n&apos;existe pas encore dans Supabase.</p>
+        <p className="text-xs text-white/40 mb-4">Allez dans Supabase Dashboard &gt; SQL Editor et executez le SQL de migration.</p>
+        <button onClick={() => fetch('/api/deployments/migrate', { method: 'POST' }).then(r => r.json()).then(d => {
+          if (d.sql) { navigator.clipboard.writeText(d.sql); alert('SQL copie dans le presse-papier ! Collez-le dans Supabase SQL Editor.') }
+        })} className="rounded-lg px-4 py-2 text-[12px] font-semibold bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors">
+          Copier le SQL de migration
+        </button>
+      </div>
+    )
+  }
 
   return (
     <>
       {/* Summary Cards */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1">Machines deployees</div>
-          <div className="text-2xl font-bold text-emerald-400">{numberFmt.format(ytdMachines)}</div>
-          <div className="mt-0.5 text-[11px] text-emerald-400/40">YTD {currentYear}</div>
-        </div>
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1">Revenu Hardware</div>
-          <div className="text-2xl font-bold text-emerald-400">{currencyFmt.format(ytdHardware)}</div>
-          <div className="mt-0.5 text-[11px] text-emerald-400/40">One-time</div>
-        </div>
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1">Software MRR</div>
-          <div className="text-2xl font-bold text-emerald-400">{currencyFmt.format(ytdSoftwareMRR)}</div>
-          <div className="mt-0.5 text-[11px] text-emerald-400/40">{SOFTWARE_MRR_PER_UNIT} EUR/machine/mois</div>
-        </div>
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1">Clients actifs</div>
-          <div className="text-2xl font-bold text-emerald-400">{deployedClientData.length}</div>
-          <div className="mt-0.5 text-[11px] text-emerald-400/40">Avec machines signees</div>
-        </div>
+        <SummaryCard emerald label="Machines deployees" value={fmtNum(ytdMachines)} sub={`YTD ${currentYear}`} />
+        <SummaryCard emerald label="Revenu Hardware" value={fmtCur(ytdHardware)} sub="One-time" />
+        <SummaryCard emerald label="Software MRR" value={fmtCur(ytdSoftwareMRR)} sub={`${SOFTWARE_MRR_PER_UNIT} EUR/machine/mois`} />
+        <SummaryCard emerald label="Clients actifs" value={String(deployedClientData.length)} sub="Avec machines deployees" />
       </div>
+
+      {/* Add Deployment Button */}
+      <div className="flex justify-end">
+        <button onClick={() => setShowAddDeployment(true)}
+          className="rounded-lg px-4 py-2 text-[12px] font-semibold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors flex items-center gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> Ajouter un deploiement
+        </button>
+      </div>
+
+      {/* Add Deployment Modal */}
+      {showAddDeployment && (
+        <AddDeploymentModal onClose={() => setShowAddDeployment(false)} onSubmit={onAddDeployment} />
+      )}
 
       {/* Deployed Grid */}
       <div className="rounded-xl border border-emerald-500/15 bg-white/[0.03] overflow-x-auto">
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-emerald-500/15">
-              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 sticky left-0 bg-white/[0.03] min-w-[180px]">
-                Client
-              </th>
+              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 sticky left-0 bg-white/[0.03] min-w-[180px]">Client</th>
               {currentYearMonths.map(m => (
                 <th key={m} className="px-3 py-3 text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 text-center min-w-[65px]">
                   {FRENCH_MONTHS_SHORT[parseInt(m.split('-')[1]) - 1]}
                 </th>
               ))}
-              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 text-right min-w-[70px]">
-                YTD
-              </th>
+              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 text-right min-w-[70px]">YTD</th>
             </tr>
           </thead>
           <tbody>
             {deployedClientData.length === 0 ? (
-              <tr>
-                <td colSpan={14} className="px-4 py-8 text-center text-xs text-white/30">
-                  Aucun deal signe pour {currentYear}
-                </td>
-              </tr>
+              <tr><td colSpan={14} className="px-4 py-8 text-center text-xs text-white/30">Aucun deploiement pour {currentYear}</td></tr>
             ) : (
               <>
-                {/* Client Rows */}
-                {deployedClientData.map(client => {
-                  const isExpanded = expandedClients.has(client.entreprise)
-                  const clientSoftware = client.totalMachines * SOFTWARE_MRR_PER_UNIT
-                  return (
-                    <DeployedClientRow
-                      key={client.entreprise}
-                      client={client}
-                      months={currentYearMonths}
-                      isExpanded={isExpanded}
-                      onToggle={() => toggleClient(client.entreprise)}
-                      softwareRevenue={clientSoftware}
-                    />
-                  )
-                })}
+                {deployedClientData.map(client => (
+                  <Fragment key={client.clientName}>
+                    <tr className="border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer" onClick={() => toggleClient(client.clientName)}>
+                      <td className="px-4 py-2.5 sticky left-0 bg-transparent">
+                        <span className="flex items-center gap-1.5">
+                          {expandedClients.has(client.clientName) ? <ChevronDown className="h-3.5 w-3.5 text-emerald-400/40" /> : <ChevronRight className="h-3.5 w-3.5 text-emerald-400/40" />}
+                          <span>
+                            <span className="text-[13px] font-semibold">{client.clientName}</span>
+                            <span className="block text-[10px] text-blue-400/50">Software: {fmtCur(client.totalMachines * SOFTWARE_MRR_PER_UNIT)}/mois</span>
+                          </span>
+                        </span>
+                      </td>
+                      {currentYearMonths.map(m => {
+                        const qty = client.months[m]
+                        return (
+                          <td key={m} className="px-3 py-2.5 text-[13px] text-center">
+                            {qty ? <span className="inline-flex items-center justify-center rounded-md bg-emerald-500/15 px-2 py-0.5 text-[12px] font-semibold text-emerald-400">{qty}</span> : <span className="text-white/10">—</span>}
+                          </td>
+                        )
+                      })}
+                      <td className="px-4 py-2.5 text-[13px] text-right font-bold text-emerald-400">{fmtNum(client.totalMachines)}</td>
+                    </tr>
+                    {expandedClients.has(client.clientName) && client.deployments.map(d => {
+                      const productLabel = PRODUCT_OPTIONS.find(p => p.value === d.product)?.label || d.product
+                      const mk = `${new Date(d.deployment_date).getFullYear()}-${String(new Date(d.deployment_date).getMonth() + 1).padStart(2, '0')}`
+                      return (
+                        <tr key={d.id} className="bg-white/[0.01] border-b border-white/[0.02]">
+                          <td className="pl-10 pr-4 py-2 text-[12px] text-white/40 sticky left-0">
+                            {productLabel} · {d.quantity} u. · {fmtCur(d.hardware_revenue)}
+                            <span className="ml-2 text-[10px] text-white/20">{d.source === 'pipeline' ? '(pipeline)' : '(manuel)'}</span>
+                          </td>
+                          {currentYearMonths.map(m => <td key={m} className="px-3 py-2 text-[12px] text-center text-emerald-400/30">{mk === m ? d.quantity : ''}</td>)}
+                          <td className="px-4 py-2 text-[12px] text-right text-white/30">{d.quantity}</td>
+                        </tr>
+                      )
+                    })}
+                  </Fragment>
+                ))}
 
-                {/* ── Summary Section ── */}
-                {/* Total Machines */}
+                {/* Summary rows */}
                 <tr className="border-t-2 border-emerald-500/20 bg-emerald-500/[0.04]">
-                  <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-emerald-400/70 sticky left-0 bg-emerald-500/[0.04]">
-                    Total Machines
-                  </td>
-                  {currentYearMonths.map(m => {
-                    const mk = m.substring(0, 7)
-                    return (
-                      <td key={m} className="px-3 py-3 text-[13px] text-center font-bold text-emerald-400">
-                        {deployedSummary.machines[mk] || ''}
-                      </td>
-                    )
-                  })}
-                  <td className="px-4 py-3 text-[13px] text-right font-bold text-emerald-400">
-                    {numberFmt.format(ytdMachines)}
-                  </td>
+                  <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-emerald-400/70 sticky left-0 bg-emerald-500/[0.04]">Total Machines</td>
+                  {currentYearMonths.map(m => <td key={m} className="px-3 py-3 text-[13px] text-center font-bold text-emerald-400">{deployedSummary.machines[m] || ''}</td>)}
+                  <td className="px-4 py-3 text-[13px] text-right font-bold text-emerald-400">{fmtNum(ytdMachines)}</td>
                 </tr>
-
-                {/* Hardware Revenue */}
                 <tr className="bg-emerald-500/[0.02]">
-                  <td className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/40 sticky left-0 bg-emerald-500/[0.02]">
-                    Revenu Hardware
-                  </td>
-                  {currentYearMonths.map(m => {
-                    const mk = m.substring(0, 7)
-                    const val = deployedSummary.hardware[mk]
-                    return (
-                      <td key={m} className="px-3 py-2.5 text-[11px] text-center text-white/50">
-                        {val ? currencyFmt.format(val) : ''}
-                      </td>
-                    )
-                  })}
-                  <td className="px-4 py-2.5 text-[12px] text-right font-semibold">
-                    {currencyFmt.format(ytdHardware)}
-                  </td>
+                  <td className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/40 sticky left-0 bg-emerald-500/[0.02]">Revenu Hardware</td>
+                  {currentYearMonths.map(m => <td key={m} className="px-3 py-2.5 text-[11px] text-center text-white/50">{deployedSummary.hardware[m] ? fmtCur(deployedSummary.hardware[m]) : ''}</td>)}
+                  <td className="px-4 py-2.5 text-[12px] text-right font-semibold">{fmtCur(ytdHardware)}</td>
                 </tr>
-
-                {/* Software MRR (cumulative) */}
                 <tr className="bg-emerald-500/[0.02]">
-                  <td className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/40 sticky left-0 bg-emerald-500/[0.02]">
-                    Software MRR
-                  </td>
-                  {currentYearMonths.map(m => {
-                    const mk = m.substring(0, 7)
-                    const val = deployedSummary.softwareMRR[mk]
-                    return (
-                      <td key={m} className="px-3 py-2.5 text-[11px] text-center text-blue-400/70">
-                        {val ? currencyFmt.format(val) : ''}
-                      </td>
-                    )
-                  })}
-                  <td className="px-4 py-2.5 text-[12px] text-right font-semibold text-blue-400">
-                    {currencyFmt.format(ytdSoftwareMRR)}
-                  </td>
+                  <td className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/40 sticky left-0 bg-emerald-500/[0.02]">Software MRR</td>
+                  {currentYearMonths.map(m => <td key={m} className="px-3 py-2.5 text-[11px] text-center text-blue-400/70">{deployedSummary.softwareMRR[m] ? fmtCur(deployedSummary.softwareMRR[m]) : ''}</td>)}
+                  <td className="px-4 py-2.5 text-[12px] text-right font-semibold text-blue-400">{fmtCur(ytdSoftwareMRR)}</td>
                 </tr>
-
-                {/* Total Revenue */}
                 <tr className="border-t border-emerald-500/15 bg-emerald-500/[0.06]">
-                  <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-emerald-400 sticky left-0 bg-emerald-500/[0.06]">
-                    Revenu Total
-                  </td>
+                  <td className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-emerald-400 sticky left-0 bg-emerald-500/[0.06]">Revenu Total</td>
                   {currentYearMonths.map(m => {
-                    const mk = m.substring(0, 7)
-                    const hw = deployedSummary.hardware[mk] || 0
-                    const sw = deployedSummary.softwareMRR[mk] || 0
-                    const total = hw + sw
-                    return (
-                      <td key={m} className="px-3 py-3 text-[11px] text-center font-bold text-emerald-400">
-                        {total ? currencyFmt.format(total) : ''}
-                      </td>
-                    )
+                    const total = (deployedSummary.hardware[m] || 0) + (deployedSummary.softwareMRR[m] || 0)
+                    return <td key={m} className="px-3 py-3 text-[11px] text-center font-bold text-emerald-400">{total ? fmtCur(total) : ''}</td>
                   })}
-                  <td className="px-4 py-3 text-[13px] text-right font-bold text-emerald-400">
-                    {currencyFmt.format(ytdHardware + ytdSoftwareMRR)}
-                  </td>
+                  <td className="px-4 py-3 text-[13px] text-right font-bold text-emerald-400">{fmtCur(ytdHardware + ytdSoftwareMRR)}</td>
                 </tr>
               </>
             )}
@@ -1113,73 +820,86 @@ function DeployedTabContent({
   )
 }
 
-function DeployedClientRow({
-  client, months, isExpanded, onToggle, softwareRevenue,
-}: {
-  client: DeployedClientRow
-  months: string[]
-  isExpanded: boolean
-  onToggle: () => void
-  softwareRevenue: number
-}) {
-  return (
-    <>
-      <tr
-        className="border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer"
-        onClick={onToggle}
-      >
-        <td className="px-4 py-2.5 sticky left-0 bg-transparent">
-          <span className="flex items-center gap-1.5">
-            {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-emerald-400/40" /> : <ChevronRight className="h-3.5 w-3.5 text-emerald-400/40" />}
-            <span>
-              <span className="text-[13px] font-semibold">{client.entreprise}</span>
-              <span className="block text-[10px] text-blue-400/50">
-                Software: {currencyFmt.format(softwareRevenue)}/mois
-              </span>
-            </span>
-          </span>
-        </td>
-        {months.map(m => {
-          const mk = m.substring(0, 7)
-          const qty = client.months[mk]
-          return (
-            <td key={m} className="px-3 py-2.5 text-[13px] text-center">
-              {qty ? (
-                <span className="inline-flex items-center justify-center rounded-md bg-emerald-500/15 px-2 py-0.5 text-[12px] font-semibold text-emerald-400">
-                  {qty}
-                </span>
-              ) : (
-                <span className="text-white/10">—</span>
-              )}
-            </td>
-          )
-        })}
-        <td className="px-4 py-2.5 text-[13px] text-right font-bold text-emerald-400">
-          {numberFmt.format(client.totalMachines)}
-        </td>
-      </tr>
+// ═══════════════════════════════════════════════════════════════
+// ADD DEPLOYMENT MODAL
+// ═══════════════════════════════════════════════════════════════
 
-      {/* Expanded deals */}
-      {isExpanded && client.deals.map(f => (
-        <tr key={f.id} className="bg-white/[0.01] border-b border-white/[0.02]">
-          <td className="pl-10 pr-4 py-2 text-[12px] text-white/40 sticky left-0">
-            {f.prospect ? `${f.prospect.prenom} ${f.prospect.nom}` : '—'}
-            <span className="ml-2 text-[11px] text-white/25">
-              {FORECAST_PRODUCT_LABELS[f.product_type]} · {f.quantity} u. · {currencyFmt.format(f.total_amount)}
-            </span>
-          </td>
-          {months.map(m => {
-            const mk = m.substring(0, 7)
-            const monthKey = f.expected_month.substring(0, 7)
-            return (
-              <td key={m} className="px-3 py-2 text-[12px] text-center text-emerald-400/30">
-                {monthKey === mk ? f.quantity : ''}
-              </td>
-            )
-          })}
-          <td className="px-4 py-2 text-[12px] text-right text-white/30">{f.quantity}</td>
-        </tr>
-      ))}
-    </>
+function AddDeploymentModal({ onClose, onSubmit }: {
+  onClose: () => void
+  onSubmit: (form: { client_name: string; quantity: number; product: string; hardware_revenue: number; deployment_date: string; notes: string }) => void
+}) {
+  const [clientName, setClientName] = useState('')
+  const [quantity, setQuantity] = useState(1)
+  const [product, setProduct] = useState('screenkit')
+  const [hardwareRevenue, setHardwareRevenue] = useState(0)
+  const [deploymentDate, setDeploymentDate] = useState('')
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!clientName || !deploymentDate) return
+    setSubmitting(true)
+    await onSubmit({ client_name: clientName, quantity, product, hardware_revenue: hardwareRevenue, deployment_date: deploymentDate, notes })
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="rounded-xl border border-white/[0.08] bg-[#132926] p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-sm font-bold">Ajouter un deploiement</h3>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60"><X className="h-4 w-4" /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Client *</label>
+            <input type="text" required value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Nom du client"
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] placeholder:text-white/20 focus:border-emerald-500/30 focus:outline-none" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Quantite *</label>
+              <input type="number" required min={1} value={quantity} onChange={e => setQuantity(Number(e.target.value))}
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] focus:border-emerald-500/30 focus:outline-none" />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Produit *</label>
+              <select value={product} onChange={e => setProduct(e.target.value)}
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] focus:border-emerald-500/30 focus:outline-none">
+                {PRODUCT_OPTIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Revenu hardware (EUR)</label>
+              <input type="number" min={0} value={hardwareRevenue} onChange={e => setHardwareRevenue(Number(e.target.value))}
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] focus:border-emerald-500/30 focus:outline-none" />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Date deploiement *</label>
+              <input type="date" required value={deploymentDate} onChange={e => setDeploymentDate(e.target.value)}
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] focus:border-emerald-500/30 focus:outline-none" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Notes</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Contexte optionnel..."
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] placeholder:text-white/20 focus:border-emerald-500/30 focus:outline-none resize-none" />
+          </div>
+
+          <button type="submit" disabled={submitting || !clientName || !deploymentDate}
+            className="w-full rounded-lg py-2.5 text-[13px] font-semibold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Ajouter
+          </button>
+        </form>
+      </div>
+    </div>
   )
 }

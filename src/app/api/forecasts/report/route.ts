@@ -1,25 +1,31 @@
 import { NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { getAnthropicClient } from '@/lib/anthropic'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { SOFTWARE_MRR_PER_UNIT, type ReportPeriod, getReportPeriodMonths, getReportPeriodLabel } from '@/lib/forecast-config'
 
-const FRENCH_MONTHS_SHORT = ['Jan', 'Fev', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aou', 'Sep', 'Oct', 'Nov', 'Dec']
+// ─── Number formatting — proper FR convention (space as thousand sep) ───
+// Using a manual formatter to avoid any Node/jsPDF encoding issues with Intl
 
-function currencyFmt(val: number): string {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(val)
+function fmtCurrency(val: number): string {
+  const rounded = Math.round(val)
+  const parts = Math.abs(rounded).toString().split('.')
+  const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+  return `${rounded < 0 ? '-' : ''}${intPart} EUR`
 }
 
-function numberFmt(val: number): string {
-  return new Intl.NumberFormat('fr-FR').format(val)
+function fmtNumber(val: number): string {
+  return Math.round(val).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 }
+
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 export async function POST(request: NextRequest) {
   try {
     const { period, year } = await request.json() as { period: ReportPeriod; year: number }
     const { start, end } = getReportPeriodMonths(period, year)
 
-    // Build month keys for the period
     const periodMonths: string[] = []
     for (let m = start; m <= end; m++) {
       periodMonths.push(`${year}-${String(m + 1).padStart(2, '0')}`)
@@ -35,13 +41,12 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'No forecast data' }, { status: 404 })
     }
 
-    // Filter to period
     const periodForecasts = forecasts.filter(f => {
       const monthKey = f.expected_month.substring(0, 7)
       return periodMonths.includes(monthKey)
     })
 
-    // Fetch activities for client interaction timelines
+    // Fetch activities for AI summaries
     const prospectIds = [...new Set(periodForecasts.map(f => f.prospect_id))]
     const { data: activities } = await supabase
       .from('activities')
@@ -60,24 +65,18 @@ export async function POST(request: NextRequest) {
       stages: Set<string>
       products: Set<string>
       interactions: Array<{ date: string; type: string; content: string }>
+      aiSummary?: string
     }
 
     const clientMap = new Map<string, ClientSummary>()
 
     for (const f of periodForecasts) {
-      const name = f.prospect?.entreprise || 'Sans entreprise'
+      const name = f.prospect?.entreprise || 'Unknown'
       const key = name.toLowerCase().trim()
       if (!clientMap.has(key)) {
         clientMap.set(key, {
-          entreprise: name,
-          deals: [],
-          totalMachines: 0,
-          totalValue: 0,
-          totalWeighted: 0,
-          months: {},
-          stages: new Set(),
-          products: new Set(),
-          interactions: [],
+          entreprise: name, deals: [], totalMachines: 0, totalValue: 0, totalWeighted: 0,
+          months: {}, stages: new Set(), products: new Set(), interactions: [],
         })
       }
       const c = clientMap.get(key)!
@@ -91,7 +90,7 @@ export async function POST(request: NextRequest) {
       c.products.add(f.product_type)
     }
 
-    // Attach interactions (max 5 per client)
+    // Attach interactions
     const activityMap = new Map<string, typeof activities>()
     for (const a of (activities || [])) {
       if (!activityMap.has(a.prospect_id)) activityMap.set(a.prospect_id, [])
@@ -102,18 +101,53 @@ export async function POST(request: NextRequest) {
       const clientProspectIds = client.deals.map(d => d.prospect_id)
       const clientActivities: Array<{ date: string; type: string; content: string }> = []
       for (const pid of clientProspectIds) {
-        for (const a of (activityMap.get(pid) || []).slice(0, 5)) {
+        for (const a of (activityMap.get(pid) || []).slice(0, 10)) {
           clientActivities.push({
-            date: new Date(a.activity_date || a.created_at).toLocaleDateString('fr-FR'),
+            date: new Date(a.activity_date || a.created_at).toLocaleDateString('en-GB'),
             type: a.type,
-            content: (a.content || '').substring(0, 100),
+            content: (a.content || '').substring(0, 200),
           })
         }
       }
-      client.interactions = clientActivities.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
+      client.interactions = clientActivities.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10)
     }
 
     const clients = Array.from(clientMap.values()).sort((a, b) => b.totalWeighted - a.totalWeighted)
+
+    // ─── AI-generated summaries via Claude Sonnet ───
+    const anthropic = getAnthropicClient()
+
+    for (const client of clients) {
+      if (client.interactions.length === 0) continue
+      try {
+        const interactionText = client.interactions
+          .map(i => `- ${i.date} [${i.type}]: ${i.content}`)
+          .join('\n')
+
+        const productLabels: Record<string, string> = {
+          screenkit: 'ScreenKit', smart_fridge: 'Smart Fridge',
+          smart_freezer: 'Smart Freezer', boostbar: 'BoostBar', autre: 'Other',
+        }
+
+        const msg = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 200,
+          system: 'You are a sales assistant at Boost Inc, a vending/retail technology company. Summarize the following client interactions into a 2-3 sentence executive brief in English. Focus on: current deal status, last significant action, and next expected step. Be concise and factual. Do not use bullet points.',
+          messages: [{
+            role: 'user',
+            content: `Client: ${client.entreprise}\nDeals: ${client.deals.length} deal(s), ${client.totalMachines} machines, ${fmtCurrency(client.totalWeighted)} weighted\nProducts: ${[...client.products].map(p => productLabels[p] || p).join(', ')}\nStage(s): ${[...client.stages].join(', ') || 'N/A'}\n\nRecent interactions:\n${interactionText}`,
+          }],
+        })
+
+        const textBlock = msg.content.find(b => b.type === 'text')
+        if (textBlock && textBlock.type === 'text') {
+          client.aiSummary = textBlock.text
+        }
+      } catch (err) {
+        console.error(`AI summary failed for ${client.entreprise}:`, err)
+        // Fallback: no AI summary, will use interaction list
+      }
+    }
 
     // ─── Summary stats ───
     const totalMachines = periodForecasts.reduce((s, f) => s + f.quantity, 0)
@@ -125,16 +159,16 @@ export async function POST(request: NextRequest) {
     const closedDeals = periodForecasts.filter(f => f.probability === 100 || f.probability <= 0).length
     const winRate = closedDeals > 0 ? Math.round((signedDeals / (closedDeals || 1)) * 100) : null
 
-    // ─── Generate PDF ───
+    // ═══════════════════════════════════════════════
+    // GENERATE PDF (all in English)
+    // ═══════════════════════════════════════════════
+
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
     const pageWidth = doc.internal.pageSize.getWidth()
     const pageHeight = doc.internal.pageSize.getHeight()
     const margin = 15
 
-    // Brand colors
     const brandGreen = [13, 31, 28] as [number, number, number]
-    const brandAccent = [24, 99, 220] as [number, number, number]
-    const emerald = [34, 197, 94] as [number, number, number]
 
     function addHeader() {
       doc.setFillColor(...brandGreen)
@@ -152,7 +186,7 @@ export async function POST(request: NextRequest) {
       doc.setTextColor(150, 150, 150)
       doc.setFontSize(7)
       doc.text(`Page ${pageNum}`, pageWidth - margin, pageHeight - 8, { align: 'right' })
-      doc.text(`Genere le ${new Date().toLocaleDateString('fr-FR')}`, margin, pageHeight - 8)
+      doc.text(`Generated on ${new Date().toLocaleDateString('en-GB')}`, margin, pageHeight - 8)
     }
 
     // ═══ PAGE 1: Executive Summary ═══
@@ -162,23 +196,22 @@ export async function POST(request: NextRequest) {
     doc.setTextColor(50, 50, 50)
     doc.setFontSize(16)
     doc.setFont('helvetica', 'bold')
-    doc.text('Resume Executif', margin, y)
+    doc.text('Executive Summary', margin, y)
     y += 10
 
     doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(100, 100, 100)
-    doc.text(`Periode: ${getReportPeriodLabel(period, year)}`, margin, y)
+    doc.text(`Period: ${getReportPeriodLabel(period, year)}`, margin, y)
     y += 10
 
-    // KPI boxes
     const kpis = [
-      { label: 'Machines forecast', value: numberFmt(totalMachines) },
-      { label: 'Revenu Hardware (pond.)', value: currencyFmt(totalHardware) },
-      { label: 'Software MRR attendu', value: currencyFmt(totalSoftwareMRR) },
-      { label: 'Deals actifs', value: `${totalDeals}` },
-      { label: 'Clients actifs', value: `${uniqueClients}` },
-      ...(winRate !== null ? [{ label: 'Win rate', value: `${winRate}%` }] : []),
+      { label: 'MACHINES FORECAST', value: fmtNumber(totalMachines) },
+      { label: 'HARDWARE REVENUE (W)', value: fmtCurrency(totalHardware) },
+      { label: 'SOFTWARE MRR (EOP)', value: fmtCurrency(totalSoftwareMRR) },
+      { label: 'ACTIVE DEALS', value: `${totalDeals}` },
+      { label: 'ACTIVE CLIENTS', value: `${uniqueClients}` },
+      ...(winRate !== null ? [{ label: 'WIN RATE', value: `${winRate}%` }] : []),
     ]
 
     const boxWidth = (pageWidth - margin * 2 - 10 * (kpis.length - 1)) / kpis.length
@@ -187,13 +220,13 @@ export async function POST(request: NextRequest) {
       doc.setFillColor(245, 245, 245)
       doc.roundedRect(x, y, boxWidth, 22, 3, 3, 'F')
       doc.setTextColor(120, 120, 120)
-      doc.setFontSize(7)
+      doc.setFontSize(6.5)
       doc.setFont('helvetica', 'normal')
-      doc.text(kpi.label.toUpperCase(), x + 5, y + 7)
+      doc.text(kpi.label, x + 4, y + 7)
       doc.setTextColor(30, 30, 30)
-      doc.setFontSize(12)
+      doc.setFontSize(11)
       doc.setFont('helvetica', 'bold')
-      doc.text(kpi.value, x + 5, y + 17)
+      doc.text(kpi.value, x + 4, y + 17)
     })
     y += 32
 
@@ -206,10 +239,9 @@ export async function POST(request: NextRequest) {
     doc.setTextColor(50, 50, 50)
     doc.setFontSize(14)
     doc.setFont('helvetica', 'bold')
-    doc.text('Forecast par Client', margin, 28)
+    doc.text('Forecast by Client', margin, 28)
 
-    // Build table data
-    const tableHead = ['Client', ...periodMonths.map(m => FRENCH_MONTHS_SHORT[parseInt(m.split('-')[1]) - 1]), 'Total', 'Rev. pond.']
+    const tableHead = ['Client', ...periodMonths.map(m => MONTHS_SHORT[parseInt(m.split('-')[1]) - 1]), 'Total', 'Weighted Rev.']
     const tableBody: (string | number)[][] = []
     const monthTotals: Record<string, number> = {}
 
@@ -220,18 +252,16 @@ export async function POST(request: NextRequest) {
         row.push(qty || '')
         monthTotals[m] = (monthTotals[m] || 0) + qty
       }
-      row.push(numberFmt(client.totalMachines))
-      row.push(currencyFmt(client.totalWeighted))
+      row.push(fmtNumber(client.totalMachines))
+      row.push(fmtCurrency(client.totalWeighted))
       tableBody.push(row)
     }
 
     // Totals row
     const totalsRow: (string | number)[] = ['TOTAL']
-    for (const m of periodMonths) {
-      totalsRow.push(monthTotals[m] || '')
-    }
-    totalsRow.push(numberFmt(totalMachines))
-    totalsRow.push(currencyFmt(totalHardware))
+    for (const m of periodMonths) totalsRow.push(monthTotals[m] || '')
+    totalsRow.push(fmtNumber(totalMachines))
+    totalsRow.push(fmtCurrency(totalHardware))
     tableBody.push(totalsRow)
 
     autoTable(doc, {
@@ -239,24 +269,14 @@ export async function POST(request: NextRequest) {
       head: [tableHead],
       body: tableBody,
       theme: 'grid',
-      headStyles: {
-        fillColor: brandGreen,
-        textColor: [255, 255, 255],
-        fontSize: 7,
-        fontStyle: 'bold',
-        halign: 'center',
-      },
-      bodyStyles: {
-        fontSize: 8,
-        halign: 'center',
-      },
+      headStyles: { fillColor: brandGreen, textColor: [255, 255, 255], fontSize: 7, fontStyle: 'bold', halign: 'center' },
+      bodyStyles: { fontSize: 8, halign: 'center' },
       columnStyles: {
         0: { halign: 'left', fontStyle: 'bold', cellWidth: 50 },
         [periodMonths.length + 1]: { fontStyle: 'bold' },
         [periodMonths.length + 2]: { fontStyle: 'bold' },
       },
       didParseCell(data) {
-        // Bold the last row (totals)
         if (data.row.index === tableBody.length - 1) {
           data.cell.styles.fontStyle = 'bold'
           data.cell.styles.fillColor = [240, 248, 240]
@@ -270,38 +290,37 @@ export async function POST(request: NextRequest) {
     // ═══ PAGE 3+: Client Summaries ═══
     let pageNum = 3
 
+    const productLabels: Record<string, string> = {
+      screenkit: 'ScreenKit', smart_fridge: 'Smart Fridge',
+      smart_freezer: 'Smart Freezer', boostbar: 'BoostBar', autre: 'Other',
+    }
+
     for (const client of clients) {
       doc.addPage()
       addHeader()
       let cy = 28
 
-      // Client name
       doc.setTextColor(50, 50, 50)
       doc.setFontSize(14)
       doc.setFont('helvetica', 'bold')
       doc.text(client.entreprise, margin, cy)
       cy += 2
 
-      // Separator line
       doc.setDrawColor(200, 200, 200)
       doc.setLineWidth(0.5)
       doc.line(margin, cy, pageWidth - margin, cy)
       cy += 8
 
-      // Client stats
       doc.setFontSize(9)
       doc.setFont('helvetica', 'normal')
       doc.setTextColor(80, 80, 80)
 
       const stats = [
-        `Deals sur la periode: ${client.deals.length}`,
-        `Total machines: ${numberFmt(client.totalMachines)}`,
-        `Valeur totale: ${currencyFmt(client.totalWeighted)} (ponderee)`,
-        `Stade(s): ${[...client.stages].join(', ') || 'N/A'}`,
-        `Produits: ${[...client.products].map(p => {
-          const labels: Record<string, string> = { screenkit: 'ScreenKit', smart_fridge: 'Smart Fridge', smart_freezer: 'Smart Freezer', autre: 'Autre' }
-          return labels[p] || p
-        }).join(', ')}`,
+        `Deals in period: ${client.deals.length}`,
+        `Total machines: ${fmtNumber(client.totalMachines)}`,
+        `Total value: ${fmtCurrency(client.totalWeighted)} (weighted)`,
+        `Stage(s): ${[...client.stages].join(', ') || 'N/A'}`,
+        `Key products: ${[...client.products].map(p => productLabels[p] || p).join(', ')}`,
       ]
 
       for (const line of stats) {
@@ -309,38 +328,55 @@ export async function POST(request: NextRequest) {
         cy += 5
       }
 
-      cy += 5
+      cy += 6
 
-      // Interaction Timeline
-      if (client.interactions.length > 0) {
-        doc.setFontSize(10)
-        doc.setFont('helvetica', 'bold')
-        doc.setTextColor(50, 50, 50)
-        doc.text('Historique des interactions', margin, cy)
-        cy += 6
+      // AI-generated status summary OR fallback
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(50, 50, 50)
+      doc.text('Status Summary', margin, cy)
+      cy += 6
 
+      if (client.aiSummary) {
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(60, 60, 60)
+
+        // Word-wrap the AI summary
+        const lines = doc.splitTextToSize(client.aiSummary, pageWidth - margin * 2 - 5)
+        for (const line of lines) {
+          doc.text(line, margin + 2, cy)
+          cy += 4.5
+          if (cy > pageHeight - 20) break
+        }
+      } else if (client.interactions.length > 0) {
+        // Fallback: bullet list of last 5 interactions
         doc.setFontSize(8)
         doc.setFont('helvetica', 'normal')
         doc.setTextColor(100, 100, 100)
 
         const typeLabels: Record<string, string> = {
-          note: 'Note', call: 'Appel', email_sent: 'Email', email_received: 'Email recu',
-          status_change: 'Changement', meeting: 'Reunion', presentation: 'Presentation',
+          note: 'Note', call: 'Call', email_sent: 'Email sent', email_received: 'Email received',
+          status_change: 'Status change', meeting: 'Meeting', presentation: 'Presentation',
           linkedin_interaction: 'LinkedIn', transcription: 'Transcription',
         }
 
-        for (const interaction of client.interactions) {
+        for (const interaction of client.interactions.slice(0, 5)) {
           const label = typeLabels[interaction.type] || interaction.type
           const text = `${interaction.date}  ${label}: ${interaction.content}`
-          doc.text(`- ${text}`, margin + 2, cy)
-          cy += 4.5
+          const wrappedLines = doc.splitTextToSize(`- ${text}`, pageWidth - margin * 2 - 10)
+          for (const wl of wrappedLines) {
+            doc.text(wl, margin + 2, cy)
+            cy += 4
+            if (cy > pageHeight - 20) break
+          }
           if (cy > pageHeight - 20) break
         }
       } else {
         doc.setFontSize(8)
         doc.setFont('helvetica', 'italic')
         doc.setTextColor(150, 150, 150)
-        doc.text('Aucune interaction enregistree', margin, cy)
+        doc.text('No interactions recorded for this period.', margin, cy)
       }
 
       addFooter(pageNum)
