@@ -238,6 +238,18 @@ export function ForecastStats() {
     return Array.from(map.values()).sort((a, b) => b.totalMachines - a.totalMachines)
   }, [allEntries, deployedYear])
 
+  // Count ALL machines deployed BEFORE the selected year (for cumulative MRR)
+  const machinesBeforeYear = useMemo(() => {
+    let total = 0
+    for (const e of allEntries) {
+      const dt = new Date(e.deploymentDate)
+      if (!isNaN(dt.getTime()) && dt.getFullYear() < deployedYear) {
+        total += e.quantity
+      }
+    }
+    return total
+  }, [allEntries, deployedYear])
+
   const deployedSummary = useMemo(() => {
     const machines: Record<string, number> = {}
     const hardware: Record<string, number> = {}
@@ -247,10 +259,11 @@ export function ForecastStats() {
       for (const c of deployedClientData) { mc += c.months[m] || 0; hr += c.hardwareRevenue[m] || 0 }
       machines[m] = mc; hardware[m] = hr
     }
-    let cum = 0
+    // MRR is cumulative across ALL years: start from machines deployed before this year
+    let cum = machinesBeforeYear
     for (const m of yearMonths) { cum += machines[m] || 0; softwareMRR[m] = cum * SOFTWARE_MRR_PER_UNIT }
     return { machines, hardware, softwareMRR, cumulativeMachines: cum }
-  }, [yearMonths, deployedClientData])
+  }, [yearMonths, deployedClientData, machinesBeforeYear])
 
   // ─── Helpers ───
   const getProbaOption = (p: number) => FORECAST_PROBABILITY_OPTIONS.find(o => o.value === p) || FORECAST_PROBABILITY_OPTIONS[0]
