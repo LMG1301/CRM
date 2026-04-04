@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, Fragment } from 'react'
-import { Loader2, ChevronDown, ChevronRight, CheckCircle2, Download, FileText, Plus, X, Pencil, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { Loader2, ChevronDown, ChevronRight, CheckCircle2, Download, FileText, Plus, X, Pencil, Trash2, Sparkles } from 'lucide-react'
 import type { ProspectForecast, ForecastProductType } from '@/lib/types'
 import { FORECAST_PRODUCT_LABELS, FORECAST_PROBABILITY_OPTIONS } from '@/lib/types'
 import { SOFTWARE_MRR_PER_UNIT, PRODUCT_DEFAULT_PRICES, type ReportPeriod, REPORT_PERIOD_LABELS } from '@/lib/forecast-config'
@@ -81,11 +82,13 @@ interface ClientAggRow { entreprise: string; months: Record<string, number>; tot
 
 interface DeployedClientRow {
   clientName: string
+  prospectId: string | null
   months: Record<string, number>
   totalMachines: number
   hardwareRevenue: Record<string, number>
   totalHardware: number
   entries: DeployedEntry[]
+  isNew: boolean // first deployment is in the selected year
 }
 
 type ForecastTab = 'forecast' | 'deployed'
@@ -219,6 +222,30 @@ export function ForecastStats() {
     const m = new Set<string>(); clientData.forEach(c => Object.keys(c.months).forEach(k => m.add(k))); return Array.from(m).sort()
   }, [clientData])
 
+  // ─── Clients that existed BEFORE the selected year (for "new client" detection) ───
+  const clientsBeforeYear = useMemo(() => {
+    const clients = new Set<string>()
+    for (const e of allEntries) {
+      const dt = new Date(e.deploymentDate)
+      if (!isNaN(dt.getTime()) && dt.getFullYear() < deployedYear) {
+        clients.add(e.clientName.toLowerCase().trim())
+      }
+    }
+    return clients
+  }, [allEntries, deployedYear])
+
+  // Total cumulative active clients (all years up to and including selected)
+  const totalActiveClients = useMemo(() => {
+    const clients = new Set<string>()
+    for (const e of allEntries) {
+      const dt = new Date(e.deploymentDate)
+      if (!isNaN(dt.getTime()) && dt.getFullYear() <= deployedYear) {
+        clients.add(e.clientName.toLowerCase().trim())
+      }
+    }
+    return clients.size
+  }, [allEntries, deployedYear])
+
   // ─── Deployed data (from client_machines + deployments, filtered by year) ───
   const deployedClientData = useMemo<DeployedClientRow[]>(() => {
     const map = new Map<string, DeployedClientRow>()
@@ -226,8 +253,15 @@ export function ForecastStats() {
       const dt = new Date(e.deploymentDate)
       if (isNaN(dt.getTime()) || dt.getFullYear() !== deployedYear) continue
       const key = e.clientName.toLowerCase().trim()
-      if (!map.has(key)) map.set(key, { clientName: e.clientName, months: {}, totalMachines: 0, hardwareRevenue: {}, totalHardware: 0, entries: [] })
+      if (!map.has(key)) {
+        map.set(key, {
+          clientName: e.clientName, prospectId: e.prospectId, months: {}, totalMachines: 0,
+          hardwareRevenue: {}, totalHardware: 0, entries: [],
+          isNew: !clientsBeforeYear.has(key),
+        })
+      }
       const row = map.get(key)!
+      if (!row.prospectId && e.prospectId) row.prospectId = e.prospectId
       const mk = `${deployedYear}-${String(dt.getMonth() + 1).padStart(2, '0')}`
       row.months[mk] = (row.months[mk] || 0) + e.quantity
       row.totalMachines += e.quantity
@@ -236,7 +270,9 @@ export function ForecastStats() {
       row.entries.push(e)
     }
     return Array.from(map.values()).sort((a, b) => b.totalMachines - a.totalMachines)
-  }, [allEntries, deployedYear])
+  }, [allEntries, deployedYear, clientsBeforeYear])
+
+  const newClientsCount = useMemo(() => deployedClientData.filter(c => c.isNew).length, [deployedClientData])
 
   // Count ALL machines deployed BEFORE the selected year (for cumulative MRR)
   const machinesBeforeYear = useMemo(() => {
@@ -341,6 +377,7 @@ export function ForecastStats() {
           deployedClientData={deployedClientData} yearMonths={yearMonths} deployedSummary={deployedSummary}
           expandedClients={expandedClients} toggleClient={toggleClient}
           deployedYear={deployedYear} setDeployedYear={setDeployedYear} availableYears={availableYears}
+          totalActiveClients={totalActiveClients} newClientsCount={newClientsCount}
           showAddDeployment={showAddDeployment} setShowAddDeployment={setShowAddDeployment}
           editingEntry={editingEntry} setEditingEntry={setEditingEntry}
           deletingEntry={deletingEntry} setDeletingEntry={setDeletingEntry}
@@ -500,7 +537,11 @@ function ClientTable({ clientData, clientViewMonths, expandedClients, toggleClie
       {clientData.length === 0 ? <tr><td colSpan={clientViewMonths.length+3} className="px-4 py-8 text-center text-xs text-white/30">Aucun forecast</td></tr> : <>
         {clientData.map(c => <Fragment key={c.entreprise}>
           <tr className="border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer" onClick={() => toggleClient(c.entreprise)}>
-            <td className="px-4 py-2.5 text-[13px] font-semibold sticky left-0 bg-transparent"><span className="flex items-center gap-1.5">{expandedClients.has(c.entreprise) ? <ChevronDown className="h-3.5 w-3.5 text-white/40"/> : <ChevronRight className="h-3.5 w-3.5 text-white/40"/>}{c.entreprise}<span className="text-[11px] text-white/30 font-normal">({c.deals.length})</span></span></td>
+            <td className="px-4 py-2.5 text-[13px] font-semibold sticky left-0 bg-transparent"><span className="flex items-center gap-1.5">{expandedClients.has(c.entreprise) ? <ChevronDown className="h-3.5 w-3.5 text-white/40"/> : <ChevronRight className="h-3.5 w-3.5 text-white/40"/>}
+              {c.deals[0]?.prospect_id ? (
+                <Link href={`/prospects/${c.deals[0].prospect_id}`} onClick={e => e.stopPropagation()} className="hover:underline hover:text-blue-400 transition-colors">{c.entreprise}</Link>
+              ) : c.entreprise}
+              <span className="text-[11px] text-white/30 font-normal">({c.deals.length})</span></span></td>
             {clientViewMonths.map(m => <td key={m} className="px-3 py-2.5 text-[13px] text-center">{c.months[m] ? <span className="font-medium">{c.months[m]}</span> : <span className="text-white/10">—</span>}</td>)}
             <td className="px-4 py-2.5 text-[13px] text-right font-bold">{fmtNum(c.totalMachines)}</td>
             <td className="px-4 py-2.5 text-[13px] text-right font-medium">{fmtCur(c.totalRevenue)}</td>
@@ -531,13 +572,14 @@ function DeployedTabUI(props: {
   deployedSummary: { machines: Record<string, number>; hardware: Record<string, number>; softwareMRR: Record<string, number>; cumulativeMachines: number }
   expandedClients: Set<string>; toggleClient: (n: string) => void
   deployedYear: number; setDeployedYear: (y: number) => void; availableYears: number[]
+  totalActiveClients: number; newClientsCount: number
   showAddDeployment: boolean; setShowAddDeployment: (v: boolean) => void
   editingEntry: DeployedEntry | null; setEditingEntry: (e: DeployedEntry | null) => void
   deletingEntry: DeployedEntry | null; setDeletingEntry: (e: DeployedEntry | null) => void
   saveEntry: (form: DeploymentFormData, existing?: DeployedEntry) => void
   deleteEntry: (entry: DeployedEntry) => void
 }) {
-  const { deployedClientData, yearMonths, deployedSummary, expandedClients, toggleClient, deployedYear, setDeployedYear, availableYears, showAddDeployment, setShowAddDeployment, editingEntry, setEditingEntry, deletingEntry, setDeletingEntry, saveEntry, deleteEntry } = props
+  const { deployedClientData, yearMonths, deployedSummary, expandedClients, toggleClient, deployedYear, setDeployedYear, availableYears, totalActiveClients, newClientsCount, showAddDeployment, setShowAddDeployment, editingEntry, setEditingEntry, deletingEntry, setDeletingEntry, saveEntry, deleteEntry } = props
 
   const ytdM = Object.values(deployedSummary.machines).reduce((s, v) => s + v, 0)
   const ytdH = Object.values(deployedSummary.hardware).reduce((s, v) => s + v, 0)
@@ -564,7 +606,7 @@ function DeployedTabUI(props: {
         <SummaryCard emerald label="Machines deployees" value={fmtNum(ytdM)} sub={`YTD ${deployedYear}`} />
         <SummaryCard emerald label="Revenu Hardware" value={fmtCur(ytdH)} sub="One-time" />
         <SummaryCard emerald label="Software MRR" value={fmtCur(ytdS)} sub={`${SOFTWARE_MRR_PER_UNIT} EUR/machine/mois`} />
-        <SummaryCard emerald label="Clients actifs" value={String(deployedClientData.length)} sub="Avec machines deployees" />
+        <SummaryCard emerald label="Clients actifs" value={String(totalActiveClients)} sub={newClientsCount > 0 ? `dont ${newClientsCount} nouveau${newClientsCount > 1 ? 'x' : ''} en ${deployedYear}` : `Toutes annees`} />
       </div>
 
       {/* Modal */}
@@ -608,7 +650,14 @@ function DeployedTabUI(props: {
                   <span className="flex items-center gap-1.5">
                     {expandedClients.has(client.clientName) ? <ChevronDown className="h-3.5 w-3.5 text-emerald-400/40" /> : <ChevronRight className="h-3.5 w-3.5 text-emerald-400/40" />}
                     <span>
-                      <span className="text-[13px] font-semibold">{client.clientName}</span>
+                      <span className="flex items-center gap-1.5">
+                        {client.prospectId ? (
+                          <Link href={`/prospects/${client.prospectId}`} onClick={e => e.stopPropagation()} className="text-[13px] font-semibold hover:underline hover:text-emerald-400 transition-colors">{client.clientName}</Link>
+                        ) : (
+                          <span className="text-[13px] font-semibold">{client.clientName}</span>
+                        )}
+                        {client.isNew && <span className="inline-flex items-center gap-0.5 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold text-amber-400 uppercase"><Sparkles className="h-2.5 w-2.5" />New</span>}
+                      </span>
                       <span className="block text-[10px] text-blue-400/50">Software: {fmtCur(client.totalMachines * SOFTWARE_MRR_PER_UNIT)}/mois</span>
                     </span>
                   </span>
