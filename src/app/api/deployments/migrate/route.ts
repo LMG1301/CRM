@@ -1,14 +1,27 @@
 import { supabase } from '@/lib/supabase'
 
 export async function POST() {
-  const { error } = await supabase.from('deployments').select('id').limit(1)
+  const results: string[] = []
 
-  if (error?.code === 'PGRST205') {
-    return Response.json({
-      status: 'table_missing',
-      message: 'Run this SQL in Supabase Dashboard > SQL Editor',
-      sql: `
-CREATE TABLE IF NOT EXISTS deployments (
+  // Check deployments table
+  const { error: dErr } = await supabase.from('deployments').select('id').limit(1)
+  if (dErr?.code === 'PGRST205') {
+    results.push('deployments_missing')
+  }
+
+  // Check if client_machines has unit_price column
+  const { data: testMachine } = await supabase.from('client_machines').select('unit_price').limit(1)
+  const hasUnitPrice = testMachine !== null
+
+  const sqlParts: string[] = []
+
+  if (!hasUnitPrice) {
+    sqlParts.push('ALTER TABLE client_machines ADD COLUMN IF NOT EXISTS unit_price numeric(10,2) DEFAULT 0;')
+  }
+
+  if (results.includes('deployments_missing')) {
+    sqlParts.push(`
+CREATE TABLE deployments (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   client_name text NOT NULL,
   prospect_id uuid REFERENCES prospects(id) ON DELETE SET NULL,
@@ -24,27 +37,17 @@ CREATE TABLE IF NOT EXISTS deployments (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-
-CREATE INDEX IF NOT EXISTS idx_deployments_date ON deployments(deployment_date);
-CREATE INDEX IF NOT EXISTS idx_deployments_client ON deployments(client_name);
-CREATE INDEX IF NOT EXISTS idx_deployments_forecast ON deployments(forecast_id);
-
--- Auto-update updated_at
-CREATE OR REPLACE FUNCTION update_deployments_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN NEW.updated_at = now(); RETURN NEW; END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS set_deployments_updated_at ON deployments;
-CREATE TRIGGER set_deployments_updated_at
-  BEFORE UPDATE ON deployments
-  FOR EACH ROW EXECUTE FUNCTION update_deployments_updated_at();
-
 ALTER TABLE deployments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all on deployments" ON deployments FOR ALL USING (true) WITH CHECK (true);
-      `.trim(),
-    })
+CREATE POLICY "Allow all on deployments" ON deployments FOR ALL USING (true) WITH CHECK (true);`)
   }
 
-  return Response.json({ status: 'ok', message: 'Deployments table already exists' })
+  if (sqlParts.length === 0) {
+    return Response.json({ status: 'ok', message: 'All tables up to date' })
+  }
+
+  return Response.json({
+    status: 'needs_migration',
+    message: 'Run this SQL in Supabase Dashboard > SQL Editor',
+    sql: sqlParts.join('\n\n'),
+  })
 }

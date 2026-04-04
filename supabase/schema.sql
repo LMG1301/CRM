@@ -231,10 +231,14 @@ CREATE TABLE IF NOT EXISTS client_machines (
   entreprise text,
   machine_type text NOT NULL CHECK (machine_type IN ('screenkit', 'smart_fridge', 'smart_freezer', 'boostbar', 'autre')),
   quantity integer NOT NULL DEFAULT 1,
+  unit_price numeric(10,2) DEFAULT 0,
   notes text,
   installed_at date,
   created_at timestamptz DEFAULT now()
 );
+
+-- Migration: add unit_price if not exists
+ALTER TABLE client_machines ADD COLUMN IF NOT EXISTS unit_price numeric(10,2) DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_machines_prospect ON client_machines(prospect_id);
 CREATE INDEX IF NOT EXISTS idx_machines_entreprise ON client_machines(entreprise);

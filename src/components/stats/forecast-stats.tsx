@@ -51,21 +51,19 @@ function getYearMonths(year: number) { return Array.from({ length: 12 }, (_, i) 
 
 // ─── Types ───
 
-interface Deployment {
+// Unified entry from either client_machines or deployments table
+interface DeployedEntry {
   id: string
-  client_name: string
-  prospect_id: string | null
+  source_table: 'client_machines' | 'deployments'
+  clientName: string
+  prospectId: string | null
   quantity: number
   product: string
-  unit_price: number
-  hardware_revenue: number
-  deployment_date: string
-  source: 'pipeline' | 'manual'
-  status: 'deployed' | 'pending_installation'
-  forecast_id: string | null
+  unitPrice: number
+  hardwareRevenue: number
+  deploymentDate: string // YYYY-MM-DD
   notes: string | null
-  created_at: string
-  updated_at: string
+  sourceType: string // 'existing' | 'manual' | 'pipeline'
 }
 
 interface DeploymentFormData {
@@ -74,8 +72,9 @@ interface DeploymentFormData {
   product: string
   unit_price: number
   deployment_date: string
-  status: string
   notes: string
+  source_table: 'client_machines' | 'deployments'
+  prospect_id?: string | null
 }
 
 interface ClientAggRow { entreprise: string; months: Record<string, number>; totalMachines: number; totalRevenue: number; deals: ProspectForecast[] }
@@ -86,7 +85,7 @@ interface DeployedClientRow {
   totalMachines: number
   hardwareRevenue: Record<string, number>
   totalHardware: number
-  deployments: Deployment[]
+  entries: DeployedEntry[]
 }
 
 type ForecastTab = 'forecast' | 'deployed'
@@ -98,8 +97,7 @@ type ForecastView = 'deal' | 'month' | 'client'
 
 export function ForecastStats() {
   const [forecasts, setForecasts] = useState<ProspectForecast[]>([])
-  const [deployments, setDeployments] = useState<Deployment[]>([])
-  const [needsMigration, setNeedsMigration] = useState(false)
+  const [allEntries, setAllEntries] = useState<DeployedEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<ForecastTab>('forecast')
   const [productFilter, setProductFilter] = useState<ForecastProductType | 'all'>('all')
@@ -111,35 +109,70 @@ export function ForecastStats() {
 
   // Deployed tab state
   const [deployedYear, setDeployedYear] = useState(new Date().getFullYear())
-  const [editingDeployment, setEditingDeployment] = useState<Deployment | null>(null)
+  const [editingEntry, setEditingEntry] = useState<DeployedEntry | null>(null)
   const [showAddDeployment, setShowAddDeployment] = useState(false)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletingEntry, setDeletingEntry] = useState<DeployedEntry | null>(null)
 
-  // ─── Data fetching ───
+  // ─── Data fetching: merge client_machines + deployments into unified entries ───
   const fetchData = useCallback(() => {
     setLoading(true)
     Promise.all([
       fetch('/api/forecasts').then(r => r.json()),
+      fetch('/api/client-machines').then(r => r.json()).catch(() => ({ machines: [] })),
       fetch('/api/deployments').then(r => r.json()).catch(() => ({ deployments: [] })),
-    ]).then(([fd, dd]) => {
+    ]).then(([fd, md, dd]) => {
       setForecasts(fd.forecasts || [])
-      setDeployments(dd.deployments || [])
-      if (dd.needsMigration) setNeedsMigration(true)
+
+      // Convert client_machines to DeployedEntry[]
+      const machineEntries: DeployedEntry[] = (md.machines || []).map((m: { id: string; prospect_id: string; entreprise: string | null; machine_type: string; quantity: number; unit_price?: number; installed_at: string | null; notes: string | null }) => {
+        const up = m.unit_price || PRODUCT_DEFAULT_PRICES[m.machine_type] || 0
+        return {
+          id: m.id,
+          source_table: 'client_machines' as const,
+          clientName: m.entreprise || 'Sans entreprise',
+          prospectId: m.prospect_id,
+          quantity: m.quantity,
+          product: m.machine_type,
+          unitPrice: up,
+          hardwareRevenue: m.quantity * up,
+          deploymentDate: m.installed_at || m.id.substring(0, 10), // fallback
+          notes: m.notes,
+          sourceType: 'existing',
+        }
+      })
+
+      // Convert deployments to DeployedEntry[]
+      const deployEntries: DeployedEntry[] = (dd.deployments || []).map((d: { id: string; client_name: string; prospect_id: string | null; quantity: number; product: string; unit_price: number; hardware_revenue: number; deployment_date: string; source: string; notes: string | null }) => ({
+        id: d.id,
+        source_table: 'deployments' as const,
+        clientName: d.client_name,
+        prospectId: d.prospect_id,
+        quantity: d.quantity,
+        product: d.product,
+        unitPrice: d.unit_price,
+        hardwareRevenue: d.hardware_revenue,
+        deploymentDate: d.deployment_date,
+        notes: d.notes,
+        sourceType: d.source,
+      }))
+
+      setAllEntries([...machineEntries, ...deployEntries])
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Available years from deployments data
+  // Available years from all entries
   const availableYears = useMemo(() => {
     const years = new Set<number>()
     years.add(new Date().getFullYear())
-    for (const d of deployments) {
-      years.add(new Date(d.deployment_date).getFullYear())
+    for (const e of allEntries) {
+      const dt = new Date(e.deploymentDate)
+      if (!isNaN(dt.getTime())) years.add(dt.getFullYear())
     }
     return Array.from(years).sort()
-  }, [deployments])
+  }, [allEntries])
 
   const yearMonths = useMemo(() => getYearMonths(deployedYear), [deployedYear])
 
@@ -186,24 +219,24 @@ export function ForecastStats() {
     const m = new Set<string>(); clientData.forEach(c => Object.keys(c.months).forEach(k => m.add(k))); return Array.from(m).sort()
   }, [clientData])
 
-  // ─── Deployed data (from deployments table, filtered by year) ───
+  // ─── Deployed data (from client_machines + deployments, filtered by year) ───
   const deployedClientData = useMemo<DeployedClientRow[]>(() => {
     const map = new Map<string, DeployedClientRow>()
-    for (const d of deployments) {
-      const dt = new Date(d.deployment_date)
-      if (dt.getFullYear() !== deployedYear) continue
-      const key = d.client_name.toLowerCase().trim()
-      if (!map.has(key)) map.set(key, { clientName: d.client_name, months: {}, totalMachines: 0, hardwareRevenue: {}, totalHardware: 0, deployments: [] })
+    for (const e of allEntries) {
+      const dt = new Date(e.deploymentDate)
+      if (isNaN(dt.getTime()) || dt.getFullYear() !== deployedYear) continue
+      const key = e.clientName.toLowerCase().trim()
+      if (!map.has(key)) map.set(key, { clientName: e.clientName, months: {}, totalMachines: 0, hardwareRevenue: {}, totalHardware: 0, entries: [] })
       const row = map.get(key)!
       const mk = `${deployedYear}-${String(dt.getMonth() + 1).padStart(2, '0')}`
-      row.months[mk] = (row.months[mk] || 0) + d.quantity
-      row.totalMachines += d.quantity
-      row.hardwareRevenue[mk] = (row.hardwareRevenue[mk] || 0) + d.hardware_revenue
-      row.totalHardware += d.hardware_revenue
-      row.deployments.push(d)
+      row.months[mk] = (row.months[mk] || 0) + e.quantity
+      row.totalMachines += e.quantity
+      row.hardwareRevenue[mk] = (row.hardwareRevenue[mk] || 0) + e.hardwareRevenue
+      row.totalHardware += e.hardwareRevenue
+      row.entries.push(e)
     }
     return Array.from(map.values()).sort((a, b) => b.totalMachines - a.totalMachines)
-  }, [deployments, deployedYear])
+  }, [allEntries, deployedYear])
 
   const deployedSummary = useMemo(() => {
     const machines: Record<string, number> = {}
@@ -236,17 +269,28 @@ export function ForecastStats() {
     finally { setGeneratingReport(false); setReportPeriod(null) }
   }, [])
 
-  // ─── Deployment CRUD ───
-  const saveDeployment = useCallback(async (form: DeploymentFormData, existingId?: string) => {
-    const method = existingId ? 'PUT' : 'POST'
-    const body = existingId ? { id: existingId, ...form } : { ...form, source: 'manual' }
-    const res = await fetch('/api/deployments', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    if (res.ok) { setShowAddDeployment(false); setEditingDeployment(null); fetchData() }
+  // ─── CRUD: works on both client_machines and deployments ───
+  const saveEntry = useCallback(async (form: DeploymentFormData, existing?: DeployedEntry) => {
+    if (existing) {
+      // Edit existing
+      if (existing.source_table === 'client_machines') {
+        await fetch('/api/client-machines', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: existing.id, machine_type: form.product, quantity: form.quantity, unit_price: form.unit_price, installed_at: form.deployment_date, notes: form.notes }) })
+      } else {
+        await fetch('/api/deployments', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: existing.id, client_name: form.client_name, product: form.product, quantity: form.quantity, unit_price: form.unit_price, deployment_date: form.deployment_date, notes: form.notes }) })
+      }
+    } else {
+      // New entry — goes to deployments table
+      await fetch('/api/deployments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, source: 'manual' }) })
+    }
+    setShowAddDeployment(false); setEditingEntry(null); fetchData()
   }, [fetchData])
 
-  const deleteDeployment = useCallback(async (id: string) => {
-    const res = await fetch(`/api/deployments/${id}`, { method: 'DELETE' })
-    if (res.ok) { setDeletingId(null); fetchData() }
+  const deleteEntry = useCallback(async (entry: DeployedEntry) => {
+    if (entry.source_table === 'deployments') {
+      await fetch(`/api/deployments/${entry.id}`, { method: 'DELETE' })
+    }
+    // client_machines entries: don't delete from here (managed on prospect page)
+    setDeletingEntry(null); fetchData()
   }, [fetchData])
 
   // ─── Render ───
@@ -284,11 +328,10 @@ export function ForecastStats() {
           deployedClientData={deployedClientData} yearMonths={yearMonths} deployedSummary={deployedSummary}
           expandedClients={expandedClients} toggleClient={toggleClient}
           deployedYear={deployedYear} setDeployedYear={setDeployedYear} availableYears={availableYears}
-          needsMigration={needsMigration}
           showAddDeployment={showAddDeployment} setShowAddDeployment={setShowAddDeployment}
-          editingDeployment={editingDeployment} setEditingDeployment={setEditingDeployment}
-          deletingId={deletingId} setDeletingId={setDeletingId}
-          saveDeployment={saveDeployment} deleteDeployment={deleteDeployment}
+          editingEntry={editingEntry} setEditingEntry={setEditingEntry}
+          deletingEntry={deletingEntry} setDeletingEntry={setDeletingEntry}
+          saveEntry={saveEntry} deleteEntry={deleteEntry}
         />
       )}
     </div>
@@ -467,7 +510,7 @@ function ClientTable({ clientData, clientViewMonths, expandedClients, toggleClie
 }
 
 // ═══════════════════════════════════════════
-// DEPLOYED TAB
+// DEPLOYED TAB (reads from client_machines + deployments)
 // ═══════════════════════════════════════════
 
 function DeployedTabUI(props: {
@@ -475,29 +518,17 @@ function DeployedTabUI(props: {
   deployedSummary: { machines: Record<string, number>; hardware: Record<string, number>; softwareMRR: Record<string, number>; cumulativeMachines: number }
   expandedClients: Set<string>; toggleClient: (n: string) => void
   deployedYear: number; setDeployedYear: (y: number) => void; availableYears: number[]
-  needsMigration: boolean
   showAddDeployment: boolean; setShowAddDeployment: (v: boolean) => void
-  editingDeployment: Deployment | null; setEditingDeployment: (d: Deployment | null) => void
-  deletingId: string | null; setDeletingId: (id: string | null) => void
-  saveDeployment: (form: DeploymentFormData, existingId?: string) => void
-  deleteDeployment: (id: string) => void
+  editingEntry: DeployedEntry | null; setEditingEntry: (e: DeployedEntry | null) => void
+  deletingEntry: DeployedEntry | null; setDeletingEntry: (e: DeployedEntry | null) => void
+  saveEntry: (form: DeploymentFormData, existing?: DeployedEntry) => void
+  deleteEntry: (entry: DeployedEntry) => void
 }) {
-  const { deployedClientData, yearMonths, deployedSummary, expandedClients, toggleClient, deployedYear, setDeployedYear, availableYears, needsMigration, showAddDeployment, setShowAddDeployment, editingDeployment, setEditingDeployment, deletingId, setDeletingId, saveDeployment, deleteDeployment } = props
+  const { deployedClientData, yearMonths, deployedSummary, expandedClients, toggleClient, deployedYear, setDeployedYear, availableYears, showAddDeployment, setShowAddDeployment, editingEntry, setEditingEntry, deletingEntry, setDeletingEntry, saveEntry, deleteEntry } = props
 
   const ytdM = Object.values(deployedSummary.machines).reduce((s, v) => s + v, 0)
   const ytdH = Object.values(deployedSummary.hardware).reduce((s, v) => s + v, 0)
   const ytdS = deployedSummary.softwareMRR[yearMonths[yearMonths.length - 1]] || 0
-
-  if (needsMigration) {
-    return (
-      <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-6 text-center">
-        <p className="text-sm text-amber-400 mb-2">La table &quot;deployments&quot; n&apos;existe pas encore.</p>
-        <p className="text-xs text-white/40 mb-4">Supabase Dashboard &gt; SQL Editor</p>
-        <button onClick={() => fetch('/api/deployments/migrate', { method: 'POST' }).then(r => r.json()).then(d => { if (d.sql) { navigator.clipboard.writeText(d.sql); alert('SQL copie ! Collez dans Supabase SQL Editor.') } })}
-          className="rounded-lg px-4 py-2 text-[12px] font-semibold bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors">Copier le SQL de migration</button>
-      </div>
-    )
-  }
 
   return (
     <>
@@ -524,22 +555,27 @@ function DeployedTabUI(props: {
       </div>
 
       {/* Modal */}
-      {(showAddDeployment || editingDeployment) && (
+      {(showAddDeployment || editingEntry) && (
         <DeploymentModal
-          existing={editingDeployment}
-          onClose={() => { setShowAddDeployment(false); setEditingDeployment(null) }}
-          onSubmit={(form) => saveDeployment(form, editingDeployment?.id)}
+          existing={editingEntry}
+          onClose={() => { setShowAddDeployment(false); setEditingEntry(null) }}
+          onSubmit={(form) => saveEntry(form, editingEntry || undefined)}
         />
       )}
 
       {/* Delete confirmation */}
-      {deletingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setDeletingId(null)}>
+      {deletingEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setDeletingEntry(null)}>
           <div className="rounded-xl border border-white/[0.08] bg-[#132926] p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
-            <p className="text-sm mb-4">Supprimer ce deploiement ?</p>
+            <p className="text-sm mb-2">Supprimer ce deploiement ?</p>
+            {deletingEntry.source_table === 'client_machines' && (
+              <p className="text-[11px] text-amber-400/70 mb-4">Cette entree vient de la fiche prospect. La suppression se fait depuis la fiche client.</p>
+            )}
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setDeletingId(null)} className="rounded-lg px-3 py-1.5 text-[12px] bg-white/[0.05] text-white/60 hover:bg-white/[0.1]">Annuler</button>
-              <button onClick={() => deleteDeployment(deletingId)} className="rounded-lg px-3 py-1.5 text-[12px] bg-red-500/20 text-red-400 hover:bg-red-500/30">Supprimer</button>
+              <button onClick={() => setDeletingEntry(null)} className="rounded-lg px-3 py-1.5 text-[12px] bg-white/[0.05] text-white/60 hover:bg-white/[0.1]">Annuler</button>
+              {deletingEntry.source_table === 'deployments' && (
+                <button onClick={() => deleteEntry(deletingEntry)} className="rounded-lg px-3 py-1.5 text-[12px] bg-red-500/20 text-red-400 hover:bg-red-500/30">Supprimer</button>
+              )}
             </div>
           </div>
         </div>
@@ -569,26 +605,27 @@ function DeployedTabUI(props: {
                 </td>)}
                 <td className="px-4 py-2.5 text-[13px] text-right font-bold text-emerald-400">{fmtNum(client.totalMachines)}</td>
               </tr>
-              {expandedClients.has(client.clientName) && client.deployments.map(d => {
-                const pLabel = PRODUCT_OPTIONS.find(p => p.value === d.product)?.label || d.product
-                const mk = `${new Date(d.deployment_date).getFullYear()}-${String(new Date(d.deployment_date).getMonth() + 1).padStart(2, '0')}`
+              {expandedClients.has(client.clientName) && client.entries.map(e => {
+                const pLabel = PRODUCT_OPTIONS.find(p => p.value === e.product)?.label || e.product
+                const dt = new Date(e.deploymentDate)
+                const mk = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+                const sourceLabel = e.source_table === 'client_machines' ? 'fiche client' : e.sourceType === 'manual' ? 'manuel' : e.sourceType
                 return (
-                  <tr key={d.id} className="bg-white/[0.01] border-b border-white/[0.02] group">
+                  <tr key={`${e.source_table}-${e.id}`} className="bg-white/[0.01] border-b border-white/[0.02] group">
                     <td className="pl-10 pr-4 py-2 text-[12px] text-white/40 sticky left-0">
                       <span className="flex items-center gap-2">
                         <span>
-                          {pLabel} · {d.quantity} x {fmtCur(d.unit_price)} = {fmtCur(d.hardware_revenue)}
-                          <span className="ml-2 text-[10px] text-white/20">{d.source === 'pipeline' ? '(pipeline)' : '(manuel)'}</span>
-                          {d.status === 'pending_installation' && <span className="ml-1 text-[10px] text-amber-400/60">(en attente)</span>}
+                          {pLabel} · {e.quantity} x {fmtCur(e.unitPrice)} = {fmtCur(e.hardwareRevenue)}
+                          <span className="ml-2 text-[10px] text-white/20">({sourceLabel})</span>
                         </span>
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ml-auto shrink-0">
-                          <button onClick={(e) => { e.stopPropagation(); setEditingDeployment(d) }} className="p-1 rounded hover:bg-white/[0.06]"><Pencil className="h-3 w-3 text-white/30 hover:text-white/60" /></button>
-                          <button onClick={(e) => { e.stopPropagation(); setDeletingId(d.id) }} className="p-1 rounded hover:bg-red-500/10"><Trash2 className="h-3 w-3 text-white/30 hover:text-red-400" /></button>
+                          <button onClick={(ev) => { ev.stopPropagation(); setEditingEntry(e) }} className="p-1 rounded hover:bg-white/[0.06]"><Pencil className="h-3 w-3 text-white/30 hover:text-white/60" /></button>
+                          <button onClick={(ev) => { ev.stopPropagation(); setDeletingEntry(e) }} className="p-1 rounded hover:bg-red-500/10"><Trash2 className="h-3 w-3 text-white/30 hover:text-red-400" /></button>
                         </span>
                       </span>
                     </td>
-                    {yearMonths.map(m => <td key={m} className="px-3 py-2 text-[12px] text-center text-emerald-400/30">{mk === m ? d.quantity : ''}</td>)}
-                    <td className="px-4 py-2 text-[12px] text-right text-white/30">{d.quantity}</td>
+                    {yearMonths.map(m => <td key={m} className="px-3 py-2 text-[12px] text-center text-emerald-400/30">{mk === m ? e.quantity : ''}</td>)}
+                    <td className="px-4 py-2 text-[12px] text-right text-white/30">{e.quantity}</td>
                   </tr>
                 )
               })}
@@ -623,38 +660,40 @@ function DeployedTabUI(props: {
 }
 
 // ═══════════════════════════════════════════
-// DEPLOYMENT MODAL (Add / Edit)
+// DEPLOYMENT MODAL (Add / Edit) — works with DeployedEntry
 // ═══════════════════════════════════════════
 
 function DeploymentModal({ existing, onClose, onSubmit }: {
-  existing: Deployment | null
+  existing: DeployedEntry | null
   onClose: () => void
   onSubmit: (form: DeploymentFormData) => void
 }) {
-  const [clientName, setClientName] = useState(existing?.client_name || '')
+  const [clientName, setClientName] = useState(existing?.clientName || '')
   const [quantity, setQuantity] = useState(existing?.quantity || 1)
   const [product, setProduct] = useState(existing?.product || 'screenkit')
-  const [unitPrice, setUnitPrice] = useState(existing?.unit_price || PRODUCT_DEFAULT_PRICES['screenkit'] || 0)
-  const [deploymentDate, setDeploymentDate] = useState(existing?.deployment_date?.substring(0, 10) || '')
-  const [status, setStatus] = useState<string>(existing?.status || 'deployed')
+  const [unitPrice, setUnitPrice] = useState(existing?.unitPrice || PRODUCT_DEFAULT_PRICES['screenkit'] || 0)
+  const [deploymentDate, setDeploymentDate] = useState(existing?.deploymentDate?.substring(0, 10) || '')
   const [notes, setNotes] = useState(existing?.notes || '')
   const [submitting, setSubmitting] = useState(false)
 
   const totalHT = quantity * unitPrice
+  const isClientMachine = existing?.source_table === 'client_machines'
 
   const handleProductChange = (val: string) => {
     setProduct(val)
-    // Only auto-fill price if it's a new deployment or price hasn't been customized
-    if (!existing) {
-      setUnitPrice(PRODUCT_DEFAULT_PRICES[val] || 0)
-    }
+    if (!existing) setUnitPrice(PRODUCT_DEFAULT_PRICES[val] || 0)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!clientName || !deploymentDate) return
     setSubmitting(true)
-    await onSubmit({ client_name: clientName, quantity, product, unit_price: unitPrice, deployment_date: deploymentDate, status, notes })
+    await onSubmit({
+      client_name: clientName, quantity, product, unit_price: unitPrice,
+      deployment_date: deploymentDate, notes,
+      source_table: existing?.source_table || 'deployments',
+      prospect_id: existing?.prospectId,
+    })
     setSubmitting(false)
   }
 
@@ -663,6 +702,7 @@ function DeploymentModal({ existing, onClose, onSubmit }: {
       <div className="rounded-xl border border-white/[0.08] bg-[#132926] p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-sm font-bold">{existing ? 'Modifier le deploiement' : 'Ajouter un deploiement'}</h3>
+          {isClientMachine && <span className="text-[10px] text-white/30 bg-white/[0.04] rounded px-2 py-0.5">Fiche client</span>}
           <button onClick={onClose} className="text-white/30 hover:text-white/60"><X className="h-4 w-4" /></button>
         </div>
 
@@ -670,7 +710,8 @@ function DeploymentModal({ existing, onClose, onSubmit }: {
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Client *</label>
             <input type="text" required value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Nom du client"
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] placeholder:text-white/20 focus:border-emerald-500/30 focus:outline-none" />
+              disabled={isClientMachine}
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] placeholder:text-white/20 focus:border-emerald-500/30 focus:outline-none disabled:opacity-50" />
           </div>
 
           <div>
@@ -702,20 +743,10 @@ function DeploymentModal({ existing, onClose, onSubmit }: {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Date deploiement *</label>
-              <input type="date" required value={deploymentDate} onChange={e => setDeploymentDate(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] focus:border-emerald-500/30 focus:outline-none" />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Statut</label>
-              <select value={status} onChange={e => setStatus(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] focus:border-emerald-500/30 focus:outline-none">
-                <option value="deployed">Deploye</option>
-                <option value="pending_installation">En attente d&apos;installation</option>
-              </select>
-            </div>
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-1">Date deploiement *</label>
+            <input type="date" required value={deploymentDate} onChange={e => setDeploymentDate(e.target.value)}
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] focus:border-emerald-500/30 focus:outline-none" />
           </div>
 
           <div>
