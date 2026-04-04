@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from('prospect_forecasts')
-    .select('*, prospect:prospects(prenom, nom, entreprise)')
+    .select('*, prospect:prospects(prenom, nom, entreprise, pipeline_stage)')
     .order('expected_month')
 
   if (prospectId) {

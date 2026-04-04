@@ -11,17 +11,32 @@ export async function GET() {
     const stages = pipeStages || []
     const terminalSlugs = stages.filter(s => s.is_terminal).map(s => s.slug)
 
-    // ─── 2. Current stock (snapshot) ───
+    // Build stage position map for "most advanced stage" rule
+    const stagePosition: Record<string, number> = {}
+    for (const s of stages) stagePosition[s.slug] = s.position
+
+    // ─── 2. Fetch all prospects with company + stage ───
     const { data: prospects } = await supabase
       .from('prospects')
-      .select('pipeline_stage')
+      .select('pipeline_stage, entreprise')
 
-    const currentStock: Record<string, number> = {}
+    // ─── 3. Group by company: each company counted once at its most advanced stage ───
+    const companyBestStage = new Map<string, string>()
     for (const p of prospects || []) {
-      currentStock[p.pipeline_stage] = (currentStock[p.pipeline_stage] || 0) + 1
+      const company = (p.entreprise || '').trim().toLowerCase() || `__solo_${p.pipeline_stage}_${Math.random()}`
+      const currentBest = companyBestStage.get(company)
+      if (!currentBest || (stagePosition[p.pipeline_stage] || 0) > (stagePosition[currentBest] || 0)) {
+        companyBestStage.set(company, p.pipeline_stage)
+      }
     }
 
-    // ─── 3. KPIs from stock ───
+    // Count companies per stage (not contacts)
+    const currentStock: Record<string, number> = {}
+    for (const [, stage] of companyBestStage) {
+      currentStock[stage] = (currentStock[stage] || 0) + 1
+    }
+
+    // ─── 4. KPIs from company-based stock ───
     const excludedFromActive = ['ciblage', ...terminalSlugs.filter(s => s !== 'client')]
     const pipelineActif = Object.entries(currentStock)
       .filter(([slug]) => !excludedFromActive.includes(slug))
@@ -30,7 +45,7 @@ export async function GET() {
     const enClosing = (currentStock['devis'] || 0) + (currentStock['closing'] || 0)
     const clients = currentStock['client'] || 0
 
-    // ─── 4. Total machines ───
+    // ─── 5. Total machines (unchanged — already by company) ───
     let totalMachines = 0
     try {
       const { data: machines } = await supabase

@@ -360,7 +360,7 @@ export interface ProspectForecast {
   notes: string | null
   created_at: string
   updated_at: string
-  prospect?: { prenom: string; nom: string; entreprise: string }
+  prospect?: { prenom: string; nom: string; entreprise: string; pipeline_stage?: string }
 }
 
 // ─── Weekly Tasks (checklist hebdo) ───

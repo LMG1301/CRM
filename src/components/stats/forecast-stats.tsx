@@ -78,7 +78,7 @@ interface DeploymentFormData {
   prospect_id?: string | null
 }
 
-interface ClientAggRow { entreprise: string; months: Record<string, number>; totalMachines: number; totalRevenue: number; deals: ProspectForecast[] }
+interface ClientAggRow { entreprise: string; months: Record<string, number>; totalMachines: number; totalRevenue: number; deals: ProspectForecast[]; isClient: boolean }
 
 interface DeployedClientRow {
   clientName: string
@@ -105,7 +105,7 @@ export function ForecastStats() {
   const [activeTab, setActiveTab] = useState<ForecastTab>('forecast')
   const [productFilter, setProductFilter] = useState<ForecastProductType | 'all'>('all')
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('12months')
-  const [viewMode, setViewMode] = useState<ForecastView>('deal')
+  const [viewMode, setViewMode] = useState<ForecastView>('client')
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set())
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod | null>(null)
   const [generatingReport, setGeneratingReport] = useState(false)
@@ -204,20 +204,36 @@ export function ForecastStats() {
   const maxMP = useMemo(() => Math.max(...monthlyData.map(m => m.totalPondere), 1), [monthlyData])
 
   // ─── Client aggregation ───
+  // Set of company names that have deployments (for client badge)
+  const deployedCompanies = useMemo(() => {
+    const s = new Set<string>()
+    for (const e of allEntries) s.add(e.clientName.toLowerCase().trim())
+    return s
+  }, [allEntries])
+
   const clientData = useMemo<ClientAggRow[]>(() => {
     const map = new Map<string, ClientAggRow>()
     for (const f of filtered) {
       const name = f.prospect?.entreprise || 'Sans entreprise'
       const key = name.toLowerCase().trim()
-      if (!map.has(key)) map.set(key, { entreprise: name, months: {}, totalMachines: 0, totalRevenue: 0, deals: [] })
+      if (!map.has(key)) {
+        const stage = f.prospect?.pipeline_stage || ''
+        const isClient = stage === 'client' || stage === 'partenaire' || deployedCompanies.has(key)
+        map.set(key, { entreprise: name, months: {}, totalMachines: 0, totalRevenue: 0, deals: [], isClient })
+      }
       const r = map.get(key)!
+      // Upgrade to client if any deal's prospect is at client/partenaire stage
+      if (!r.isClient) {
+        const stage = f.prospect?.pipeline_stage || ''
+        if (stage === 'client' || stage === 'partenaire') r.isClient = true
+      }
       r.months[f.expected_month] = (r.months[f.expected_month] || 0) + f.quantity
       r.totalMachines += f.quantity
       r.totalRevenue += Math.round(f.total_amount * f.probability / 100)
       r.deals.push(f)
     }
     return Array.from(map.values()).sort((a, b) => b.totalMachines - a.totalMachines)
-  }, [filtered])
+  }, [filtered, deployedCompanies])
   const clientViewMonths = useMemo(() => {
     const m = new Set<string>(); clientData.forEach(c => Object.keys(c.months).forEach(k => m.add(k))); return Array.from(m).sort()
   }, [clientData])
@@ -451,7 +467,7 @@ function ForecastTabUI(props: {
 
       {/* View toggle */}
       <div className="flex gap-1.5">
-        {([{ key: 'deal' as const, label: 'Vue par deal' }, { key: 'month' as const, label: 'Vue par mois' }, { key: 'client' as const, label: 'Vue par client' }]).map(v =>
+        {([{ key: 'client' as const, label: 'Vue par client' }, { key: 'deal' as const, label: 'Vue par deal' }, { key: 'month' as const, label: 'Vue par mois' }]).map(v =>
           <button key={v.key} onClick={() => setViewMode(v.key)} className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${viewMode === v.key ? 'bg-white/10 text-white' : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] hover:text-white/60'}`}>{v.label}</button>
         )}
       </div>
@@ -541,6 +557,7 @@ function ClientTable({ clientData, clientViewMonths, expandedClients, toggleClie
               {c.deals[0]?.prospect_id ? (
                 <Link href={`/prospects/${c.deals[0].prospect_id}`} onClick={e => e.stopPropagation()} className="hover:underline hover:text-blue-400 transition-colors">{c.entreprise}</Link>
               ) : c.entreprise}
+              {c.isClient ? <span className="inline-flex items-center rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400 uppercase"><CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />Client</span> : <span className="text-[9px] text-white/20 uppercase">Prospect</span>}
               <span className="text-[11px] text-white/30 font-normal">({c.deals.length})</span></span></td>
             {clientViewMonths.map(m => <td key={m} className="px-3 py-2.5 text-[13px] text-center">{c.months[m] ? <span className="font-medium">{c.months[m]}</span> : <span className="text-white/10">—</span>}</td>)}
             <td className="px-4 py-2.5 text-[13px] text-right font-bold">{fmtNum(c.totalMachines)}</td>
